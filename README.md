@@ -11,10 +11,30 @@ service beyond the Codex CLI you already use.
 ## Requirements
 
 - Node.js 20 or newer.
-- The [Codex CLI](https://developers.openai.com/codex/cli) installed, on `PATH`, and logged in.
-  Verify with `codex --version` and `codex debug models`.
+- The [Codex CLI](https://developers.openai.com/codex/cli) installed, on `PATH`, and signed in.
 
 Set `CODEX_BIN` if the executable is not called `codex` or is not on `PATH`.
+
+The server checks all of this for you: run the `codex_doctor` tool, or ask Claude to. Every other
+tool runs the same check first and fails with the exact steps for your platform, so you never get a
+bare `spawn ENOENT`. Nothing is ever installed on your behalf — the steps are yours to run.
+
+If you do not have the Codex CLI yet:
+
+```bash
+# macOS / Linux
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+
+# macOS, with Homebrew
+brew install --cask codex
+
+# any platform, with npm
+npm install -g @openai/codex
+```
+
+On Windows: `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`.
+
+Then run `codex` once to sign in, and confirm with `codex login status`.
 
 ## Install
 
@@ -33,6 +53,9 @@ claude mcp add codex-subagent --scope user -- node /absolute/path/to/codex-subag
 ```
 
 ## Tools
+
+**`codex_doctor`** — checks whether the Codex CLI is installed, recent enough and signed in, and
+reports the exact steps to fix it if not. Inspects only; installs nothing.
 
 **`list_codex_models`** — the models available on this machine, with the reasoning-effort levels
 each one supports. Read live from the Codex CLI, never hardcoded.
