@@ -1,0 +1,207 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+const PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * The oldest Codex CLI this server has actually been verified against.
+ *
+ * It is not a claim that older releases fail — it is a statement about what was
+ * tested. The flag set differs between CLI versions (see `docs/adr/0004`), so an
+ * unverified version is reported as a warning, not an error: the delegation may
+ * well work, and if it does not the CLI's own error is more informative than a
+ * guess made here.
+ */
+export const VERIFIED_CODEX_VERSION = "0.154.0";
+
+export type DiagnosisStatus =
+  | "ok"
+  | "missing"
+  | "unauthenticated"
+  | "unverified-version"
+  | "unknown";
+
+export interface Diagnosis {
+  status: DiagnosisStatus;
+  codexPath: string;
+  version: string | null;
+  authenticated: boolean | null;
+  /** One-line statement of what is wrong, or that everything is fine. */
+  summary: string;
+  /** Ordered, copy-pasteable steps the user runs themselves. */
+  remediation: string[];
+}
+
+/** True when the CLI is usable enough to attempt a delegation. */
+export function isUsable(diagnosis: Diagnosis): boolean {
+  return diagnosis.status === "ok" || diagnosis.status === "unverified-version";
+}
+
+/**
+ * Installation steps for the detected platform.
+ *
+ * Taken from the official `@openai/codex` package README. This server never
+ * runs them: installing software on the user's machine is the user's call, and
+ * these commands pipe a remote script into a shell.
+ */
+export function installationSteps(platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === "win32") {
+    return [
+      'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
+      "or, with npm: npm install -g @openai/codex",
+    ];
+  }
+  if (platform === "darwin") {
+    return [
+      "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+      "or, with Homebrew: brew install --cask codex",
+      "or, with npm: npm install -g @openai/codex",
+    ];
+  }
+  return [
+    "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+    "or, with npm: npm install -g @openai/codex",
+  ];
+}
+
+/** Extracts "0.154.0" from the `codex --version` output ("codex-cli 0.154.0"). */
+export function parseVersion(output: string): string | null {
+  const match = /(\d+)\.(\d+)\.(\d+)/.exec(output);
+  return match ? match[0] : null;
+}
+
+/** Returns -1, 0 or 1 comparing dotted numeric versions. */
+export function compareVersions(a: string, b: string): number {
+  const left = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+/** Builds a diagnosis from already-collected probe results. Pure, for testing. */
+export function diagnose(input: {
+  codexPath: string;
+  version: string | null;
+  authenticated: boolean | null;
+  platform?: NodeJS.Platform;
+}): Diagnosis {
+  const { codexPath, version, authenticated, platform = process.platform } = input;
+  const base = { codexPath, version, authenticated };
+
+  if (version === null) {
+    return {
+      ...base,
+      status: "missing",
+      summary:
+        `The Codex CLI could not be run as "${codexPath}". This server delegates to the Codex CLI, ` +
+        "so nothing will work until it is installed and on PATH.",
+      remediation: [
+        "Install the Codex CLI, then reconnect this MCP server:",
+        ...installationSteps(platform),
+        "Then sign in by running: codex",
+        'If Codex is installed under a different name or path, set the CODEX_BIN environment variable to it.',
+      ],
+    };
+  }
+
+  if (authenticated === false) {
+    return {
+      ...base,
+      status: "unauthenticated",
+      summary:
+        `The Codex CLI ${version} is installed but no account is signed in, so every delegation will fail.`,
+      remediation: [
+        "Sign in by running: codex",
+        'Choose "Sign in with ChatGPT", or use an API key: printenv OPENAI_API_KEY | codex login --with-api-key',
+        "Confirm with: codex login status",
+      ],
+    };
+  }
+
+  if (compareVersions(version, VERIFIED_CODEX_VERSION) < 0) {
+    return {
+      ...base,
+      status: "unverified-version",
+      summary:
+        `The Codex CLI ${version} is older than ${VERIFIED_CODEX_VERSION}, the oldest version this server ` +
+        "has been verified against. Delegations may still work, but flags or event shapes may differ.",
+      remediation: [
+        "Update the Codex CLI: codex update",
+        "If that is not possible, expect argument errors from the CLI and report them as an issue.",
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    status: "ok",
+    summary: `The Codex CLI ${version} is installed and signed in.`,
+    remediation: [],
+  };
+}
+
+/** Renders a diagnosis as the text a tool hands back. */
+export function formatDiagnosis(diagnosis: Diagnosis): string {
+  const lines = [diagnosis.summary];
+  if (diagnosis.remediation.length > 0) {
+    lines.push("", ...diagnosis.remediation);
+  }
+  return lines.join("\n");
+}
+
+let cached: Diagnosis | null = null;
+
+export interface DoctorOptions {
+  refresh?: boolean;
+  codexPath?: string;
+}
+
+/**
+ * Probes the local Codex CLI: is it there, which version, is it signed in.
+ *
+ * Cached for the process lifetime unless refreshed, because it runs two child
+ * processes and the answer rarely changes mid-session. A failed probe is not
+ * cached, so installing Codex and retrying works without a restart.
+ */
+export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis> {
+  const { refresh = false, codexPath = process.env.CODEX_BIN ?? "codex" } = options;
+
+  if (!refresh && cached && cached.status === "ok" && cached.codexPath === codexPath) {
+    return cached;
+  }
+
+  let version: string | null = null;
+  try {
+    const { stdout } = await execFileAsync(codexPath, ["--version"], {
+      timeout: PROBE_TIMEOUT_MS,
+    });
+    version = parseVersion(stdout);
+  } catch {
+    return diagnose({ codexPath, version: null, authenticated: null });
+  }
+
+  // A zero exit from `codex login status` means a session exists; the wording of
+  // the message varies by auth method, so the exit code is the signal.
+  let authenticated: boolean | null = null;
+  try {
+    await execFileAsync(codexPath, ["login", "status"], { timeout: PROBE_TIMEOUT_MS });
+    authenticated = true;
+  } catch {
+    authenticated = false;
+  }
+
+  const diagnosis = diagnose({ codexPath, version, authenticated });
+  if (diagnosis.status === "ok") cached = diagnosis;
+  return diagnosis;
+}
+
+/** Clears the cached diagnosis. Intended for tests. */
+export function resetDoctorCache(): void {
+  cached = null;
+}

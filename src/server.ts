@@ -6,6 +6,12 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { findModel, getCatalog, resolveEffort } from "./codex/catalog.js";
+import {
+  formatDiagnosis,
+  isUsable,
+  runDoctor,
+  type Diagnosis,
+} from "./codex/doctor.js";
 import type { CodexEvent } from "./codex/events.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import type { CodexInvocation } from "./codex/args.js";
@@ -34,6 +40,33 @@ function textResult(text: string, isError = false): CallToolResult {
 function errorResult(error: unknown): CallToolResult {
   const message = error instanceof Error ? error.message : String(error);
   return textResult(message, true);
+}
+
+/**
+ * Raised when the local Codex CLI cannot serve a request. Carries the full
+ * diagnosis so the tool can hand back installation steps instead of a bare
+ * "spawn ENOENT", which tells the user nothing actionable.
+ */
+class CodexUnavailableError extends Error {
+  constructor(readonly diagnosis: Diagnosis) {
+    super(formatDiagnosis(diagnosis));
+    this.name = "CodexUnavailableError";
+  }
+}
+
+/**
+ * Preflight run before anything that needs the CLI.
+ *
+ * Every tool goes through this, so a missing or signed-out Codex is reported
+ * once, clearly, with the steps to fix it — rather than surfacing as a
+ * different cryptic failure per tool.
+ */
+async function requireUsableCodex(): Promise<Diagnosis> {
+  const diagnosis = await runDoctor();
+  if (!isUsable(diagnosis)) {
+    throw new CodexUnavailableError(diagnosis);
+  }
+  return diagnosis;
 }
 
 /** Rejects working directories that do not exist, before spending a model call. */
@@ -144,8 +177,10 @@ async function resolveModelAndEffort(
   requestedEffort: ReasoningEffort | undefined,
   taskDescription: string,
 ): Promise<{ model: string; effort: ReasoningEffort; notes: string[] }> {
+  const diagnosis = await requireUsableCodex();
   const catalog = await getCatalog();
   const notes: string[] = [];
+  if (diagnosis.status === "unverified-version") notes.push(diagnosis.summary);
   if (catalog.warning) notes.push(catalog.warning);
 
   if (!requestedModel) {
@@ -249,6 +284,41 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
   const jobs = new JobRegistry();
 
   server.registerTool(
+    "codex_doctor",
+    {
+      title: "Check the Codex CLI installation",
+      description:
+        "Check whether the local Codex CLI is installed, recent enough and signed in, and report the exact " +
+        "steps to fix it if not. Run this when any other tool reports the CLI is unavailable, or before " +
+        "relying on delegation for the first time. It only inspects the installation; it never installs or " +
+        "changes anything.",
+      inputSchema: {
+        refresh: z
+          .boolean()
+          .optional()
+          .describe("Re-probe the CLI instead of reusing the cached diagnosis."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ refresh }) => {
+      try {
+        const diagnosis = await runDoctor({ refresh: refresh ?? false });
+        const lines = [
+          `status: ${diagnosis.status}`,
+          `codex binary: ${diagnosis.codexPath}`,
+          `version: ${diagnosis.version ?? "not detected"}`,
+          `signed in: ${diagnosis.authenticated === null ? "unknown" : diagnosis.authenticated ? "yes" : "no"}`,
+          "",
+          formatDiagnosis(diagnosis),
+        ];
+        return textResult(lines.join("\n"), !isUsable(diagnosis));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "list_codex_models",
     {
       title: "List Codex models",
@@ -265,9 +335,13 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async ({ refresh }) => {
       try {
+        const diagnosis = await requireUsableCodex();
         const catalog = await getCatalog({ refresh: refresh ?? false });
         const lines: string[] = [];
 
+        if (diagnosis.status === "unverified-version") {
+          lines.push(`WARNING: ${diagnosis.summary}`, "");
+        }
         if (catalog.warning) lines.push(`WARNING: ${catalog.warning}`, "");
 
         lines.push(
@@ -321,6 +395,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async ({ task_description, priority }) => {
       try {
+        await requireUsableCodex();
         const catalog = await getCatalog();
         const suggestion = recommend(
           catalog,
@@ -486,6 +561,12 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         const notes: string[] = [];
         let model: string | undefined;
         let effort: ReasoningEffort | undefined;
+
+        if (!args.model && !args.reasoning_effort) {
+          // resolveModelAndEffort runs the preflight; without an override it is
+          // skipped, so the check has to happen explicitly here.
+          await requireUsableCodex();
+        }
 
         if (args.model || args.reasoning_effort) {
           const resolved = await resolveModelAndEffort(
