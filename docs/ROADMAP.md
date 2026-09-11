@@ -55,24 +55,37 @@ for every user who does not already have Codex. See
 
 Next step for this: make the CI check a required status check on `main`, now that it exists.
 
-## v0.5 — Publish to npm
+## v0.5 — Publish to npm (prepared, not published)
 
 npm hosts the artifact; everything else layers on top of it. See
 [ADR 10](adr/0010-distribution-strategy.md).
 
-Remaining before the first publish:
+Done:
 
-- A `prepublishOnly` script, so a publish can never ship a stale or missing build.
-- Settle the repository's visibility. Publishing to npm distributes the code regardless, and a
-  public package backed by a private repository leaves users unable to read the design notes, file
-  an issue, or send a fix.
-- Pick the package name. `codex-subagent-mcp` and `codex-subagent` are both unclaimed.
+- `prepublishOnly` runs a clean build and the test suite, so a publish can never ship a stale build
+  or one that fails its own tests.
+- Package metadata: repository, bugs, homepage, author, `publishConfig.access`.
+- CI installs the packed tarball into a scratch project and starts the installed bin. Listing the
+  tarball's contents does not prove the package works; this catches a broken `bin` entry or a
+  missing executable bit.
+- Name settled: `codex-subagent-mcp`, matching the repository. Unclaimed on npm.
 
-The install path this buys, with no prior install:
+Remaining, and it is one decision rather than any work:
+
+- **Repository visibility.** Publishing to npm distributes the code regardless, so a private
+  repository protects nothing — it only stops the people installing the package from reading the
+  design notes, filing an issue, or sending a fix. Settle this before the first publish, not after.
+
+Once that is settled, publishing is `npm login` followed by `npm publish`, and the install path it
+buys is:
 
 ```bash
 claude mcp add codex-subagent -- npx -y codex-subagent-mcp
 ```
+
+Not done, deliberately: a release workflow. Automating a publish that has never been run once by
+hand, against a secret that does not exist yet, would be untested machinery guarding the riskiest
+operation in the project.
 
 ## v0.6 — Discovery
 
