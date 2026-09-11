@@ -16,11 +16,12 @@ test("reports a non-existent explicit path as not found on POSIX", () => {
   assert.equal(resolved.path, null);
 });
 
-test("accepts an existing executable given by path on POSIX", () => {
-  // /bin/sh exists and is executable on every POSIX system this runs on.
-  const resolved = resolveCodexExecutable("/bin/sh", "linux");
+test("accepts an existing executable given by path", () => {
+  // The running Node binary is the one executable guaranteed to exist on every
+  // platform this suite runs on, Windows included.
+  const resolved = resolveCodexExecutable(process.execPath);
   assert.equal(resolved.kind, "executable");
-  assert.equal(resolved.path, "/bin/sh");
+  assert.equal(resolved.path, process.execPath);
 });
 
 test("reports not-found when nothing matches on Windows", () => {
