@@ -5,11 +5,16 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
-    "codex",
-    "openai",
+    "claude",
     "claude-code",
+    "anthropic",
+    "codex",
+    "codex-cli",
+    "openai",
     "subagent",
-    "orchestration"
+    "orchestration",
+    "multi-model",
+    "ai-agent"
   ],
   "homepage": "https://github.com/parisbs/codex-subagent-mcp#readme",
   "bugs": {
