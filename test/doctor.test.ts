@@ -48,6 +48,21 @@ test("gives platform-specific installation steps", () => {
   }
 });
 
+test("recommends Homebrew first on macOS", () => {
+  // Homebrew installs a self-contained binary; the npm package is a Node
+  // wrapper around it, which adds startup cost and ties the install to the
+  // active Node version.
+  assert.match(installationSteps("darwin")[0] ?? "", /brew install --cask codex/);
+});
+
+test("lists npm last on every platform, with its caveat", () => {
+  for (const platform of ["darwin", "linux", "win32"] as const) {
+    const steps = installationSteps(platform);
+    assert.match(steps.at(-1) ?? "", /npm install -g @openai\/codex/);
+    assert.match(steps.at(-1) ?? "", /tied to the active Node version/);
+  }
+});
+
 test("never proposes running the installer itself", () => {
   const diagnosis = diagnose({
     codexPath: "codex",

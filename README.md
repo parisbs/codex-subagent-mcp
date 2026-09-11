@@ -22,19 +22,45 @@ bare `spawn ENOENT`. Nothing is ever installed on your behalf — the steps are 
 If you do not have the Codex CLI yet:
 
 ```bash
-# macOS / Linux
-curl -fsSL https://chatgpt.com/codex/install.sh | sh
-
-# macOS, with Homebrew
+# macOS — recommended
 brew install --cask codex
 
-# any platform, with npm
+# macOS / Linux — standalone installer
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+
+# any platform, with npm — see the caveats below
 npm install -g @openai/codex
 ```
 
 On Windows: `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`.
 
 Then run `codex` once to sign in, and confirm with `codex login status`.
+
+### Why not npm
+
+The npm package is not the program. `bin/codex.js` is a Node wrapper that spawns the real Rust
+binary, which has two consequences:
+
+1. **Every invocation pays a Node startup.** Measured on macOS: about 80 ms through the wrapper
+   against about 20 ms calling the binary directly. This server spawns the CLI once per tool call,
+   so that cost recurs — though it is still noise next to a delegation that runs for seconds.
+2. **A global npm install lives inside the active Node version.** Under a version manager such as
+   nvm it lands in `~/.nvm/versions/node/<version>/lib/node_modules`, so switching Node versions
+   takes `codex` off `PATH` until you reinstall it. This is the bigger problem in practice.
+
+Homebrew and the standalone installer both drop a self-contained binary in a stable location and
+remove the Node dependency entirely. The Homebrew cask resolves the right architecture on both
+Apple Silicon and Intel.
+
+If you already installed through npm and want to switch:
+
+```bash
+npm uninstall -g @openai/codex
+brew install --cask codex
+```
+
+Your sign-in survives: credentials live in `~/.codex/auth.json`, which is independent of how the CLI
+was installed. Confirm afterwards with `codex login status`, or by running the `codex_doctor` tool.
 
 ## Install
 

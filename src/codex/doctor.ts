@@ -40,7 +40,27 @@ export function isUsable(diagnosis: Diagnosis): boolean {
 }
 
 /**
- * Installation steps for the detected platform.
+ * Why npm is listed last everywhere.
+ *
+ * The npm package is not the program: `bin/codex.js` is a Node wrapper that
+ * spawns the real Rust binary. That costs a Node startup on every invocation —
+ * measured at roughly 80 ms through the wrapper against 20 ms for the binary
+ * directly. This server spawns the CLI once per tool call, so the overhead is
+ * paid repeatedly, though it is still noise next to a delegation that runs for
+ * seconds.
+ *
+ * The stronger reason is placement. An npm global install lands inside the
+ * active Node version's tree, so under a version manager such as nvm, switching
+ * Node versions takes `codex` off PATH until it is reinstalled. The standalone
+ * installer and Homebrew put a self-contained binary somewhere stable and drop
+ * the Node dependency entirely.
+ */
+const NPM_INSTALL_NOTE =
+  "or, with npm (needs Node, and a global npm install is tied to the active Node version): " +
+  "npm install -g @openai/codex";
+
+/**
+ * Installation steps for the detected platform, best option first.
  *
  * Taken from the official `@openai/codex` package README. This server never
  * runs them: installing software on the user's machine is the user's call, and
@@ -50,19 +70,21 @@ export function installationSteps(platform: NodeJS.Platform = process.platform):
   if (platform === "win32") {
     return [
       'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
-      "or, with npm: npm install -g @openai/codex",
+      NPM_INSTALL_NOTE,
     ];
   }
   if (platform === "darwin") {
     return [
-      "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-      "or, with Homebrew: brew install --cask codex",
-      "or, with npm: npm install -g @openai/codex",
+      // Homebrew first: a self-contained binary, independent of Node, and the
+      // cask resolves the right architecture for both Apple Silicon and Intel.
+      "brew install --cask codex",
+      "or, with the standalone installer: curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+      NPM_INSTALL_NOTE,
     ];
   }
   return [
     "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-    "or, with npm: npm install -g @openai/codex",
+    NPM_INSTALL_NOTE,
   ];
 }
 
