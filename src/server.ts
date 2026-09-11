@@ -7,6 +7,15 @@ import { z } from "zod";
 
 import { findModel, getCatalog, resolveEffort } from "./codex/catalog.js";
 import {
+  ENV_PREFIX,
+  capEffort,
+  checkModel,
+  checkSandbox,
+  impliedModel,
+  loadConfig,
+  type ServerConfig,
+} from "./config.js";
+import {
   formatDiagnosis,
   isUsable,
   runDoctor,
@@ -176,13 +185,28 @@ function renderResult(result: DelegationResult, notes: string[]): string {
 }
 
 /**
- * Resolves the model and effort for a delegation, defaulting to the
- * recommendation matrix when the caller did not choose explicitly.
+ * Raised when no model was specified and none can be chosen without guessing.
+ *
+ * This is deliberately not a fallback. Which model a task deserves depends on
+ * budget and on how much a wrong answer costs — things this server cannot know.
+ * Rather than decide silently and bill the user for that decision, it refuses
+ * and hands back the recommendation it would have made, so the caller can
+ * choose in one more round trip.
+ */
+class ModelRequiredError extends Error {}
+
+/**
+ * Resolves the model and effort for a delegation.
+ *
+ * Order of precedence: what the caller asked for, then what the user configured,
+ * then — only if an allow-list leaves exactly one possibility — that. Otherwise
+ * this refuses.
  */
 async function resolveModelAndEffort(
   requestedModel: string | undefined,
   requestedEffort: ReasoningEffort | undefined,
   taskDescription: string,
+  config: ServerConfig,
 ): Promise<{ model: string; effort: ReasoningEffort; notes: string[] }> {
   const diagnosis = await requireUsableCodex();
   const catalog = await getCatalog();
@@ -190,32 +214,43 @@ async function resolveModelAndEffort(
   if (diagnosis.status === "unverified-version") notes.push(diagnosis.summary);
   if (catalog.warning) notes.push(catalog.warning);
 
-  if (!requestedModel) {
-    const suggestion = recommend(catalog, taskDescription);
-    notes.push(
-      `No model was specified; using the ${suggestion.tier} tier (${suggestion.model} at ${suggestion.reasoningEffort}). ${suggestion.rationale}`,
+  const chosen = requestedModel ?? impliedModel(config);
+
+  if (!chosen) {
+    const suggestion = recommend(catalog, taskDescription, "balanced", config.allowedModels);
+    throw new ModelRequiredError(
+      `No model was specified, and this server does not choose one for you — which model a task ` +
+        `deserves depends on your budget and on how costly a wrong answer is.\n\n` +
+        `For this task the suggestion would be: model "${suggestion.model}" at reasoning effort ` +
+        `"${suggestion.reasoningEffort}" (${suggestion.tier} tier). ${suggestion.rationale}\n\n` +
+        `Call again with an explicit model, or set ${ENV_PREFIX}DEFAULT_MODEL in the MCP server ` +
+        `configuration to skip this. Use list_codex_models to see every option.`,
     );
-    if (suggestion.adjustment) notes.push(suggestion.adjustment);
-    return {
-      model: suggestion.model,
-      effort: requestedEffort ?? suggestion.reasoningEffort,
-      notes,
-    };
   }
 
-  const model = findModel(catalog, requestedModel);
+  const allowed = checkModel(chosen, config);
+  if (!allowed.ok) throw new Error(allowed.reason);
+
+  const model = findModel(catalog, chosen);
   if (!model) {
     throw new Error(
-      `Unknown model "${requestedModel}". Available models: ` +
+      `Unknown model "${chosen}". Available models: ` +
         `${catalog.models.map((entry) => entry.slug).join(", ")}. ` +
         "Call list_codex_models for the current catalog.",
     );
   }
 
-  const resolved = resolveEffort(model, requestedEffort);
+  if (!requestedModel) {
+    notes.push(`No model was specified; using the configured default (${model.slug}).`);
+  }
+
+  const resolved = resolveEffort(model, requestedEffort ?? config.defaultEffort ?? undefined);
   if (resolved.adjusted && resolved.reason) notes.push(resolved.reason);
 
-  return { model: model.slug, effort: resolved.effort, notes };
+  const capped = capEffort(resolved.effort, config);
+  if (capped.note) notes.push(capped.note);
+
+  return { model: model.slug, effort: capped.effort, notes };
 }
 
 const delegateShape = {
@@ -289,6 +324,16 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     { capabilities: { tools: {}, logging: {} } },
   );
   const jobs = new JobRegistry();
+  const { config, errors: configErrors } = loadConfig();
+
+  /** Refuses every call while the environment is misconfigured. */
+  const requireValidConfig = (): void => {
+    if (configErrors.length === 0) return;
+    throw new Error(
+      `This MCP server is misconfigured:\n${configErrors.map((e) => `- ${e}`).join("\n")}\n` +
+        "Fix the environment variables in the MCP server configuration and restart it.",
+    );
+  };
 
   server.registerTool(
     "codex_doctor",
@@ -342,8 +387,19 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async ({ refresh }) => {
       try {
+        requireValidConfig();
         const diagnosis = await requireUsableCodex();
-        const catalog = await getCatalog({ refresh: refresh ?? false });
+        const full = await getCatalog({ refresh: refresh ?? false });
+
+        // Listing models that a later call would reject is worse than not
+        // listing them: it invites a choice that cannot be honoured.
+        const visible =
+          config.allowedModels.length === 0
+            ? full.models
+            : full.models.filter((model) => config.allowedModels.includes(model.slug));
+        const excluded = full.models.length - visible.length;
+        const catalog = { ...full, models: visible };
+
         const lines: string[] = [];
 
         if (diagnosis.status === "unverified-version") {
@@ -374,6 +430,14 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           "Model and reasoning effort are independent axes: the model sets raw capability, the effort sets how long it deliberates.",
           "Use codex_recommend to get a suggested pairing for a specific task.",
         );
+
+        if (excluded > 0) {
+          lines.push(
+            "",
+            `${excluded} further model(s) exist but are excluded by ${ENV_PREFIX}ALLOWED_MODELS in this ` +
+              "server's configuration, and would be refused.",
+          );
+        }
 
         return textResult(lines.join("\n"));
       } catch (error) {
@@ -408,6 +472,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           catalog,
           task_description,
           (priority ?? "balanced") as Priority,
+          config.allowedModels,
         );
         const lines = [
           `model: ${suggestion.model}`,
@@ -438,13 +503,18 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async (args, extra) => {
       try {
+        requireValidConfig();
         validateWorkingDir(args.working_dir);
 
         const sandbox: SandboxMode = (args.sandbox ?? "read-only") as SandboxMode;
+        const sandboxCheck = checkSandbox(sandbox, config);
+        if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
+
         const { model, effort, notes } = await resolveModelAndEffort(
           args.model,
           args.reasoning_effort as ReasoningEffort | undefined,
           `${args.prompt}\n${args.context ?? ""}`,
+          config,
         );
 
         if (args.auto_approve && sandbox === "read-only") {
@@ -562,9 +632,13 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async (args, extra) => {
       try {
+        requireValidConfig();
         validateWorkingDir(args.working_dir);
 
         const sandbox: SandboxMode = (args.sandbox ?? "read-only") as SandboxMode;
+        const sandboxCheck = checkSandbox(sandbox, config);
+        if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
+
         const notes: string[] = [];
         let model: string | undefined;
         let effort: ReasoningEffort | undefined;
@@ -580,6 +654,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
             args.model,
             args.reasoning_effort as ReasoningEffort | undefined,
             args.prompt,
+            config,
           );
           model = resolved.model;
           effort = resolved.effort;

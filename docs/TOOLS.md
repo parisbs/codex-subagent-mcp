@@ -8,6 +8,47 @@ Codex cannot see the orchestrator's conversation. Everything a delegation needs 
 
 ---
 
+## Configuration
+
+Set through environment variables on the MCP server, which is the mechanism MCP clients already
+have:
+
+```bash
+claude mcp add codex-subagent \
+  -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra \
+  -e CODEX_SUBAGENT_MAX_SANDBOX=read-only \
+  -- npx -y codex-subagent-mcp
+```
+
+| Variable | Effect |
+| --- | --- |
+| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
+| `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
+| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and excluded models are hidden from `list_codex_models`. A list of exactly one acts as the default. |
+| `CODEX_SUBAGENT_MAX_SANDBOX` | The most permissive sandbox allowed. A call asking for more is **refused**. |
+| `CODEX_SUBAGENT_MAX_EFFORT` | The highest reasoning effort allowed. A call asking for more is **clamped**, with a note. |
+
+Two rules govern all of this, and are explained in
+[ADR 12](adr/0012-mechanism-not-policy.md):
+
+**The server never chooses a model silently.** Which model a task deserves depends on your budget and
+on how costly a wrong answer is. With no model in the call and none configured, the delegation is
+refused — and the refusal includes the recommendation it would have made.
+
+**Configuration may only restrict.** There is no setting that makes delegations more permissive than
+the defaults, which is why there is no configurable default sandbox: `read-only` stays the floor and
+a ceiling can only lower what a caller may reach.
+
+Ceilings differ by kind on purpose. A sandbox above the ceiling is refused, because the caller asked
+for write access for a reason and running read-only anyway would fail the task silently. An effort
+above the ceiling is clamped, because less deliberation makes the task worse rather than impossible.
+
+Invalid values are reported on the first tool call, not at startup — a server that refuses to start
+cannot explain why.
+
+---
+
 ## `codex_doctor`
 
 Checks whether the local Codex CLI is installed, recent enough and signed in, and reports the exact
@@ -65,7 +106,7 @@ Runs a task on the local Codex CLI.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `prompt` | string | required | The task. Self-contained. |
-| `model` | string | recommended | A slug from `list_codex_models`. Omitted means the matrix picks one. |
+| `model` | string | required unless configured | A slug from `list_codex_models`. Omitted with no `CODEX_SUBAGENT_DEFAULT_MODEL` set means the call is refused with a suggestion. |
 | `reasoning_effort` | `low` … `ultra` | model default | Clamped to what the model supports, with a note. |
 | `system_instructions` | string | — | Persona or extra rules, layered on the built-in quality contract. |
 | `context` | string | — | Background: prior findings, constraints, relevant excerpts. |

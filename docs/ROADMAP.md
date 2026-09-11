@@ -104,20 +104,34 @@ Not done, deliberately: a release workflow. Automating a publish that has never 
 hand, against a secret that does not exist yet, would be untested machinery guarding the riskiest
 operation in the project.
 
-## v0.6 — Discovery
+## v0.6 — Configurable policy (done)
 
-Optional, and only worth doing once npm publication has settled.
+The server used to pick a model when the caller did not name one, using a regular-expression matrix
+that encoded one person's opinion about which tasks deserve which model. It now refuses instead, and
+hands back the recommendation it would have made.
 
-- **MCP Registry.** Metadata only, so it requires the npm package first, plus an `mcpName` field in
-  `package.json` matching `server.json`. Namespace is proven by GitHub login (`io.github.parisbs/...`).
-  Free, currently in preview.
-- **Claude Code plugin.** More interesting than the registry for this project, because a plugin
-  carries the slash commands (`/verify-catalog`, `/smoke-test`) alongside the server, and those are
-  part of how it is actually used.
+- Five environment variables: `DEFAULT_MODEL`, `DEFAULT_EFFORT`, `ALLOWED_MODELS`, `MAX_SANDBOX`,
+  `MAX_EFFORT`.
+- Ceilings that a caller cannot argue past. `MAX_SANDBOX` closes a gap `SECURITY.md` previously
+  listed as undefended.
+- The matrix survives as advice in `codex_recommend` and in the refusal message, never on the
+  execution path.
 
-Not planned: an `.mcpb` desktop bundle. One-click installation implies a self-contained server, and
-this one depends on an external Codex CLI it cannot install. The click would succeed and every tool
-call would fail.
+See [ADR 12](adr/0012-mechanism-not-policy.md).
+
+## Not planned: a triage skill, or a Claude Code plugin
+
+Both were on this roadmap and have been removed, for the reason in ADR 12.
+
+A skill shipping criteria for when to delegate would encode one workflow as the project's
+recommended one, and users have different budgets, different tolerances and different trust in each
+model. It also cannot be distributed: skills do not travel in an npm package. The plugin existed
+mostly as the skill's delivery channel, so it goes with it — npm distributes the server perfectly
+well on its own.
+
+Escalation rules belong in each user's own `CLAUDE.md`, in plain language, where the orchestrating
+model applies them with real understanding. That is strictly better than any rule table this server
+could offer, and it costs nothing to build.
 
 ## v0.7 — Delegated code review
 

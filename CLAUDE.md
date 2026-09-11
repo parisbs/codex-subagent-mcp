@@ -55,6 +55,12 @@ globs and has no `rm`. That is why `npm test` goes through `scripts/run-tests.mj
 and why `clean` removes the directory with Node rather than `rm -rf`. CI covers Windows on Node 20,
 the combination where neither the shell nor Node expands a pattern.
 
+**Mechanism, not policy.** The server never decides which model a task deserves. With no model in
+the call and none configured, it refuses and returns the recommendation it would have made. The
+matrix in `src/recommend.ts` is advice — it answers `codex_recommend` and fills in that refusal — and
+must never end up on the execution path again. Configuration may only restrict; there is no setting
+that makes delegations more permissive. See ADR 12.
+
 **Never install anything on the user's machine.** The preflight prints the installation commands for
 the detected platform; running them is the user's decision.
 
@@ -77,7 +83,9 @@ diagnosis. `scripts/check-startup.mjs` asserts this in CI.
   descriptions.
 - `src/codex/runner.ts` — spawns the child, streams events, enforces the timeout.
 - `src/prompt.ts` — `QUALITY_CONTRACT` plus the layered prompt sections.
-- `src/recommend.ts` — the model/effort matrix, always reconciled against the live catalog.
+- `src/config.ts` — user policy read from the environment: defaults and ceilings.
+- `src/recommend.ts` — the model/effort matrix, always reconciled against the live catalog. Advice
+  only.
 - `src/jobs.ts` — in-memory registry for `mode: "background"` delegations.
 
 Two independent axes govern a delegation: the **model** (`-m`) sets raw capability, the **reasoning

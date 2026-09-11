@@ -144,9 +144,19 @@ export function recommend(
   catalog: CodexCatalog,
   taskDescription: string,
   priority: Priority = "balanced",
+  /** When non-empty, only these slugs may be recommended. */
+  allowedModels: string[] = [],
 ): Recommendation {
   const tier = matchTier(taskDescription);
   const notes: string[] = [];
+
+  // Recommending a model the user has excluded would send the caller back with
+  // a slug this server is about to reject.
+  const permitted =
+    allowedModels.length === 0
+      ? catalog
+      : { ...catalog, models: catalog.models.filter((m) => allowedModels.includes(m.slug)) };
+  catalog = permitted;
 
   let model = findModel(catalog, tier.model);
   if (!model) {
