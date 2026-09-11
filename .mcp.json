@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "codex-subagent": {
+      "command": "node",
+      "args": ["build/index.js"],
+      "env": {}
+    }
+  }
+}
