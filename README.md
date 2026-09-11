@@ -388,6 +388,8 @@ touched. The server does not clean those worktrees up: they may hold work you ha
 - **[docs/adr/](docs/adr/)** — why the design is what it is, decision by decision.
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what is planned, and what is deliberately out of scope.
 - **[docs/VERSIONING.md](docs/VERSIONING.md)** — what counts as a breaking change here.
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each release, and the Codex CLI version it
+  was verified against.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, and the rules that are not negotiable.
 
 ## Disclaimer

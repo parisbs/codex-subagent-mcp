@@ -34,6 +34,7 @@
   "files": [
     "build",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {
