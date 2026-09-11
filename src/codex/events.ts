@@ -1,4 +1,4 @@
-import type { ExecutedCommand, TokenUsage } from "../types.js";
+import type { ExecutedCommand, FileChange, TokenUsage } from "../types.js";
 
 /**
  * The JSONL event stream emitted by `codex exec --json`.
@@ -19,6 +19,8 @@ export interface CodexEvent {
     status?: string;
     /** Present on `error` items, e.g. a model mismatch when resuming. */
     message?: string;
+    /** Present on `file_change` items: what Codex added, edited or deleted. */
+    changes?: { path?: string; kind?: string }[];
   };
   usage?: {
     input_tokens?: number;
@@ -57,6 +59,22 @@ export function toExecutedCommand(event: CodexEvent): ExecutedCommand | null {
         ? `${output.slice(0, OUTPUT_PREVIEW_CHARS)}\n… [truncated, ${output.length} chars total]`
         : output,
   };
+}
+
+/**
+ * Extracts the files a completed `file_change` item touched.
+ *
+ * Without this a write-enabled delegation reports the commands it ran but not
+ * the edits it made, which is the part that actually matters to the caller.
+ */
+export function toFileChanges(event: CodexEvent): FileChange[] {
+  if (event.type !== "item.completed") return [];
+  if (event.item?.type !== "file_change") return [];
+  return (event.item.changes ?? [])
+    .filter((change): change is { path: string; kind?: string } =>
+      typeof change.path === "string" && change.path.length > 0,
+    )
+    .map((change) => ({ path: change.path, kind: change.kind ?? "change" }));
 }
 
 /**
@@ -130,6 +148,12 @@ export function describeEvent(event: CodexEvent): string | null {
       }
       if (event.item?.type === "error") {
         return `Codex reported an error: ${truncate(event.item.message ?? "", 200)}`;
+      }
+      if (event.item?.type === "file_change") {
+        const changes = toFileChanges(event);
+        if (changes.length > 0) {
+          return `Changed ${changes.length} file(s): ${changes.map((c) => `${c.kind} ${c.path}`).join(", ")}`;
+        }
       }
       return null;
     case "turn.completed":

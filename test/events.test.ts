@@ -6,6 +6,7 @@ import {
   describeEvent,
   parseUsage,
   toExecutedCommand,
+  toFileChanges,
 } from "../src/codex/events.ts";
 
 // Captured verbatim from `codex exec --json` against codex-cli 0.154.0.
@@ -97,4 +98,46 @@ test("describes only the events worth showing as progress", () => {
   );
   assert.equal(describeEvent({ type: "item.started", item: { type: "agent_message" } }), null);
   assert.equal(describeEvent({ type: "some.future.event" }), null);
+});
+
+test("extracts the files a completed change item touched", () => {
+  // Captured from a real `--worktree` run: writes land outside the working tree,
+  // so the reported path is the only way the caller learns what changed.
+  const changes = toFileChanges({
+    type: "item.completed",
+    item: {
+      id: "item_1",
+      type: "file_change",
+      status: "completed",
+      changes: [
+        { path: "/Users/x/.codex/worktrees/024d/repo/WORKTREE_PROOF.txt", kind: "add" },
+        { path: "src/server.ts", kind: "edit" },
+      ],
+    },
+  });
+  assert.equal(changes.length, 2);
+  assert.equal(changes[0]?.kind, "add");
+  assert.equal(changes[1]?.path, "src/server.ts");
+});
+
+test("ignores change items that are still in progress", () => {
+  assert.deepEqual(
+    toFileChanges({ type: "item.started", item: { type: "file_change", changes: [{ path: "a", kind: "add" }] } }),
+    [],
+  );
+});
+
+test("tolerates a change entry without a path", () => {
+  assert.deepEqual(
+    toFileChanges({ type: "item.completed", item: { type: "file_change", changes: [{ kind: "add" }] } }),
+    [],
+  );
+});
+
+test("describes file changes for progress reporting", () => {
+  const description = describeEvent({
+    type: "item.completed",
+    item: { type: "file_change", changes: [{ path: "src/a.ts", kind: "edit" }] },
+  });
+  assert.match(description ?? "", /Changed 1 file\(s\): edit src\/a\.ts/);
 });

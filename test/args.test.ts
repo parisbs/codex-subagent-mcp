@@ -137,3 +137,27 @@ test("keeps shell metacharacters intact as single argv entries", () => {
   });
   assert.equal(args[args.indexOf("--cd") + 1], hostile);
 });
+
+test("enables the worktrees feature alongside --worktree", () => {
+  // codex-cli 0.154.0: `--worktree` alone exits with "requires the worktrees
+  // feature". `--enable` applies to this run only and never writes to config.
+  const args = buildCodexArgs({ kind: "exec", sandbox: "workspace-write", useWorktree: true });
+  const enableAt = args.indexOf("--enable");
+  assert.notEqual(enableAt, -1);
+  assert.equal(args[enableAt + 1], "worktrees");
+  assert.ok(args.includes("--worktree"));
+});
+
+test("enables the feature for resumed sessions too", () => {
+  const args = buildCodexArgs({
+    kind: "resume",
+    threadId: "t1",
+    sandbox: "workspace-write",
+    useWorktree: true,
+  });
+  assert.equal(args[args.indexOf("--enable") + 1], "worktrees");
+});
+
+test("does not enable the feature when no worktree was asked for", () => {
+  assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).includes("--enable"));
+});

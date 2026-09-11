@@ -33,7 +33,11 @@ subcommands and between versions. Two traps already found the hard way, both cov
 - `--approve-for-me` already implies the workspace-write sandbox and cannot be combined with
   `--sandbox`; it replaces the flag instead of accompanying it.
 
-Check with `codex exec --help`, `codex exec resume --help`, and `codex debug models`.
+- `--worktree` needs `--enable worktrees` on the same invocation: the feature is experimental and
+  off by default, and the flag alone exits with "requires the worktrees feature".
+
+Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
+`codex debug models`.
 
 **Never degrade to a plausible-looking answer when the CLI is unavailable.** Every tool runs the
 preflight first and fails with installation steps. Returning `FALLBACK_MODELS` as if the catalog had
