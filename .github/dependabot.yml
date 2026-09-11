@@ -7,6 +7,16 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "Update"
+    ignore:
+      # @types/node must track the OLDEST Node this package supports, not the
+      # newest available. `engines` declares >=20; typing against Node 26 would
+      # let the compiler accept APIs that do not exist on Node 20, turning a
+      # build-time error into a runtime one for anyone on the supported floor.
+      # Raise this deliberately, together with `engines`, never automatically.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+
     groups:
       # Patch and minor bumps for dev tooling are noise individually and worth
       # reviewing together; a major bump still arrives as its own pull request.
