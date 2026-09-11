@@ -9,6 +9,8 @@ task.
 
 Claude stays the orchestrator. Codex becomes a subagent it can call.
 
+> An independent project. Not affiliated with, endorsed by, or supported by OpenAI or Anthropic.
+
 ## Why this exists
 
 A single model doing everything has three recurring problems, and delegation solves each one:
@@ -387,6 +389,28 @@ touched. The server does not clean those worktrees up: they may hold work you ha
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what is planned, and what is deliberately out of scope.
 - **[docs/VERSIONING.md](docs/VERSIONING.md)** — what counts as a breaking change here.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, and the rules that are not negotiable.
+
+## Disclaimer
+
+**Not an official product.** This is an independent, community project. It is not affiliated with,
+endorsed by, sponsored by or supported by OpenAI or Anthropic. "Codex", "ChatGPT" and "OpenAI" are
+trademarks of OpenAI; "Claude" and "Claude Code" are trademarks of Anthropic. They are used here only
+to describe what this software interoperates with, which is nominative use — no claim is made to any
+of them. Neither company is responsible for this software, and problems with it should be reported
+here rather than to them.
+
+**No warranty.** The software is provided "as is", without warranty of any kind, as stated in
+[LICENSE](LICENSE). You use it at your own risk.
+
+**It runs an agent on your machine.** This server spawns the Codex CLI as a child process. Depending
+on the sandbox you allow, that process can read your files, run shell commands and modify your
+working tree. Read [Safety](#safety) before enabling writes, and review what a delegation did rather
+than assuming it did what you asked.
+
+**It spends your quota.** Delegations consume your own OpenAI Codex usage, at whatever rate your
+account is billed. Higher reasoning efforts consume more, and `ultra` delegates subtasks of its own.
+This project has no visibility into that cost and does not cap it beyond the limits you configure
+yourself.
 
 ## License
 

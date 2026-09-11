@@ -94,6 +94,12 @@ Stated plainly, because a security policy that implies more coverage than it has
 - **`danger-full-access` removes the sandbox.** It is available because it is sometimes necessary;
   it is not defended.
 
+## Not an official product
+
+This is an independent project, not affiliated with or supported by OpenAI or Anthropic. Report
+problems with this server here. Problems with the Codex CLI itself belong in
+[openai/codex](https://github.com/openai/codex/issues).
+
 ## Supported versions
 
 The latest release is the supported one. Fixes go to `main` and ship in the next version.
