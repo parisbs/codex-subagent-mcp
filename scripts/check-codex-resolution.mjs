@@ -41,15 +41,28 @@ const diagnosis = await runDoctor({ refresh: true });
 
 console.log(`check-codex-resolution: platform=${process.platform} status=${diagnosis.status} version=${diagnosis.version}`);
 
-if (diagnosis.status !== "ok") {
+// On Windows the fake CLI is a .cmd, which is what a global npm install
+// produces and which cannot be spawned without a shell. The correct outcome is
+// not "ok" — it is a diagnosis that says so and points somewhere useful.
+const expected = isWindows ? "unsupported-shim" : "ok";
+
+if (diagnosis.status !== expected) {
   console.error(
-    `check-codex-resolution: a Codex CLI on PATH was reported as "${diagnosis.status}".\n` +
-      (isWindows
-        ? "On Windows, spawn without a shell does not resolve .cmd shims. The preflight and the runner " +
-          "need to resolve the executable explicitly before spawning."
-        : "Expected the shim to be detected."),
+    `check-codex-resolution: expected status "${expected}" but got "${diagnosis.status}".\n` +
+      diagnosis.summary,
   );
   process.exit(1);
 }
 
-console.log("check-codex-resolution: the preflight found the CLI on PATH.");
+if (isWindows) {
+  const remediation = diagnosis.remediation.join("\n");
+  if (!remediation.includes("install.ps1") || !remediation.includes("CODEX_BIN")) {
+    console.error(
+      "check-codex-resolution: the shim diagnosis must offer both the Windows installer and CODEX_BIN.",
+    );
+    process.exit(1);
+  }
+  console.log("check-codex-resolution: a .cmd shim is reported as unusable, with actionable steps.");
+} else {
+  console.log("check-codex-resolution: the preflight found the CLI on PATH.");
+}

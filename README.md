@@ -32,7 +32,11 @@ curl -fsSL https://chatgpt.com/codex/install.sh | sh
 npm install -g @openai/codex
 ```
 
-On Windows: `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`.
+On Windows, use the installer rather than npm:
+`powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`. A global
+npm install puts a `codex.cmd` batch shim on PATH, which cannot be launched without a command shell —
+and this server never uses one. `codex_doctor` detects that case and says so, but the installer
+avoids it entirely.
 
 Then run `codex` once to sign in, and confirm with `codex login status`.
 

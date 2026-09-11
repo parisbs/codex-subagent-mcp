@@ -7,9 +7,19 @@ import {
   diagnose,
   formatDiagnosis,
   installationSteps,
+  executableFor,
   isUsable,
   parseVersion,
 } from "../src/codex/doctor.ts";
+
+const OK_DIAGNOSIS = {
+  status: "ok" as const,
+  codexPath: "codex",
+  version: "0.154.0",
+  authenticated: true,
+  summary: "",
+  remediation: [],
+};
 
 test("parses the version out of the CLI banner", () => {
   // Verbatim output of `codex --version` on codex-cli 0.154.0.
@@ -128,4 +138,39 @@ test("names the configured binary in the failure message", () => {
     authenticated: null,
   });
   assert.match(diagnosis.summary, /\/opt\/custom\/codex/);
+});
+
+test("reports a Windows batch shim as unusable, not as missing", () => {
+  // `npm install -g @openai/codex` produces codex.cmd on Windows. spawn cannot
+  // run it without a shell, and this server never uses one — so saying
+  // "not installed" would be wrong and would send the user nowhere useful.
+  const diagnosis = diagnose({
+    codexPath: "codex",
+    version: null,
+    authenticated: null,
+    platform: "win32",
+    shimPath: "C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd",
+  });
+  assert.equal(diagnosis.status, "unsupported-shim");
+  assert.equal(isUsable(diagnosis), false);
+  assert.match(diagnosis.summary, /codex\.cmd/);
+  assert.match(diagnosis.remediation.join("\n"), /install\.ps1/);
+  assert.match(diagnosis.remediation.join("\n"), /CODEX_BIN/);
+});
+
+test("prefers the shim diagnosis over every other state", () => {
+  // The shim cannot be run, so version and sign-in are moot.
+  const diagnosis = diagnose({
+    codexPath: "codex",
+    version: "0.100.0",
+    authenticated: false,
+    platform: "win32",
+    shimPath: "C:\\npm\\codex.cmd",
+  });
+  assert.equal(diagnosis.status, "unsupported-shim");
+});
+
+test("exposes the resolved path for spawning when one is known", () => {
+  assert.equal(executableFor({ ...OK_DIAGNOSIS, resolvedPath: "/usr/local/bin/codex" }), "/usr/local/bin/codex");
+  assert.equal(executableFor(OK_DIAGNOSIS), "codex");
 });

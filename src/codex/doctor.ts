@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { resolveCodexExecutable } from "./resolve.js";
+
 const execFileAsync = promisify(execFile);
 
 const PROBE_TIMEOUT_MS = 10_000;
@@ -19,6 +21,8 @@ export const VERIFIED_CODEX_VERSION = "0.154.0";
 export type DiagnosisStatus =
   | "ok"
   | "missing"
+  /** Found, but only as a Windows .cmd/.bat shim that cannot be spawned. */
+  | "unsupported-shim"
   | "unauthenticated"
   | "unverified-version"
   | "unknown";
@@ -26,6 +30,8 @@ export type DiagnosisStatus =
 export interface Diagnosis {
   status: DiagnosisStatus;
   codexPath: string;
+  /** Absolute path actually spawned, once resolved. */
+  resolvedPath?: string;
   version: string | null;
   authenticated: boolean | null;
   /** One-line statement of what is wrong, or that everything is fine. */
@@ -37,6 +43,17 @@ export interface Diagnosis {
 /** True when the CLI is usable enough to attempt a delegation. */
 export function isUsable(diagnosis: Diagnosis): boolean {
   return diagnosis.status === "ok" || diagnosis.status === "unverified-version";
+}
+
+/**
+ * The executable path a delegation should spawn.
+ *
+ * On Windows this is the absolute path the preflight resolved, because `spawn`
+ * does not apply PATHEXT. Elsewhere it is the configured name, which `spawn`
+ * resolves against PATH itself.
+ */
+export function executableFor(diagnosis: Diagnosis): string {
+  return diagnosis.resolvedPath ?? diagnosis.codexPath;
 }
 
 /**
@@ -112,9 +129,28 @@ export function diagnose(input: {
   version: string | null;
   authenticated: boolean | null;
   platform?: NodeJS.Platform;
+  /** Set when the CLI was found only as an unrunnable Windows shim. */
+  shimPath?: string;
 }): Diagnosis {
   const { codexPath, version, authenticated, platform = process.platform } = input;
   const base = { codexPath, version, authenticated };
+
+  if (input.shimPath) {
+    return {
+      ...base,
+      status: "unsupported-shim",
+      summary:
+        `The Codex CLI was found at "${input.shimPath}", but that is a batch shim rather than an ` +
+        "executable. Windows cannot run it without going through a command shell, and this server " +
+        "never uses one, so the CLI cannot be launched. A global npm install produces exactly this.",
+      remediation: [
+        "Install the Codex CLI as a real executable instead:",
+        'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
+        "Then open a new terminal so the updated PATH is picked up.",
+        "Alternatively, set the CODEX_BIN environment variable to the full path of codex.exe.",
+      ],
+    };
+  }
 
   if (version === null) {
     return {
@@ -198,9 +234,24 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
     return cached;
   }
 
+  const resolved = resolveCodexExecutable(codexPath);
+  if (resolved.kind === "shim" && resolved.shimPath) {
+    return diagnose({
+      codexPath,
+      version: null,
+      authenticated: null,
+      shimPath: resolved.shimPath,
+    });
+  }
+  if (resolved.kind === "not-found" || resolved.path === null) {
+    return diagnose({ codexPath, version: null, authenticated: null });
+  }
+
+  const target = resolved.path;
+
   let version: string | null = null;
   try {
-    const { stdout } = await execFileAsync(codexPath, ["--version"], {
+    const { stdout } = await execFileAsync(target, ["--version"], {
       timeout: PROBE_TIMEOUT_MS,
     });
     version = parseVersion(stdout);
@@ -215,13 +266,16 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
   // signed out exits 1 ("Not logged in").
   let authenticated: boolean | null = null;
   try {
-    await execFileAsync(codexPath, ["login", "status"], { timeout: PROBE_TIMEOUT_MS });
+    await execFileAsync(target, ["login", "status"], { timeout: PROBE_TIMEOUT_MS });
     authenticated = true;
   } catch {
     authenticated = false;
   }
 
-  const diagnosis = diagnose({ codexPath, version, authenticated });
+  const diagnosis: Diagnosis = {
+    ...diagnose({ codexPath, version, authenticated }),
+    resolvedPath: target,
+  };
   if (diagnosis.status === "ok") cached = diagnosis;
   return diagnosis;
 }
