@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type { DelegationResult, ExecutedCommand, TokenUsage } from "../types.js";
+import type {
+  DelegationResult,
+  ExecutedCommand,
+  FileChange,
+  TokenUsage,
+} from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
 import {
@@ -9,6 +14,7 @@ import {
   parseUsage,
   toErrorMessage,
   toExecutedCommand,
+  toFileChanges,
   type CodexEvent,
 } from "./events.js";
 
@@ -83,11 +89,14 @@ export function runCodex(options: RunOptions): RunHandle {
   const parser = new JsonLinesParser();
   const agentMessages: string[] = [];
   const commands: ExecutedCommand[] = [];
+  const fileChanges: FileChange[] = [];
   const errors: string[] = [];
   let threadId: string | null = null;
   let usage: TokenUsage | null = null;
   let stderr = "";
   let timedOut = false;
+  let terminating = false;
+  let settled = false;
   let killTimer: NodeJS.Timeout | undefined;
 
   const handleEvents = (events: CodexEvent[]): void => {
@@ -104,6 +113,7 @@ export function runCodex(options: RunOptions): RunHandle {
         if (executed) commands.push(executed);
         const reported = toErrorMessage(event);
         if (reported) errors.push(reported);
+        fileChanges.push(...toFileChanges(event));
       }
       if (event.type === "turn.completed") {
         usage = parseUsage(event) ?? usage;
@@ -115,6 +125,11 @@ export function runCodex(options: RunOptions): RunHandle {
   const terminate = (markTimeout: boolean): void => {
     if (child.exitCode !== null || child.signalCode !== null) return;
     if (markTimeout) timedOut = true;
+    // Both the timeout and an abort can fire before the child actually exits.
+    // Without this guard each call would arm another kill timer while `cleanup`
+    // only clears the most recent one, leaving orphaned timers behind.
+    if (terminating) return;
+    terminating = true;
     child.kill("SIGTERM");
     killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
     killTimer.unref?.();
@@ -144,6 +159,8 @@ export function runCodex(options: RunOptions): RunHandle {
 
   const result = new Promise<DelegationResult>((resolve, reject) => {
     child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       reject(
         new Error(
@@ -154,6 +171,10 @@ export function runCodex(options: RunOptions): RunHandle {
     });
 
     child.on("close", (code) => {
+      // A spawn failure emits "error" and then "close"; the promise is already
+      // settled, so there is no result to build.
+      if (settled) return;
+      settled = true;
       handleEvents(parser.flush());
       cleanup();
 
@@ -164,6 +185,7 @@ export function runCodex(options: RunOptions): RunHandle {
         reasoningEffort: invocation.reasoningEffort ?? null,
         sandbox: invocation.sandbox,
         commands,
+        fileChanges,
         agentMessages,
         errors,
         usage,

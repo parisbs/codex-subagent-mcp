@@ -29,6 +29,15 @@ export interface CodexInvocation {
  */
 
 /**
+ * Running in a managed worktree needs the feature turned on for the invocation.
+ *
+ * `worktrees` is experimental in codex-cli 0.154.0 and off by default: passing
+ * `--worktree` alone exits with "requires the worktrees feature". `--enable`
+ * applies only to this run and never writes to the user's config.
+ */
+const WORKTREE_ARGS = ["--enable", "worktrees", "--worktree"] as const;
+
+/**
  * Builds the argv for a Codex CLI run.
  *
  * The prompt is deliberately absent: it is written to the child's stdin, which
@@ -72,7 +81,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
     args.push("--add-dir", dir);
   }
 
-  if (invocation.useWorktree) args.push("--worktree");
+  if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.webSearch) args.push("--search");
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
@@ -98,7 +107,7 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
   // Resume has no --sandbox flag; the policy is applied as a config override.
   args.push("--config", `sandbox_mode="${invocation.sandbox}"`);
 
-  if (invocation.useWorktree) args.push("--worktree");
+  if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
 
   return args;

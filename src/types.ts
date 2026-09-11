@@ -64,6 +64,12 @@ export interface ExecutedCommand {
   outputPreview: string;
 }
 
+/** One file Codex added, edited or deleted during a delegation. */
+export interface FileChange {
+  path: string;
+  kind: string;
+}
+
 export interface TokenUsage {
   inputTokens: number;
   cachedInputTokens: number;
@@ -78,6 +84,7 @@ export interface DelegationResult {
   reasoningEffort: ReasoningEffort | null;
   sandbox: SandboxMode;
   commands: ExecutedCommand[];
+  fileChanges: FileChange[];
   agentMessages: string[];
   /** In-band errors Codex reported without failing the process. */
   errors: string[];

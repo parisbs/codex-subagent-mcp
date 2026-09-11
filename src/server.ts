@@ -136,6 +136,13 @@ function renderResult(result: DelegationResult, notes: string[]): string {
       : "(Codex produced no final message.)",
   );
 
+  if (result.fileChanges.length > 0) {
+    lines.push("", `Files changed (${result.fileChanges.length}):`);
+    for (const change of result.fileChanges) {
+      lines.push(`- [${change.kind}] ${change.path}`);
+    }
+  }
+
   if (result.commands.length > 0) {
     lines.push("", `Commands run (${result.commands.length}):`);
     for (const command of result.commands) {
