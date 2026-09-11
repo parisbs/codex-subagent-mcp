@@ -1,0 +1,98 @@
+name: Bug report
+description: Something does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most problems with this server turn out to be about the local Codex CLI rather than the
+        server itself, so the diagnostic fields below are what make a report actionable.
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of codex_doctor
+      description: >
+        Run the `codex_doctor` tool (ask Claude to run it, or call it directly) and paste the whole
+        output. If the server will not start at all, say so here instead.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: codex-version
+    attributes:
+      label: Codex CLI version
+      description: Output of `codex --version`.
+      placeholder: codex-cli 0.154.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: codex-install
+    attributes:
+      label: How did you install the Codex CLI?
+      description: >
+        This matters more than it looks. A global npm install on Windows produces a `codex.cmd`
+        batch shim that cannot be launched without a command shell.
+      options:
+        - Official installer (install.sh / install.ps1)
+        - Homebrew (brew install --cask codex)
+        - npm (npm install -g @openai/codex)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 26.6.2 (Intel), Windows 11, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`. If you use a version manager, say which.
+      placeholder: v24.14.0 (nvm)
+    validations:
+      required: true
+
+  - type: input
+    id: server-version
+    attributes:
+      label: Server version
+      description: The version of codex-subagent-mcp, or the commit if running from a clone.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: >
+        What you asked for, what the server did, and what you expected instead. Include the tool
+        call arguments if you have them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >
+        If the problem involves a delegation, the prompt and the model and reasoning effort used are
+        usually enough.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: >
+        Server stderr, the delegation result, or the CI log. Redact anything private — delegation
+        output can contain your source code.
+      render: text

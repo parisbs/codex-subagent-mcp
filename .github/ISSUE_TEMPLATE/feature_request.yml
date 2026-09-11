@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest something this server should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [the roadmap](https://github.com/parisbs/codex-subagent-mcp/blob/main/docs/ROADMAP.md)
+        first — it also lists what is deliberately out of scope, and why.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you hitting?
+      description: >
+        Describe the situation, not the solution. What were you trying to do, and what made it hard
+        or impossible?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do?
+      description: If you have a concrete shape in mind — a new tool, a new parameter — describe it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What did you try instead?
+      description: >
+        Existing tools, a different model or reasoning effort, doing it by hand. This helps judge
+        whether the gap is real or a documentation problem.

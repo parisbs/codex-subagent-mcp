@@ -3,6 +3,9 @@
 Each record captures one decision, the situation that forced it, and what it costs. Format follows
 Michael Nygard's: Context, Decision, Consequences.
 
+See also [VERSIONING.md](../VERSIONING.md) for what counts as a breaking change, and
+[ROADMAP.md](../ROADMAP.md) for what is planned and what is deliberately out of scope.
+
 A record is not edited once accepted — it is superseded by a later one, which links back. That way
 the reasoning behind a past choice stays readable even after the choice changes.
 

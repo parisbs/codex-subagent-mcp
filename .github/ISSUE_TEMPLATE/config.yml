@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/parisbs/codex-subagent-mcp/security/advisories/new
+    about: Report privately instead of opening a public issue.
+  - name: Codex CLI problem
+    url: https://github.com/openai/codex/issues
+    about: >
+      If `codex` itself fails outside this server, the problem belongs in the Codex CLI repository.

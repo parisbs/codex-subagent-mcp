@@ -82,15 +82,16 @@ Done:
   tarball's contents does not prove the package works; this catches a broken `bin` entry or a
   missing executable bit.
 - Name settled: `codex-subagent-mcp`, matching the repository. Unclaimed on npm.
+- Versioning policy written: see [VERSIONING.md](VERSIONING.md). The first release is 0.1.0, and the
+  document states what would have to be true for 1.0.
+- Community files in place: issue templates, contributing guide, security policy, code of conduct
+  and Dependabot.
 
-Remaining, and it is one decision rather than any work:
+- Repository made public, so the links the npm page will carry resolve, and standard CI runners
+  became free.
 
-- **Repository visibility.** Publishing to npm distributes the code regardless, so a private
-  repository protects nothing — it only stops the people installing the package from reading the
-  design notes, filing an issue, or sending a fix. Settle this before the first publish, not after.
-
-Once that is settled, publishing is `npm login` followed by `npm publish`, and the install path it
-buys is:
+Remaining: the README, which is the only thing a visitor reads before deciding whether to install.
+Then publishing is `npm login` followed by `npm publish`, and the install path it buys is:
 
 ```bash
 claude mcp add codex-subagent -- npx -y codex-subagent-mcp
