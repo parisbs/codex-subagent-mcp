@@ -8,7 +8,8 @@ becomes a callable subagent whose model and reasoning depth are chosen per task.
 
 ```bash
 npm run build      # tsc -> build/
-npm test           # node --test via tsx, against src/
+npm test           # node --test via tsx, against src/ (shell expands the glob: Node 20's
+                   # --test does not, and CI runs on 20)
 npm run typecheck  # tsc --noEmit
 npm run dev        # tsx watch src/index.ts
 ```
