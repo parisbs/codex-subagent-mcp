@@ -1,0 +1,27 @@
+{
+  "name": "codex-subagent-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for delegating tasks to local codex CLI",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "codex-subagent": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
