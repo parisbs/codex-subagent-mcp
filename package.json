@@ -1,27 +1,46 @@
 {
   "name": "codex-subagent-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for delegating tasks to local codex CLI",
+  "version": "0.1.0",
+  "description": "Local MCP server that delegates coding tasks to the OpenAI Codex CLI, with explicit model and reasoning-effort selection.",
   "main": "build/index.js",
   "type": "module",
   "bin": {
     "codex-subagent": "./build/index.js"
   },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
+    "clean": "rm -rf build",
     "start": "node build/index.js",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "codex",
+    "openai",
+    "claude-code",
+    "subagent",
+    "orchestration"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
-    "tsup": "^8.5.1",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   }
 }
