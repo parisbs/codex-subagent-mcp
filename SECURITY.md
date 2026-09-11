@@ -47,6 +47,11 @@ Stated plainly, because a security policy that implies more coverage than it has
   file from elsewhere — can direct Codex to modify your repository. The sandbox bounds where it can
   write; it does not judge what it should write. Treat write-enabled delegation the way you would
   treat running a script someone sent you.
+
+  This one is mitigable. Setting `CODEX_SUBAGENT_MAX_SANDBOX=read-only` on the MCP server makes
+  write-enabled delegation impossible rather than merely unlikely, and no argument passed by the
+  caller can override it. It is the one control that cannot be expressed per call, because a caller
+  can always pass different arguments.
 - **Delegation output is not sanitised.** What Codex returns is passed back to the orchestrator as
   text. Treat it as data.
 - **The server trusts the Codex CLI.** If your Codex installation is compromised, so is this.

@@ -229,14 +229,48 @@ Model and reasoning effort are **independent**. The model sets raw capability; t
 `medium`, `high`, `xhigh`, `max`, `ultra` — sets how long it deliberates before acting. `ultra`
 additionally delegates subtasks automatically.
 
-You rarely need to pick by hand. Describe the task and let the server suggest a pairing:
+**The server does not choose for you.** Which model a task deserves depends on your budget and on
+how costly a wrong answer is, and a regular expression over a prompt cannot know either. Ask for a
+delegation without naming a model and it refuses — but the refusal carries the recommendation it
+would have made, so you decide in one more exchange instead of paying for a guess.
+
+If you would rather not be asked, set a default once and it stops asking:
+
+```bash
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -- npx -y codex-subagent-mcp
+```
+
+For advice rather than a decision, ask:
 
 > Which Codex model should handle migrating this repo's tests to vitest?
 
-The built-in matrix routes mechanical edits to the fast model at `low`, everyday work to the
-balanced one at `medium`, multi-file migrations to the agentic workhorse at `high`, and hard
-reasoning problems to the most capable model at `xhigh` or `ultra`. An effort the chosen model does
-not support is clamped down, with a note saying so.
+That routes mechanical edits to the fast model at `low`, everyday work to the balanced one at
+`medium`, multi-file migrations to the agentic workhorse at `high`, and hard reasoning problems to
+the most capable model at `xhigh` or `ultra`. It is a suggestion you can ignore. An effort the chosen
+model does not support is clamped down, with a note saying so.
+
+## Configuration
+
+Everything is optional, and set through environment variables on the MCP server:
+
+| Variable | Effect |
+| --- | --- |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Stops the server asking which model to use. |
+| `CODEX_SUBAGENT_DEFAULT_EFFORT` | Reasoning effort when a call specifies none. |
+| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Anything else is refused. |
+| `CODEX_SUBAGENT_MAX_SANDBOX` | Ceiling on what a delegation may do. `read-only` forbids writing outright. |
+| `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. |
+| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. |
+
+Two rules shape these, and both are deliberate. **Configuration can only restrict** — there is no
+setting that makes delegations more permissive, which is why you cannot change the default sandbox,
+only cap it. And **the ceilings cannot be argued with**: a caller can pass any arguments it likes,
+but not past `MAX_SANDBOX`. That makes it the one real control against a prompt assembled from
+untrusted content, which is otherwise a documented gap in [SECURITY.md](SECURITY.md).
+
+Your own escalation rules belong in your `CLAUDE.md`, in plain language, where Claude applies them
+with actual understanding and they stay yours. See
+[ADR 12](docs/adr/0012-mechanism-not-policy.md) for why they are not built into this server.
 
 ## Tools
 
