@@ -20,6 +20,27 @@ receives, that child can read your files, run shell commands, and modify your wo
 server holds no credentials of its own: authentication is whatever your existing `codex login`
 already granted.
 
+### What the sandbox does and does not cover
+
+Measured against codex-cli 0.154.0 on macOS, where Codex confines the child process with seatbelt,
+the operating system's own sandbox. The model cannot talk its way out of it.
+
+| | `read-only` | `workspace-write` | `danger-full-access` |
+| --- | --- | --- | --- |
+| Write inside the working directory | no | yes | yes |
+| Write outside it (your home) | no | **no** | yes |
+| Network access | no | **no** | yes |
+| **Read outside the working directory** | **yes** | **yes** | yes |
+
+The last row is the one that surprises people, so it is stated plainly: **the sandbox restricts
+writes and network access, not reads.** Under `workspace-write`, reading `~/.codex/auth.json`
+succeeds. Codex can read files anywhere your user account can.
+
+Network access being blocked means Codex cannot send what it reads anywhere. But its final report
+comes back to the orchestrator, and that is a channel. A delegation whose prompt was assembled from
+untrusted content could, even read-only, be directed to read something sensitive and include it in
+its answer.
+
 Defaults are chosen accordingly:
 
 - **`read-only` is the default sandbox.** Writing requires an explicit `sandbox: "workspace-write"`.
@@ -52,6 +73,21 @@ Stated plainly, because a security policy that implies more coverage than it has
   write-enabled delegation impossible rather than merely unlikely, and no argument passed by the
   caller can override it. It is the one control that cannot be expressed per call, because a caller
   can always pass different arguments.
+- **Reads are not confined to the working directory.** See the table above. `CODEX_SUBAGENT_MAX_SANDBOX`
+  does not help here; it caps writes.
+
+  There is a real mitigation, but it is not ours to apply. The Codex CLI's schema includes a
+  `filesystem.deny_read` list within its managed requirements, read from `/etc/codex/requirements.toml`
+  — machine-wide configuration that needs administrator access. It cannot be set per invocation, so
+  this server cannot apply it on your behalf, and it would be wrong for it to try. If reads are a
+  concern for you, that file is where to look. Note that we located this in the CLI's configuration
+  schema but did not verify it working, because doing so would have meant altering a machine's
+  global configuration.
+
+  The mitigations that do not depend on that: do not build delegation prompts from untrusted content
+  when the answer will be acted on, and if the threat matters seriously, run Codex under an account
+  or container that has no access to the secrets in the first place.
+
 - **Delegation output is not sanitised.** What Codex returns is passed back to the orchestrator as
   text. Treat it as data.
 - **The server trusts the Codex CLI.** If your Codex installation is compromised, so is this.
