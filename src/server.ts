@@ -389,16 +389,15 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
       try {
         requireValidConfig();
         const diagnosis = await requireUsableCodex();
-        const full = await getCatalog({ refresh: refresh ?? false });
+        const catalog = await getCatalog({ refresh: refresh ?? false });
 
-        // Listing models that a later call would reject is worse than not
-        // listing them: it invites a choice that cannot be honoured.
-        const visible =
-          config.allowedModels.length === 0
-            ? full.models
-            : full.models.filter((model) => config.allowedModels.includes(model.slug));
-        const excluded = full.models.length - visible.length;
-        const catalog = { ...full, models: visible };
+        // Every model is listed, including ones the allow-list blocks, and the
+        // blocked ones are marked. This is an informational tool; the allow-list
+        // is enforced where it matters, on delegation. Hiding a model would also
+        // hide the fact that a better one exists but is unavailable, which is
+        // exactly what someone needs to know to reconsider the restriction.
+        const blocked = (slug: string): boolean =>
+          config.allowedModels.length > 0 && !config.allowedModels.includes(slug);
 
         const lines: string[] = [];
 
@@ -414,7 +413,8 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
 
         for (const model of catalog.models) {
           lines.push(
-            `${model.slug} — ${model.displayName}`,
+            `${model.slug} — ${model.displayName}` +
+              (blocked(model.slug) ? "  [BLOCKED by this server's configuration]" : ""),
             `  ${model.description}`,
             `  reasoning efforts: ${model.supportedReasoningEfforts.join(", ")} (default: ${model.defaultReasoningEffort})`,
             `  context window: ${model.contextWindow?.toLocaleString("en-US") ?? "unknown"} tokens` +
@@ -431,11 +431,12 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           "Use codex_recommend to get a suggested pairing for a specific task.",
         );
 
-        if (excluded > 0) {
+        if (config.allowedModels.length > 0) {
           lines.push(
             "",
-            `${excluded} further model(s) exist but are excluded by ${ENV_PREFIX}ALLOWED_MODELS in this ` +
-              "server's configuration, and would be refused.",
+            `Models marked BLOCKED are excluded by ${ENV_PREFIX}ALLOWED_MODELS in this server's ` +
+              "configuration and will be refused if requested. They are listed so you can see what " +
+              "the restriction is costing you.",
           );
         }
 

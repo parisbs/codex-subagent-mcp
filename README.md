@@ -332,6 +332,11 @@ CI builds, tests and starts the server on Windows, macOS and Linux on every chan
 the Codex CLI is resolved correctly on each. A real delegation has only been verified on macOS — the
 CI runners have no Codex installation or credentials. Reports from Windows and Linux are welcome.
 
+**Can Codex read files outside the directory I point it at?**
+Yes. The sandbox restricts writes and network access, not reads — under any mode, Codex can read what
+your user account can. Network access is blocked, so it cannot send anything anywhere, but its report
+comes back to you. [SECURITY.md](SECURITY.md) has the measured details and what can be done about it.
+
 **Where do worktree changes end up?**
 Under `~/.codex/worktrees/`, and the delegation result gives you the full path of every file it
 touched. The server does not clean those worktrees up: they may hold work you have not applied yet.
