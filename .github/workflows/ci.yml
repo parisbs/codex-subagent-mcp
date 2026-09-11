@@ -16,14 +16,29 @@ permissions:
 
 jobs:
   verify:
-    name: Build and test (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Build and test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # 20 is the floor declared in package.json engines; 24 is what the
-        # project is developed against.
-        node: ["20", "24"]
+        # Node versions are exercised on Linux, which is the cheapest runner:
+        # 20 is the floor declared in package.json engines, 24 is what the
+        # project is developed against, and 26 is what a desktop app launched
+        # from the Dock would pick up on a machine with Homebrew's Node.
+        #
+        # The other platforms get one Node version each: the risk they carry is
+        # the operating system, not the runtime.
+        include:
+          - os: ubuntu-latest
+            node: "20"
+          - os: ubuntu-latest
+            node: "24"
+          - os: ubuntu-latest
+            node: "26"
+          - os: windows-latest
+            node: "24"
+          - os: macos-latest
+            node: "24"
     steps:
       - uses: actions/checkout@v5
 
