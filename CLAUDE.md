@@ -8,7 +8,8 @@ becomes a callable subagent whose model and reasoning depth are chosen per task.
 
 ```bash
 npm run build      # tsc -> build/
-npm test           # node --test via tsx, against src/
+npm test           # node --test via tsx, against src/ (shell expands the glob: Node 20's
+                   # --test does not, and CI runs on 20)
 npm run typecheck  # tsc --noEmit
 npm run dev        # tsx watch src/index.ts
 ```
@@ -35,11 +36,25 @@ subcommands and between versions. Two traps already found the hard way, both cov
 
 Check with `codex exec --help`, `codex exec resume --help`, and `codex debug models`.
 
+**Never degrade to a plausible-looking answer when the CLI is unavailable.** Every tool runs the
+preflight first and fails with installation steps. Returning `FALLBACK_MODELS` as if the catalog had
+been read turns a clear, fixable problem into a confusing one — that was the bug ADR 9 fixes. The
+fallback now covers only a CLI that runs but whose `debug models` output was unusable.
+
+**Never install anything on the user's machine.** The preflight prints the installation commands for
+the detected platform; running them is the user's decision.
+
+**The preflight runs per tool call, never at startup.** A server that probed the CLI while
+connecting would fail to register on a machine without Codex, and the user would never see the
+diagnosis. `scripts/check-startup.mjs` asserts this in CI.
+
 ## Architecture
 
 `src/index.ts` starts the stdio transport and cancels running jobs on shutdown.
-`src/server.ts` registers the seven tools and owns all user-facing formatting.
+`src/server.ts` registers the eight tools and owns all user-facing formatting.
 
+- `src/codex/doctor.ts` — preflight: is the CLI installed, recent enough and signed in, and what
+  should the user run if not.
 - `src/codex/catalog.ts` — reads, normalises and caches the model catalog; clamps a requested
   reasoning effort to what the chosen model supports.
 - `src/codex/args.ts` — builds the argv. Separate paths for `exec` and `exec resume`.

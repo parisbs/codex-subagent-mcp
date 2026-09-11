@@ -20,7 +20,7 @@
     "clean": "rm -rf build",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",
-    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

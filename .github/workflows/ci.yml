@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A superseded run on the same branch is wasted compute.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build and test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is the floor declared in package.json engines; 24 is what the
+        # project is developed against.
+        node: ["20", "24"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # The unit tests never invoke the Codex CLI, which is not installed here.
+      # This asserts that: a server that shelled out during startup would hang
+      # or fail, and the CI runner is the only place that difference shows up.
+      - name: Verify the server starts without the Codex CLI
+        run: node scripts/check-startup.mjs
+
+  package:
+    name: Verify the published package contents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      # Catches the classic packaging mistake: publishing sources without the
+      # build output, or shipping tests and scratch files to every consumer.
+      - name: Inspect the tarball
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e "
+            const files = JSON.parse(require('fs').readFileSync('pack.json','utf8'))[0].files.map(f => f.path);
+            const required = ['build/index.js', 'package.json', 'README.md', 'LICENSE'];
+            const missing = required.filter(f => !files.includes(f));
+            if (missing.length) { console.error('Missing from the tarball:', missing); process.exit(1); }
+            const leaked = files.filter(f => f.startsWith('test/') || f.startsWith('src/') || f === '.mcp.json');
+            if (leaked.length) { console.error('Should not be published:', leaked); process.exit(1); }
+            console.log('Tarball contains', files.length, 'files; all required entries present.');
+          "

@@ -214,12 +214,19 @@ export async function getCatalog(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     // Do not cache the fallback: the CLI may become available at any moment.
+    //
+    // Callers run the preflight (`src/codex/doctor.ts`) before reaching this, so
+    // a missing or signed-out CLI has already been reported with remediation
+    // steps. What lands here is the narrower case of a CLI that runs but whose
+    // `debug models` output could not be used — an older release without the
+    // subcommand, for instance — where degrading is more useful than failing.
     return {
       models: FALLBACK_MODELS,
       stale: true,
       warning:
         `Could not read the live catalog via \`${codexPath} debug models\` (${reason}). ` +
-        "Falling back to a static list that may be out of date; verify the Codex CLI is installed and on PATH.",
+        "Falling back to a static list that may be out of date. Run codex_doctor to check the " +
+        "Codex CLI installation, and treat any model slug below as unconfirmed.",
       fetchedAt: new Date().toISOString(),
     };
   }
