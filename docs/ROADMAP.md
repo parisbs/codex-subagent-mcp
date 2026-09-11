@@ -47,13 +47,26 @@ for every user who does not already have Codex. See
 
 ## v0.4 — Continuous integration (done)
 
-- Build, typecheck and tests on every pull request, across Node 20 and 24.
+- Build, typecheck and tests on every pull request: Node 20, 24 and 26 on Linux, plus Windows on 20
+  and 24, and macOS. Required status checks on `main`.
 - A startup check asserting the server comes up with no Codex CLI present, which is the one thing
   local development cannot verify.
-- Package-contents check on the tarball, catching the classic mistake of publishing sources without
-  build output.
+- A resolution check that fabricates a Codex CLI on `PATH` and asserts the preflight finds it.
+- Package-contents check on the tarball, plus installing that tarball into a scratch project and
+  starting the installed bin.
 
-Next step for this: make the CI check a required status check on `main`, now that it exists.
+Cross-platform CI paid for itself immediately, finding three defects that were invisible on macOS:
+
+1. `npm test` relied on a glob. Neither cmd.exe nor Node 20's `--test` expands one, so the suite
+   could not run on Windows at the version declared in `engines`. Test files are now resolved in
+   Node (`scripts/run-tests.mjs`), which depends on neither.
+2. `npm run clean` used `rm -rf`, which does not exist on Windows.
+3. The server could not find a Codex CLI installed through npm on Windows, and reported it as not
+   installed. See [ADR 11](adr/0011-resolve-the-executable-without-a-shell.md).
+
+Still unverified: a real delegation on Windows or Linux. CI proves the server builds, passes its
+tests, starts, and resolves the CLI on those platforms — it has never run an actual Codex task
+there, because the runners have no Codex installation or credentials.
 
 ## v0.5 — Publish to npm (prepared, not published)
 

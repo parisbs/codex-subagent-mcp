@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type { DelegationResult, ExecutedCommand, TokenUsage } from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
+import { resolveCodexExecutable } from "./resolve.js";
 import {
   JsonLinesParser,
   describeEvent,
@@ -57,9 +58,14 @@ export function runCodex(options: RunOptions): RunHandle {
   const args = buildCodexArgs(invocation);
   const startedAt = Date.now();
 
+  // Windows `spawn` does not apply PATHEXT, so resolve the executable rather
+  // than relying on the platform to guess. See `src/codex/resolve.ts`.
+  const resolved = resolveCodexExecutable(codexPath);
+  const target = resolved.path ?? codexPath;
+
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(codexPath, args, {
+    child = spawn(target, args, {
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
       cwd: invocation.workingDir,

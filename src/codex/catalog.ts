@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { resolveCodexExecutable } from "./resolve.js";
 import {
   REASONING_EFFORTS,
   type CodexCatalog,
@@ -200,7 +201,11 @@ export async function getCatalog(
   }
 
   try {
-    const { stdout } = await execFileAsync(codexPath, ["debug", "models"], {
+    // Windows `spawn` does not apply PATHEXT, so the executable is resolved the
+    // same way the preflight resolves it. See `src/codex/resolve.ts`.
+    const resolved = resolveCodexExecutable(codexPath);
+    const target = resolved.path ?? codexPath;
+    const { stdout } = await execFileAsync(target, ["debug", "models"], {
       maxBuffer: CATALOG_MAX_BUFFER,
       timeout: CATALOG_TIMEOUT_MS,
     });

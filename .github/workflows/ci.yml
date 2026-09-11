@@ -16,14 +16,34 @@ permissions:
 
 jobs:
   verify:
-    name: Build and test (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Build and test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # 20 is the floor declared in package.json engines; 24 is what the
-        # project is developed against.
-        node: ["20", "24"]
+        # Node versions are exercised on Linux, which is the cheapest runner:
+        # 20 is the floor declared in package.json engines, 24 is what the
+        # project is developed against, and 26 is what a desktop app launched
+        # from the Dock would pick up on a machine with Homebrew's Node.
+        #
+        # The other platforms get one Node version each: the risk they carry is
+        # the operating system, not the runtime.
+        include:
+          - os: ubuntu-latest
+            node: "20"
+          - os: ubuntu-latest
+            node: "24"
+          - os: ubuntu-latest
+            node: "26"
+          # Windows on the engines floor is the combination most likely to
+          # break: cmd.exe does not expand globs, and neither does Node 20's
+          # --test, which only grew that ability in Node 22.
+          - os: windows-latest
+            node: "20"
+          - os: windows-latest
+            node: "24"
+          - os: macos-latest
+            node: "24"
     steps:
       - uses: actions/checkout@v5
 
@@ -49,6 +69,14 @@ jobs:
       # or fail, and the CI runner is the only place that difference shows up.
       - name: Verify the server starts without the Codex CLI
         run: node scripts/check-startup.mjs
+
+      # On Windows, spawn without a shell does not resolve .cmd shims, which is
+      # exactly what a global npm install of the Codex CLI produces there. This
+      # puts a fake Codex on PATH and asserts the preflight finds it, so the
+      # failure shows up here rather than as "Codex is not installed" on a
+      # machine where it plainly is.
+      - name: Verify the preflight resolves a Codex CLI on PATH
+        run: node scripts/check-codex-resolution.mjs
 
   package:
     name: Verify the published package contents

@@ -18,3 +18,4 @@ the reasoning behind a past choice stays readable even after the choice changes.
 | [0008](0008-typescript-and-the-high-level-sdk.md) | Build on TypeScript and the high-level MCP SDK | Accepted |
 | [0009](0009-preflight-the-codex-cli.md) | Preflight the Codex CLI before every tool call | Accepted |
 | [0010](0010-distribution-strategy.md) | Distribute through npm, with the registry and bundles layered on top | Accepted |
+| [0011](0011-resolve-the-executable-without-a-shell.md) | Resolve the Codex executable without a shell | Accepted |
