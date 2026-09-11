@@ -210,6 +210,9 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
 
   // A zero exit from `codex login status` means a session exists; the wording of
   // the message varies by auth method, so the exit code is the signal.
+  //
+  // Verified against the real CLI: signed in exits 0 ("Logged in using ChatGPT"),
+  // signed out exits 1 ("Not logged in").
   let authenticated: boolean | null = null;
   try {
     await execFileAsync(codexPath, ["login", "status"], { timeout: PROBE_TIMEOUT_MS });

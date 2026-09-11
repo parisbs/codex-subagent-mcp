@@ -63,6 +63,15 @@ would fail to register on a machine without Codex, and the user would never see 
 explaining why — `scripts/check-startup.mjs` asserts this in CI.
 
 The sign-in check reads the exit code of `codex login status` rather than its message, because the
-wording varies by authentication method. The signed-in path is verified against the real CLI; the
-signed-out path is inferred from the non-zero exit, and was not verified, because doing so would
-have meant signing the author's account out.
+wording varies by authentication method.
+
+Both paths have since been verified against the real CLI, by moving `~/.codex/auth.json` aside and
+restoring it, which avoids signing the account out:
+
+- signed in: exits `0`, prints "Logged in using ChatGPT"
+- signed out: exits `1`, prints "Not logged in"
+
+Worth recording how close that came to being measured wrong: the first attempt read `$?` after
+piping the command into `head`, so it captured `head`'s exit code and reported `0` for both cases.
+Had that reading been trusted, the signed-out branch would never fire. Measure the exit code of the
+command itself, not of a pipeline.
