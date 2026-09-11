@@ -213,6 +213,64 @@ Files changed (2):
 - [add] test/runner.test.ts
 ```
 
+Before you start enabling writes as a habit, read the next section. It is short.
+
+## Safety
+
+This server runs another program on your machine, so it is worth two minutes before you enable
+writes.
+
+### What protects you
+
+Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`,
+and `use_worktree` confines those writes to a managed git worktree instead of your checkout.
+
+The confinement is not a promise from the model — it is the operating system's own sandbox (seatbelt
+on macOS). Measured against Codex CLI 0.154.0:
+
+| | `read-only` | `workspace-write` | `danger-full-access` |
+| --- | --- | --- | --- |
+| Write inside the working directory | no | yes | yes |
+| Write outside it (your home) | no | no | yes |
+| Network access | no | no | yes |
+| **Read outside the working directory** | **yes** | **yes** | yes |
+
+There is also no shell anywhere in the path: the CLI is spawned with an argv array and the prompt is
+written to its stdin, never interpolated into a command string. Shell metacharacters in a prompt are
+inert.
+
+### What does not protect you
+
+**Reads are not confined.** That last row is not a typo. Codex can read anything your user account
+can, in every mode — your SSH keys, your cloud credentials. Network access is blocked so it cannot
+send them anywhere, but its report comes back to you, and that is a channel.
+
+**A prompt is untrusted input, and Codex acts on it.** This is prompt injection, and it is the risk
+that matters here. If you build a delegation from content you did not write — an issue body, a web
+page, a log, a file from someone else's repository — that content can carry instructions. With
+`workspace-write` it can direct Codex to modify your repository; even read-only it can direct Codex
+to read something sensitive and put it in the answer. The sandbox bounds *where* Codex can write. It
+does not judge *what* it should write, or why it was asked.
+
+**The result is not sanitised.** What comes back is text from a model that just read your files.
+Treat it as data, not as instructions.
+
+### Reducing the risk
+
+- Leave the default alone. Read-only handles investigation, review and diagnosis, which is most
+  delegation.
+- If you never want writes from this server, cap it: `CODEX_SUBAGENT_MAX_SANDBOX=read-only`. A
+  ceiling cannot be argued past by anything in the conversation, which is what makes it different
+  from a default.
+- When you do enable writes, add `use_worktree` so changes land somewhere you can inspect before
+  they touch your branch.
+- Do not assemble delegation prompts from untrusted content when you intend to act on the answer.
+- If this threat matters seriously to you, run Codex under an account or container with no access to
+  your secrets. That solves it at the root instead of bounding it.
+
+[SECURITY.md](SECURITY.md) has the full threat model, what a `deny_read` policy could add, and how to
+report a vulnerability.
+
 ## Choosing a model
 
 Read live from your installed CLI, so this list tracks whatever you have. As of Codex CLI 0.154.0:
@@ -262,11 +320,9 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. |
 | `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. |
 
-Two rules shape these, and both are deliberate. **Configuration can only restrict** — there is no
-setting that makes delegations more permissive, which is why you cannot change the default sandbox,
-only cap it. And **the ceilings cannot be argued with**: a caller can pass any arguments it likes,
-but not past `MAX_SANDBOX`. That makes it the one real control against a prompt assembled from
-untrusted content, which is otherwise a documented gap in [SECURITY.md](SECURITY.md).
+One rule shapes all of these: **configuration can only restrict.** There is no setting that makes
+delegations more permissive, which is why you cannot change the default sandbox, only cap it. See
+[Safety](#safety) for why a ceiling is worth more than a default.
 
 Your own escalation rules belong in your `CLAUDE.md`, in plain language, where Claude applies them
 with actual understanding and they stay yours. See
@@ -286,22 +342,6 @@ with actual understanding and they stay yours. See
 | `codex_job_cancel` | Stop a running background delegation. |
 
 Full parameter reference: **[docs/TOOLS.md](docs/TOOLS.md)**.
-
-## Safety
-
-Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`,
-and `use_worktree` can confine those writes to a managed git worktree.
-
-The CLI is invoked with an argv array and `shell: false`, and the prompt is written to the child's
-stdin — never interpolated into a command string. Shell metacharacters in a prompt cannot reach a
-shell, because there is no shell in the path.
-
-Every delegation is prefixed with a quality contract holding Codex to the same standards as the
-orchestrator: stay in scope, verify before asserting, report failures faithfully, and perform no git
-writes or destructive commands unless the task asks for them.
-
-Read [SECURITY.md](SECURITY.md) before enabling writes — particularly the section on what is *not*
-defended against. A prompt is untrusted input, and Codex acts on it.
 
 ## FAQ
 
@@ -333,9 +373,8 @@ the Codex CLI is resolved correctly on each. A real delegation has only been ver
 CI runners have no Codex installation or credentials. Reports from Windows and Linux are welcome.
 
 **Can Codex read files outside the directory I point it at?**
-Yes. The sandbox restricts writes and network access, not reads — under any mode, Codex can read what
-your user account can. Network access is blocked, so it cannot send anything anywhere, but its report
-comes back to you. [SECURITY.md](SECURITY.md) has the measured details and what can be done about it.
+Yes, in every sandbox mode — the sandbox restricts writes and network access, not reads. See
+[Safety](#safety) for what that means in practice and what to do about it.
 
 **Where do worktree changes end up?**
 Under `~/.codex/worktrees/`, and the delegation result gives you the full path of every file it
