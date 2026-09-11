@@ -64,6 +64,9 @@ Cross-platform CI paid for itself immediately, finding three defects that were i
 3. The server could not find a Codex CLI installed through npm on Windows, and reported it as not
    installed. See [ADR 11](adr/0011-resolve-the-executable-without-a-shell.md).
 
+Still unverified: a real delegation on Windows or Linux, and the process-termination paths on
+Windows, where there are no POSIX signals and the behaviour differs by design.
+
 Still unverified: a real delegation on Windows or Linux. CI proves the server builds, passes its
 tests, starts, and resolves the CLI on those platforms — it has never run an actual Codex task
 there, because the runners have no Codex installation or credentials.
