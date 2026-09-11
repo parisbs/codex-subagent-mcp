@@ -78,3 +78,15 @@ jobs:
             if (leaked.length) { console.error('Should not be published:', leaked); process.exit(1); }
             console.log('Tarball contains', files.length, 'files; all required entries present.');
           "
+
+      # Inspecting the tarball's file list does not prove the package works once
+      # installed. This installs it the way a consumer would and starts the
+      # binary, which is what catches a broken bin entry or a missing shebang.
+      - name: Install the tarball and start the server
+        run: |
+          TARBALL=$(npm pack --pack-destination "$RUNNER_TEMP" | tail -1)
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP/$TARBALL"
+          node "$GITHUB_WORKSPACE/scripts/check-startup.mjs" ./node_modules/.bin/codex-subagent
