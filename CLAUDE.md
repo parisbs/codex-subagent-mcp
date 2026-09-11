@@ -8,8 +8,7 @@ becomes a callable subagent whose model and reasoning depth are chosen per task.
 
 ```bash
 npm run build      # tsc -> build/
-npm test           # node --test via tsx, against src/ (shell expands the glob: Node 20's
-                   # --test does not, and CI runs on 20)
+npm test           # scripts/run-tests.mjs -> node --test via tsx, against src/
 npm run typecheck  # tsc --noEmit
 npm run dev        # tsx watch src/index.ts
 ```
@@ -40,6 +39,11 @@ Check with `codex exec --help`, `codex exec resume --help`, and `codex debug mod
 preflight first and fails with installation steps. Returning `FALLBACK_MODELS` as if the catalog had
 been read turns a clear, fixable problem into a confusing one — that was the bug ADR 9 fixes. The
 fallback now covers only a CLI that runs but whose `debug models` output was unusable.
+
+**Keep npm scripts shell-agnostic.** npm runs scripts through cmd.exe on Windows, which expands no
+globs and has no `rm`. That is why `npm test` goes through `scripts/run-tests.mjs` instead of a glob,
+and why `clean` removes the directory with Node rather than `rm -rf`. CI covers Windows on Node 20,
+the combination where neither the shell nor Node expands a pattern.
 
 **Never install anything on the user's machine.** The preflight prints the installation commands for
 the detected platform; running them is the user's decision.

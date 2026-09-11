@@ -36,10 +36,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "clean": "rm -rf build",
+    "clean": "node -e \"require('node:fs').rmSync('build',{recursive:true,force:true})\"",
     "start": "node build/index.js",
     "dev": "tsx watch src/index.ts",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run clean && npm run build && npm test"
   },
