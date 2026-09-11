@@ -70,6 +70,14 @@ jobs:
       - name: Verify the server starts without the Codex CLI
         run: node scripts/check-startup.mjs
 
+      # On Windows, spawn without a shell does not resolve .cmd shims, which is
+      # exactly what a global npm install of the Codex CLI produces there. This
+      # puts a fake Codex on PATH and asserts the preflight finds it, so the
+      # failure shows up here rather than as "Codex is not installed" on a
+      # machine where it plainly is.
+      - name: Verify the preflight resolves a Codex CLI on PATH
+        run: node scripts/check-codex-resolution.mjs
+
   package:
     name: Verify the published package contents
     runs-on: ubuntu-latest
