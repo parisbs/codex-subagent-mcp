@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type { DelegationResult, ExecutedCommand, TokenUsage } from "../types.js";
+import type {
+  DelegationResult,
+  ExecutedCommand,
+  FileChange,
+  TokenUsage,
+} from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
 import {
@@ -9,6 +14,7 @@ import {
   parseUsage,
   toErrorMessage,
   toExecutedCommand,
+  toFileChanges,
   type CodexEvent,
 } from "./events.js";
 
@@ -83,6 +89,7 @@ export function runCodex(options: RunOptions): RunHandle {
   const parser = new JsonLinesParser();
   const agentMessages: string[] = [];
   const commands: ExecutedCommand[] = [];
+  const fileChanges: FileChange[] = [];
   const errors: string[] = [];
   let threadId: string | null = null;
   let usage: TokenUsage | null = null;
@@ -106,6 +113,7 @@ export function runCodex(options: RunOptions): RunHandle {
         if (executed) commands.push(executed);
         const reported = toErrorMessage(event);
         if (reported) errors.push(reported);
+        fileChanges.push(...toFileChanges(event));
       }
       if (event.type === "turn.completed") {
         usage = parseUsage(event) ?? usage;
@@ -177,6 +185,7 @@ export function runCodex(options: RunOptions): RunHandle {
         reasoningEffort: invocation.reasoningEffort ?? null,
         sandbox: invocation.sandbox,
         commands,
+        fileChanges,
         agentMessages,
         errors,
         usage,
