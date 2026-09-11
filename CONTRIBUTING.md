@@ -69,4 +69,10 @@ Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is n
 accepted; it is superseded by a later one that links back. The exception is correcting a statement
 of fact that has become untrue, such as marking something verified that was previously inferred.
 
+A user-visible change gets an entry under `## [Unreleased]` in `CHANGELOG.md`. What counts is
+whether someone running the server would notice: a new or renamed tool, a changed default, a new
+environment variable, a fixed bug. Refactors, test changes and internal cleanups do not need one.
+Releases also record the Codex CLI version they were verified against, because the flag set
+differs between CLI versions.
+
 Code, comments, documentation and commit messages are written in English.
