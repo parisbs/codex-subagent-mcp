@@ -92,6 +92,21 @@ Two independent axes govern a delegation: the **model** (`-m`) sets raw capabili
 effort** (`-c model_reasoning_effort=...`) sets how long it deliberates. Conflating them was the
 original prototype's core bug.
 
+## Automated coverage of a delegation
+
+`test/delegation-cycle.test.ts` runs a whole delegation on every platform without Codex, without
+credentials and without quota. The stand-in in `test/fixtures/` works by exploiting the fact that
+the argv always starts with `exec`: the runner is pointed at `process.execPath` with a temporary
+directory as the child's cwd, and a CommonJS file named `exec` sits in that directory, so Node
+treats it as the entry point and the Codex flags land in `process.argv`.
+
+That indirection is the point. A shebang script is not executable on Windows and a `.cmd` shim is
+rejected by `resolve.ts` by design, so neither can be the fixture. Do not "simplify" this by adding
+`shell: true` or by shipping a `.cmd`.
+
+The signal tests in `test/runner.test.ts` stay POSIX-only: Windows has no SIGTERM to ignore, so the
+escalation they cover does not exist there.
+
 ## Testing the server by hand
 
 Build first, then drive it with an MCP stdio client pointed at `node build/index.js`. Useful probes:

@@ -11,6 +11,15 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [Unreleased]
 
+### Added
+
+- Cross-platform coverage of a full delegation cycle: spawning, the prompt going
+  through stdin, incremental JSONL parsing, split lines, non-ASCII text, in-band error
+  items, exit codes and stderr. These run on Linux, Windows and macOS in CI, use no
+  Codex quota and need no credentials. Previously only build, tests and startup were
+  verified off macOS; see [docs/VERSIONING.md](docs/VERSIONING.md) for what is still
+  missing before 1.0.
+
 ## [0.1.0] - 2026-09-11
 
 First public release.

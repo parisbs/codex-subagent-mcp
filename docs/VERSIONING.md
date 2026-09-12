@@ -51,8 +51,11 @@ which is the common reading of semver before 1.0.
 
 1.0 is not a milestone to be reached by declaration. It requires:
 
-1. A real delegation verified on Windows and Linux, not just build, tests and startup. CI covers the
-   latter today; the former has never been run.
+1. A real delegation verified on Windows and Linux against the actual Codex CLI. CI now exercises
+   the whole delegation cycle on all three platforms against a stand-in — spawning, stdin, JSONL
+   parsing, exit codes and stderr — which covers the code this project owns. What remains unverified
+   off macOS is the coupling itself: that the installed CLI accepts the argv built here and emits the
+   events parsed here. That needs an authenticated CLI, which CI cannot have.
 2. The recommendation matrix informed by actual usage rather than by the catalog's own positioning.
 3. The tool interface unchanged across several releases, demonstrated rather than intended.
 4. A settled answer on whether background jobs must survive a restart.
