@@ -45,6 +45,14 @@ no `rm`. That is why `npm test` goes through `scripts/run-tests.mjs`.
 `CLAUDE.md` carries the same rules in the form an AI assistant reads them, and the two should be
 kept in step.
 
+## Where the work is tracked
+
+Open work lives in [issues](https://github.com/parisbs/codex-subagent-mcp/issues), grouped by
+[milestone](https://github.com/parisbs/codex-subagent-mcp/milestones). `docs/ROADMAP.md` explains
+the reasoning behind each phase; it is not a task list and does not track status.
+
+Security issues do not go in an issue. `SECURITY.md` says how to report one privately.
+
 ## Making a change
 
 1. Branch from `main`. `main` is protected: changes land through a pull request with CI passing.

@@ -387,6 +387,7 @@ touched. The server does not clean those worktrees up: they may hold work you ha
 - **[docs/TOOLS.md](docs/TOOLS.md)** — every tool and parameter.
 - **[docs/adr/](docs/adr/)** — why the design is what it is, decision by decision.
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what is planned, and what is deliberately out of scope.
+- **[Issues](https://github.com/parisbs/codex-subagent-mcp/issues)** — what is actually open right now.
 - **[docs/VERSIONING.md](docs/VERSIONING.md)** — what counts as a breaking change here.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed in each release, and the Codex CLI version it
   was verified against.
