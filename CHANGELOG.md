@@ -11,6 +11,23 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [Unreleased]
 
+### Security
+
+- `codex_follow_up` no longer lets a `thread_id` reach the CLI argv as an option. The id is passed
+  positionally to `exec resume`, so a value beginning with a dash was parsed as a flag: `--help`
+  made the CLI print its help and exit 0, which this server reported as a successful follow-up, and
+  other flags reached option parsing the same way — including one that disables the sandbox. The
+  value is now checked against a safe shape at the argv boundary and again at the tool's schema.
+  (GHSA-m9wq-wr2p-3rc4)
+- Configured model and effort ceilings are now enforced on `codex_follow_up`. A resumed session
+  keeps the model and effort it was created with, and this server cannot read those back, so
+  resuming without an override skipped `CODEX_SUBAGENT_ALLOWED_MODELS` and
+  `CODEX_SUBAGENT_MAX_EFFORT` entirely. When either is configured, the resumed turn now states both
+  explicitly. (GHSA-6946-2h8r-6372)
+- `add_dirs` entries are validated as existing absolute directories, the same as `working_dir`. The
+  CLI rejects a flag-shaped value today, but a third-party parser was the only thing standing
+  between a caller and the argv.
+
 ### Added
 
 - Cross-platform coverage of a full delegation cycle: spawning, the prompt going
