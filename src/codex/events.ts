@@ -33,7 +33,47 @@ export interface CodexEvent {
 /** How much of a command's output is kept in the summary handed back. */
 const OUTPUT_PREVIEW_CHARS = 2000;
 
+/** Limit retained partial lines even when the CLI never writes a newline. */
+const LINE_LIMIT = 1024 * 1024;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCodexEvent(value: unknown): value is CodexEvent {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  if (value.thread_id !== undefined && typeof value.thread_id !== "string") return false;
+  if (value.item !== undefined) {
+    const item = value.item;
+    if (!isRecord(item)) return false;
+    for (const field of ["id", "type", "text", "command", "aggregated_output", "status", "message"]) {
+      if (item[field] !== undefined && typeof item[field] !== "string") return false;
+    }
+    if (
+      item.exit_code !== undefined && item.exit_code !== null &&
+      (typeof item.exit_code !== "number" || !Number.isFinite(item.exit_code))
+    ) return false;
+    if (item.changes !== undefined) {
+      if (!Array.isArray(item.changes)) return false;
+      for (const change of item.changes) {
+        if (!isRecord(change)) return false;
+        if (change.path !== undefined && typeof change.path !== "string") return false;
+        if (change.kind !== undefined && typeof change.kind !== "string") return false;
+      }
+    }
+  }
+  if (value.usage !== undefined) {
+    if (!isRecord(value.usage)) return false;
+    for (const field of ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]) {
+      const count = value.usage[field];
+      if (count !== undefined && (typeof count !== "number" || !Number.isFinite(count))) return false;
+    }
+  }
+  return true;
+}
+
 export function parseUsage(event: CodexEvent): TokenUsage | null {
+  if (!isCodexEvent(event)) return null;
   const usage = event.usage;
   if (!usage) return null;
   return {
@@ -45,6 +85,7 @@ export function parseUsage(event: CodexEvent): TokenUsage | null {
 }
 
 export function toExecutedCommand(event: CodexEvent): ExecutedCommand | null {
+  if (!isCodexEvent(event)) return null;
   const item = event.item;
   if (!item || item.type !== "command_execution" || typeof item.command !== "string") {
     return null;
@@ -68,6 +109,7 @@ export function toExecutedCommand(event: CodexEvent): ExecutedCommand | null {
  * the edits it made, which is the part that actually matters to the caller.
  */
 export function toFileChanges(event: CodexEvent): FileChange[] {
+  if (!isCodexEvent(event)) return [];
   if (event.type !== "item.completed") return [];
   if (event.item?.type !== "file_change") return [];
   return (event.item.changes ?? [])
@@ -87,20 +129,37 @@ export function toFileChanges(event: CodexEvent): FileChange[] {
  */
 export class JsonLinesParser {
   private buffer = "";
+  private discarding = false;
+  private discardedLines = 0;
+
+  get truncatedLines(): number {
+    return this.discardedLines;
+  }
 
   push(chunk: string): CodexEvent[] {
-    this.buffer += chunk;
     const events: CodexEvent[] = [];
-    let newlineIndex = this.buffer.indexOf("\n");
-
-    while (newlineIndex !== -1) {
-      const line = this.buffer.slice(0, newlineIndex);
-      this.buffer = this.buffer.slice(newlineIndex + 1);
-      const event = parseLine(line);
-      if (event) events.push(event);
-      newlineIndex = this.buffer.indexOf("\n");
+    let offset = 0;
+    while (offset < chunk.length) {
+      const newlineIndex = chunk.indexOf("\n", offset);
+      const end = newlineIndex === -1 ? chunk.length : newlineIndex;
+      if (!this.discarding) {
+        if (this.buffer.length + end - offset > LINE_LIMIT) {
+          this.buffer = "";
+          this.discarding = true;
+          this.discardedLines++;
+        } else {
+          this.buffer += chunk.slice(offset, end);
+        }
+      }
+      if (newlineIndex === -1) break;
+      if (!this.discarding) {
+        const event = parseLine(this.buffer);
+        if (event) events.push(event);
+      }
+      this.buffer = "";
+      this.discarding = false;
+      offset = newlineIndex + 1;
     }
-
     return events;
   }
 
@@ -108,6 +167,7 @@ export class JsonLinesParser {
   flush(): CodexEvent[] {
     const remaining = this.buffer;
     this.buffer = "";
+    this.discarding = false;
     const event = parseLine(remaining);
     return event ? [event] : [];
   }
@@ -118,8 +178,8 @@ function parseLine(line: string): CodexEvent | null {
   if (trimmed.length === 0 || !trimmed.startsWith("{")) return null;
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed === "object" && parsed !== null && "type" in parsed) {
-      return parsed as CodexEvent;
+    if (isCodexEvent(parsed)) {
+      return parsed;
     }
   } catch {
     // A non-JSON line is informational output, not a failure.
@@ -129,6 +189,7 @@ function parseLine(line: string): CodexEvent | null {
 
 /** Human-readable one-liner used for MCP progress notifications. */
 export function describeEvent(event: CodexEvent): string | null {
+  if (!isCodexEvent(event)) return null;
   switch (event.type) {
     case "thread.started":
       return `Codex session started (${event.thread_id ?? "unknown thread"})`;
@@ -176,6 +237,7 @@ function truncate(value: string, max: number): string {
  * surfaced explicitly or they are lost.
  */
 export function toErrorMessage(event: CodexEvent): string | null {
+  if (!isCodexEvent(event)) return null;
   if (event.type !== "item.completed") return null;
   if (event.item?.type !== "error") return null;
   const message = event.item.message?.trim();

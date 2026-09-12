@@ -28,6 +28,28 @@ preflight reports that case as `unverified-version` rather than guessing.
   CLI rejects a flag-shaped value today, but a third-party parser was the only thing standing
   between a caller and the argv.
 
+### Fixed
+
+- A malformed field inside an otherwise valid JSON event no longer crashes the server. Events are
+  validated at the boundary before any consumer reads them, and a throw while processing the stream
+  is contained and reported instead of ending the process — it previously escaped the stdout
+  listener, outside the promise, taking every in-flight delegation with it. ([#22])
+- Retained output is bounded. An oversized JSONL line is abandoned and parsing resynchronises at the
+  next newline, and retained agent messages are capped by size and count, keeping the newest.
+  Truncation is reported through the result's errors rather than silently dropping content. Feeding
+  64 MiB without a newline previously retained all of it. ([#24])
+- The timeout now holds even when the Codex process exits while a descendant keeps its stdout and
+  stderr open. Settlement no longer waits for a `close` event that in that case never arrives, which
+  could leave a background job pending indefinitely. ([#25])
+- A cancellation that arrives before the runner starts is honoured, and no child is spawned at all.
+  `AbortSignal` does not replay its event, so a signal already aborted during the preflight was
+  never heard. ([#26])
+
+[#22]: https://github.com/parisbs/codex-subagent-mcp/issues/22
+[#24]: https://github.com/parisbs/codex-subagent-mcp/issues/24
+[#25]: https://github.com/parisbs/codex-subagent-mcp/issues/25
+[#26]: https://github.com/parisbs/codex-subagent-mcp/issues/26
+
 ### Added
 
 - Cross-platform coverage of a full delegation cycle: spawning, the prompt going

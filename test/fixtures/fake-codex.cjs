@@ -18,7 +18,9 @@
 "use strict";
 
 const { readFileSync, writeFileSync } = require("node:fs");
+const { spawn } = require("node:child_process");
 const { join } = require("node:path");
+const { tmpdir } = require("node:os");
 
 const scenario = JSON.parse(readFileSync(join(process.cwd(), "scenario.json"), "utf8"));
 
@@ -48,6 +50,18 @@ process.stdin.on("end", () => {
     if (index >= chunks.length) {
       // Setting the code rather than calling process.exit() lets the pending
       // stdout writes drain; process.exit() would truncate them.
+      if (scenario.descendantHoldMs) {
+        const descendant = spawn(process.execPath, [
+          "-e", "setTimeout(() => {}, Number(process.argv[1]))", String(scenario.descendantHoldMs),
+        ], {
+          shell: false,
+          stdio: ["ignore", process.stdout, process.stderr],
+          // Windows keeps a process's cwd busy until it exits. The descendant
+          // must not prevent disposing the fixture after the timeout settles.
+          cwd: tmpdir(),
+        });
+        descendant.unref();
+      }
       process.exitCode = scenario.exitCode ?? 0;
       return;
     }

@@ -28,6 +28,14 @@ const KILL_GRACE_MS = 5000;
 /** Cap on retained stderr so a noisy run cannot grow unbounded. */
 const STDERR_LIMIT = 64 * 1024;
 
+/**
+ * Caps on retained agent messages. Unlike stderr, this output is what the
+ * caller actually reads, so the newest messages are kept and the oldest
+ * dropped — a run that talks forever must not take the server's memory with it.
+ */
+const MESSAGE_CHARS_LIMIT = 1024 * 1024;
+const MESSAGE_COUNT_LIMIT = 1000;
+
 export interface RunOptions {
   invocation: CodexInvocation;
   /** Full prompt; written to the child's stdin, never placed on the argv. */
@@ -61,6 +69,13 @@ export function runCodex(options: RunOptions): RunHandle {
     signal,
   } = options;
 
+  if (signal?.aborted) {
+    return {
+      cancel: () => {},
+      result: Promise.reject(new Error("Codex delegation was cancelled before it started.")),
+    };
+  }
+
   const args = buildCodexArgs(invocation);
   const startedAt = Date.now();
 
@@ -91,6 +106,13 @@ export function runCodex(options: RunOptions): RunHandle {
   const commands: ExecutedCommand[] = [];
   const fileChanges: FileChange[] = [];
   const errors: string[] = [];
+  let messageChars = 0;
+  let messagesTruncated = false;
+  let streamErrorReported = false;
+  // Assigned when the result promise is constructed below, which happens before
+  // anything can call it: the timeout and the abort listener both fire on later
+  // ticks. Keep that ordering if this function is ever rearranged.
+  let finish: (code: number | null) => void;
   let threadId: string | null = null;
   let usage: TokenUsage | null = null;
   let stderr = "";
@@ -99,54 +121,88 @@ export function runCodex(options: RunOptions): RunHandle {
   let settled = false;
   let killTimer: NodeJS.Timeout | undefined;
 
+  const reportStreamError = (error: unknown): void => {
+    if (streamErrorReported) return;
+    streamErrorReported = true;
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`Could not interpret Codex output: ${message}`);
+  };
+
   const handleEvents = (events: CodexEvent[]): void => {
     for (const event of events) {
-      if (event.type === "thread.started" && event.thread_id) {
-        threadId = event.thread_id;
-      }
-      if (event.type === "item.completed") {
-        const item = event.item;
-        if (item?.type === "agent_message" && typeof item.text === "string") {
-          agentMessages.push(item.text);
+      try {
+        if (event.type === "thread.started" && event.thread_id) {
+          threadId = event.thread_id;
         }
-        const executed = toExecutedCommand(event);
-        if (executed) commands.push(executed);
-        const reported = toErrorMessage(event);
-        if (reported) errors.push(reported);
-        fileChanges.push(...toFileChanges(event));
+        if (event.type === "item.completed") {
+          const item = event.item;
+          if (item?.type === "agent_message" && typeof item.text === "string") {
+            const text = item.text.slice(0, MESSAGE_CHARS_LIMIT);
+            if (text.length < item.text.length) messagesTruncated = true;
+            agentMessages.push(text);
+            messageChars += text.length;
+            while (messageChars > MESSAGE_CHARS_LIMIT || agentMessages.length > MESSAGE_COUNT_LIMIT) {
+              messageChars -= agentMessages.shift()!.length;
+              messagesTruncated = true;
+            }
+          }
+          const executed = toExecutedCommand(event);
+          if (executed) commands.push(executed);
+          const reported = toErrorMessage(event);
+          if (reported) errors.push(reported);
+          fileChanges.push(...toFileChanges(event));
+        }
+        if (event.type === "turn.completed") {
+          usage = parseUsage(event) ?? usage;
+        }
+        onEvent?.(event, describeEvent(event));
+      } catch (error) {
+        reportStreamError(error);
       }
-      if (event.type === "turn.completed") {
-        usage = parseUsage(event) ?? usage;
-      }
-      onEvent?.(event, describeEvent(event));
     }
   };
 
   const terminate = (markTimeout: boolean): void => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (settled) return;
     if (markTimeout) timedOut = true;
     // Both the timeout and an abort can fire before the child actually exits.
-    // Without this guard each call would arm another kill timer while `cleanup`
-    // only clears the most recent one, leaving orphaned timers behind.
-    if (terminating) return;
-    terminating = true;
-    child.kill("SIGTERM");
-    killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
-    killTimer.unref?.();
+    // Only the first termination request should arm an escalation timer.
+    if (!terminating && child.exitCode === null && child.signalCode === null) {
+      terminating = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
+      killTimer.unref?.();
+    }
+    if (markTimeout) {
+      // An exited child can leave descendants holding its pipes open, so close
+      // is not a reliable deadline. Stop retaining output and settle now.
+      finish(child.exitCode);
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }
   };
 
   const timeoutTimer = setTimeout(() => terminate(true), timeoutSeconds * 1000);
   timeoutTimer.unref?.();
 
   const onAbort = (): void => terminate(false);
-  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
 
   child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => handleEvents(parser.push(chunk)));
+  child.stdout.on("data", (chunk: string) => {
+    if (settled) return;
+    try {
+      handleEvents(parser.push(chunk));
+    } catch (error) {
+      reportStreamError(error);
+    }
+  });
 
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
-    if (stderr.length < STDERR_LIMIT) {
+    if (!settled && stderr.length < STDERR_LIMIT) {
       stderr += chunk.slice(0, STDERR_LIMIT - stderr.length);
     }
   });
@@ -162,6 +218,7 @@ export function runCodex(options: RunOptions): RunHandle {
       if (settled) return;
       settled = true;
       cleanup();
+      if (killTimer) clearTimeout(killTimer);
       reject(
         new Error(
           `Could not run the Codex CLI ("${codexPath}"): ${error.message}. ` +
@@ -170,12 +227,20 @@ export function runCodex(options: RunOptions): RunHandle {
       );
     });
 
-    child.on("close", (code) => {
-      // A spawn failure emits "error" and then "close"; the promise is already
-      // settled, so there is no result to build.
+    finish = (code: number | null): void => {
       if (settled) return;
       settled = true;
-      handleEvents(parser.flush());
+      try {
+        handleEvents(parser.flush());
+      } catch (error) {
+        reportStreamError(error);
+      }
+      if (parser.truncatedLines > 0) {
+        errors.push(`Truncated Codex output: discarded ${parser.truncatedLines} oversized JSONL line(s).`);
+      }
+      if (messagesTruncated) {
+        errors.push("Truncated Codex agent messages: retained only the newest messages within the output limit.");
+      }
       cleanup();
 
       resolve({
@@ -194,12 +259,17 @@ export function runCodex(options: RunOptions): RunHandle {
         timedOut,
         stderr: stderr.trim(),
       });
+    };
+
+    child.on("close", (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      finish(code);
     });
   });
 
   function cleanup(): void {
     clearTimeout(timeoutTimer);
-    if (killTimer) clearTimeout(killTimer);
+    // Settlement at the deadline must not cancel SIGKILL for a live child.
     signal?.removeEventListener("abort", onAbort);
   }
 
