@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { runCodex } from "../src/codex/runner.ts";
+
+import { createFakeCodex, jsonl } from "./fixtures/fake-codex.ts";
 
 const STUBBORN_CODEX = fileURLToPath(
   new URL("./fixtures/stubborn-codex.mjs", import.meta.url),
@@ -82,4 +86,69 @@ test("reports a codex binary that cannot be started", async () => {
   });
 
   await assert.rejects(result, /Could not (run|start) the Codex CLI/);
+});
+
+
+test("settles at the timeout when an exited child leaves its pipes open", async () => {
+  const fake = createFakeCodex({
+    chunks: [jsonl({ type: "thread.started", thread_id: "parent-exited" })],
+    descendantHoldMs: 4000,
+    exitCode: 0,
+  });
+  try {
+    const handle = runCodex({
+      invocation: { ...INVOCATION, workingDir: fake.workingDir },
+      prompt: "irrelevant",
+      codexPath: fake.codexPath,
+      timeoutSeconds: 1,
+    });
+    const outcome = await handle.result;
+    assert.equal(outcome.timedOut, true);
+    assert.equal(outcome.exitCode, 0);
+    assert.equal(outcome.threadId, "parent-exited");
+    assert.ok(outcome.durationMs < 3000, `settled after ${outcome.durationMs} ms`);
+    handle.cancel();
+    assert.equal(await handle.result, outcome);
+  } finally {
+    fake.dispose();
+  }
+});
+
+test("does not spawn a child when cancellation happened before the run", async () => {
+  const fake = createFakeCodex({ chunks: [] });
+  const controller = new AbortController();
+  controller.abort();
+  try {
+    const handle = runCodex({
+      invocation: { ...INVOCATION, workingDir: fake.workingDir },
+      prompt: "irrelevant",
+      codexPath: fake.codexPath,
+      signal: controller.signal,
+    });
+    await assert.rejects(handle.result, /abort|cancel/i);
+    handle.cancel();
+    assert.equal(existsSync(join(fake.workingDir, "received.json")), false);
+  } finally {
+    fake.dispose();
+  }
+});
+
+test("contains progress callback failures without losing later events", async () => {
+  const fake = createFakeCodex({ chunks: [jsonl(
+    { type: "turn.started" },
+    { type: "item.completed", item: { type: "agent_message", text: "Still running." } },
+  )] });
+  try {
+    const { result } = runCodex({
+      invocation: { ...INVOCATION, workingDir: fake.workingDir },
+      prompt: "irrelevant",
+      codexPath: fake.codexPath,
+      onEvent: () => { throw new Error("progress failed"); },
+    });
+    const outcome = await result;
+    assert.equal(outcome.finalMessage, "Still running.");
+    assert.ok(outcome.errors.some((message) => message.includes("progress failed")));
+  } finally {
+    fake.dispose();
+  }
 });

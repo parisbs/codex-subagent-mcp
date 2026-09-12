@@ -228,3 +228,48 @@ test("reports a run with no output at all rather than hanging", async () => {
   assert.equal(outcome.finalMessage, "");
   assert.equal(outcome.threadId, null);
 });
+
+
+test("survives malformed event fields and keeps subsequent valid output", async () => {
+  const { outcome } = await runAgainst({ chunks: [jsonl(
+    { type: "item.completed", item: { type: "file_change", changes: [null] } },
+    { type: "item.completed", item: { type: "file_change", changes: {} } },
+    { type: "item.completed", item: { type: "error", message: 42 } },
+    { type: "item.completed", item: { type: "agent_message", text: 42 } },
+    { type: "item.completed", item: { type: "agent_message", text: "Survived." } },
+  )] });
+  assert.equal(outcome.finalMessage, "Survived.");
+  assert.deepEqual(outcome.fileChanges, []);
+  assert.deepEqual(outcome.agentMessages, ["Survived."]);
+});
+
+test("reports discarded oversized lines and retains the next valid message", async () => {
+  const { outcome } = await runAgainst({ chunks: [
+    "x".repeat(2 * 1024 * 1024),
+    `\n${jsonl({ type: "item.completed", item: { type: "agent_message", text: "Recovered." } })}`,
+    "x".repeat(2 * 1024 * 1024),
+  ] });
+  assert.equal(outcome.finalMessage, "Recovered.");
+  assert.ok(outcome.errors.some((message) => /truncat.*line/i.test(message)));
+});
+
+test("bounds retained message text while preserving the final answer", async () => {
+  const events = Array.from({ length: 24 }, () => ({
+    type: "item.completed", item: { type: "agent_message", text: "x".repeat(64 * 1024) },
+  }));
+  const { outcome } = await runAgainst({ chunks: [jsonl(...events,
+    { type: "item.completed", item: { type: "agent_message", text: "Final answer." } },
+  )] });
+  assert.ok(outcome.agentMessages.reduce((total, message) => total + message.length, 0) <= 1024 * 1024);
+  assert.equal(outcome.finalMessage, "Final answer.");
+  assert.equal(outcome.errors.filter((message) => /truncat.*message/i.test(message)).length, 1);
+});
+
+test("bounds retained empty messages as well as message text", async () => {
+  const events = Array.from({ length: 2000 }, () => ({
+    type: "item.completed", item: { type: "agent_message", text: "" },
+  }));
+  const { outcome } = await runAgainst({ chunks: [jsonl(...events)] });
+  assert.ok(outcome.agentMessages.length <= 1000);
+  assert.ok(outcome.errors.some((message) => /truncat.*message/i.test(message)));
+});

@@ -12,6 +12,8 @@ export interface Scenario {
   chunkDelayMs?: number;
   stderr?: string;
   exitCode?: number;
+  /** A descendant keeps stdout and stderr open after the CLI exits. */
+  descendantHoldMs?: number;
 }
 
 export interface FakeCodex {
