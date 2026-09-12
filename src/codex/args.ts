@@ -38,6 +38,23 @@ export interface CodexInvocation {
 const WORKTREE_ARGS = ["--enable", "worktrees", "--worktree"] as const;
 
 /**
+ * Shape a thread id must have before it is allowed onto the argv.
+ *
+ * `exec resume` takes the thread id positionally, so a value beginning with a
+ * dash is parsed by the CLI as an option rather than as an identifier — passing
+ * `--help` made it print its help and exit 0, which this server then reported
+ * as a successful delegation. Arbitrary flags reached option parsing the same
+ * way, including one that disables the sandbox.
+ *
+ * The pattern deliberately describes a safe *shape* rather than the exact
+ * format the CLI currently issues (a UUID). Pinning it to today's format would
+ * break every follow-up the day Codex changes it, and would buy nothing: what
+ * closes the hole is that the value cannot start with a dash and cannot contain
+ * anything a parser would treat as structure.
+ */
+export const THREAD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/;
+
+/**
  * Builds the argv for a Codex CLI run.
  *
  * The prompt is deliberately absent: it is written to the child's stdin, which
@@ -92,6 +109,14 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
 function buildResumeArgs(invocation: CodexInvocation): string[] {
   if (!invocation.threadId) {
     throw new Error("A thread_id is required to resume a Codex session.");
+  }
+
+  if (!THREAD_ID_PATTERN.test(invocation.threadId)) {
+    throw new Error(
+      `Invalid thread_id: "${invocation.threadId}". A thread id is the value reported by a ` +
+        "previous delegation: letters, digits, hyphens and underscores, starting with a letter " +
+        "or digit.",
+    );
   }
 
   const args: string[] = ["exec", "resume", invocation.threadId, "--json"];
