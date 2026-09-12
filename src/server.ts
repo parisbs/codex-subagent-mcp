@@ -23,7 +23,7 @@ import {
 } from "./codex/doctor.js";
 import type { CodexEvent } from "./codex/events.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
-import type { CodexInvocation } from "./codex/args.js";
+import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { JobRegistry } from "./jobs.js";
 import { assemblePrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
@@ -78,20 +78,42 @@ async function requireUsableCodex(): Promise<Diagnosis> {
   return diagnosis;
 }
 
-/** Rejects working directories that do not exist, before spending a model call. */
-function validateWorkingDir(dir: string | undefined): void {
-  if (!dir) return;
+/**
+ * Rejects directories that do not exist, before spending a model call.
+ *
+ * This is also what keeps caller-supplied paths from reaching the argv as
+ * anything but a path: an absolute existing directory cannot begin with a dash,
+ * so it cannot be mistaken for an option.
+ */
+function validateDirectory(label: string, dir: string): void {
   if (!isAbsolute(dir)) {
-    throw new Error(`working_dir must be an absolute path; received "${dir}".`);
+    throw new Error(`${label} must be an absolute path; received "${dir}".`);
   }
   let stats;
   try {
     stats = statSync(dir);
   } catch {
-    throw new Error(`working_dir does not exist: ${dir}`);
+    throw new Error(`${label} does not exist: ${dir}`);
   }
   if (!stats.isDirectory()) {
-    throw new Error(`working_dir is not a directory: ${dir}`);
+    throw new Error(`${label} is not a directory: ${dir}`);
+  }
+}
+
+function validateWorkingDir(dir: string | undefined): void {
+  if (!dir) return;
+  validateDirectory("working_dir", dir);
+}
+
+/**
+ * `add_dirs` reaches the argv one `--add-dir <value>` pair at a time and was the
+ * one caller-supplied path that went unchecked. The CLI happens to reject a
+ * flag-shaped value today, but relying on a third-party parser to be the only
+ * thing standing between a caller and the argv is not a defence.
+ */
+function validateAddDirs(dirs: string[] | undefined): void {
+  for (const dir of dirs ?? []) {
+    validateDirectory("add_dirs entry", dir);
   }
 }
 
@@ -506,6 +528,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
       try {
         requireValidConfig();
         validateWorkingDir(args.working_dir);
+        validateAddDirs(args.add_dirs);
 
         const sandbox: SandboxMode = (args.sandbox ?? "read-only") as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
@@ -616,6 +639,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         thread_id: z
           .string()
           .min(1)
+          .regex(THREAD_ID_PATTERN, "thread_id must be an identifier reported by a previous delegation")
           .describe("The thread_id reported by a previous codex_delegate call."),
         prompt: z.string().min(1).describe("The follow-up instruction."),
         model: z.string().optional().describe("Override the model for this turn."),
@@ -644,13 +668,15 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         let model: string | undefined;
         let effort: ReasoningEffort | undefined;
 
-        if (!args.model && !args.reasoning_effort) {
-          // resolveModelAndEffort runs the preflight; without an override it is
-          // skipped, so the check has to happen explicitly here.
-          await requireUsableCodex();
-        }
+        // A resumed session keeps whatever model and effort it was created with,
+        // and this server cannot read those back out of the CLI. So when the
+        // operator has configured a ceiling, stating the model and effort
+        // explicitly on the resume is the only way to honour it: skipping the
+        // policy here let a thread carry on above ALLOWED_MODELS and MAX_EFFORT
+        // indefinitely, just by never passing an override.
+        const ceilingApplies = config.allowedModels.length > 0 || config.maxEffort !== null;
 
-        if (args.model || args.reasoning_effort) {
+        if (args.model || args.reasoning_effort || ceilingApplies) {
           const resolved = await resolveModelAndEffort(
             args.model,
             args.reasoning_effort as ReasoningEffort | undefined,
@@ -660,6 +686,16 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           model = resolved.model;
           effort = resolved.effort;
           notes.push(...resolved.notes);
+          if (!args.model && !args.reasoning_effort) {
+            notes.push(
+              "This server is configured with model or effort limits, so the resumed turn states " +
+                "both explicitly rather than inheriting the session's own settings.",
+            );
+          }
+        } else {
+          // resolveModelAndEffort runs the preflight as a side effect; when it
+          // is skipped the check still has to happen.
+          await requireUsableCodex();
         }
 
         const invocation: CodexInvocation = {
