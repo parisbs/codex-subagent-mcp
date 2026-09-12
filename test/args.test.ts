@@ -161,3 +161,51 @@ test("enables the feature for resumed sessions too", () => {
 test("does not enable the feature when no worktree was asked for", () => {
   assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).includes("--enable"));
 });
+
+test("refuses a thread id that would be parsed as an option", () => {
+  // `exec resume` takes the thread id positionally. Before this check, "--help"
+  // made the CLI print its help and exit 0, which the server then reported as a
+  // successful follow-up; other flags reached option parsing the same way,
+  // including one that turns the sandbox off.
+  for (const threadId of [
+    "--help",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--model=gpt-6-astra",
+    "-m",
+  ]) {
+    assert.throws(
+      () => buildCodexArgs({ kind: "resume", threadId, sandbox: "read-only" }),
+      /Invalid thread_id/,
+      `expected ${threadId} to be refused`,
+    );
+  }
+});
+
+test("refuses a thread id carrying anything a parser would read as structure", () => {
+  for (const threadId of ["with space", "semi;colon", "equals=sign", "quote\"mark", "new\nline"]) {
+    assert.throws(
+      () => buildCodexArgs({ kind: "resume", threadId, sandbox: "read-only" }),
+      /Invalid thread_id/,
+      `expected ${JSON.stringify(threadId)} to be refused`,
+    );
+  }
+});
+
+test("accepts the thread id shape the CLI actually issues", () => {
+  // Observed from a real run. The check describes a safe shape rather than this
+  // exact format, so a future change to the CLI's ids does not break resume.
+  const args = buildCodexArgs({
+    kind: "resume",
+    threadId: "01a092fe-43f0-76f1-8460-51e7ba8f6c90",
+    sandbox: "read-only",
+  });
+
+  assert.equal(args[2], "01a092fe-43f0-76f1-8460-51e7ba8f6c90");
+});
+
+test("names the offending value when it refuses a thread id", () => {
+  assert.throws(
+    () => buildCodexArgs({ kind: "resume", threadId: "--help", sandbox: "read-only" }),
+    /"--help"/,
+  );
+});
