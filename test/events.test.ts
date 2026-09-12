@@ -6,6 +6,8 @@ import {
   describeEvent,
   parseUsage,
   toExecutedCommand,
+  toErrorMessage,
+  type CodexEvent,
   toFileChanges,
 } from "../src/codex/events.ts";
 
@@ -140,4 +142,59 @@ test("describes file changes for progress reporting", () => {
     item: { type: "file_change", changes: [{ path: "src/a.ts", kind: "edit" }] },
   });
   assert.match(description ?? "", /Changed 1 file\(s\): edit src\/a\.ts/);
+});
+
+
+test("skips events with malformed fields before exposing them to consumers", () => {
+  const malformed = [
+    { type: 7 },
+    { type: "thread.started", thread_id: {} },
+    { type: "item.completed", item: { type: "file_change", changes: [null] } },
+    { type: "item.completed", item: { type: "file_change", changes: {} } },
+    { type: "item.completed", item: { type: "error", message: 42 } },
+    { type: "item.completed", item: { type: "agent_message", text: 42 } },
+    { type: "item.started", item: { type: "command_execution", command: 42 } },
+    { type: "item.completed", item: { type: "command_execution", command: "ls", aggregated_output: {} } },
+    { type: "item.completed", item: { type: "command_execution", command: "ls", exit_code: "zero" } },
+    { type: "item.completed", item: { type: "file_change", changes: [{ path: "a", kind: {} }] } },
+    { type: "turn.completed", usage: { input_tokens: "many" } },
+  ];
+  for (const event of malformed) {
+    const parser = new JsonLinesParser();
+    assert.deepEqual(parser.push(`${JSON.stringify(event)}\n`), [], JSON.stringify(event));
+  }
+});
+
+test("ignores malformed fields when event helpers are called directly", () => {
+  const changes = JSON.parse('{"type":"item.completed","item":{"type":"file_change","changes":[null]}}') as CodexEvent;
+  assert.deepEqual(toFileChanges(changes), []);
+  const error = JSON.parse('{"type":"item.completed","item":{"type":"error","message":42}}') as CodexEvent;
+  assert.equal(toErrorMessage(error), null);
+  assert.equal(describeEvent(error), null);
+  const command = JSON.parse('{"type":"item.completed","item":{"type":"command_execution","command":"ls","aggregated_output":42}}') as CodexEvent;
+  assert.equal(toExecutedCommand(command), null);
+  const usage = JSON.parse('{"type":"turn.completed","usage":{"input_tokens":"many"}}') as CodexEvent;
+  assert.equal(parseUsage(usage), null);
+});
+
+test("abandons oversized incomplete lines and resumes at the next newline", () => {
+  const parser = new JsonLinesParser();
+  for (let index = 0; index < 64; index++) {
+    assert.deepEqual(parser.push("x".repeat(1024 * 1024)), []);
+  }
+  assert.equal(parser.truncatedLines, 1);
+  assert.deepEqual(parser.push('{"type":"turn.started"}\n{"type":"turn.completed"}\n'), [
+    { type: "turn.completed" },
+  ]);
+  assert.deepEqual(parser.flush(), []);
+});
+
+test("applies the line limit to complete lines and the final unterminated line", () => {
+  const parser = new JsonLinesParser();
+  const oversized = JSON.stringify({ type: "unknown", text: "x".repeat(1024 * 1024) });
+  assert.deepEqual(parser.push(`${oversized}\n{"type":"turn.started"}\n`), [{ type: "turn.started" }]);
+  assert.deepEqual(parser.push(oversized), []);
+  assert.deepEqual(parser.flush(), []);
+  assert.equal(parser.truncatedLines, 2);
+  assert.deepEqual(parser.push('{"type":"turn.completed"}\n'), [{ type: "turn.completed" }]);
 });
