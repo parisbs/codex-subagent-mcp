@@ -89,7 +89,17 @@ test("reports a codex binary that cannot be started", async () => {
 });
 
 
-test("settles at the timeout when an exited child leaves its pipes open", async () => {
+/**
+ * Windows does not reproduce the premise. On CI this run settled in 89 ms with
+ * `timedOut: false`, meaning `close` arrived as soon as the parent exited even
+ * though a descendant had inherited its stdout and stderr — so there is no
+ * stuck pipe to defeat the deadline, and nothing for this test to observe.
+ *
+ * As with the signal tests above, the behaviour differs by platform rather than
+ * being merely unverified there. The fix itself is platform-independent: what
+ * cannot be exercised on Windows is the situation it protects against.
+ */
+test("settles at the timeout when an exited child leaves its pipes open", POSIX_ONLY, async () => {
   const fake = createFakeCodex({
     chunks: [jsonl({ type: "thread.started", thread_id: "parent-exited" })],
     descendantHoldMs: 4000,

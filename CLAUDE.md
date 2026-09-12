@@ -105,7 +105,10 @@ rejected by `resolve.ts` by design, so neither can be the fixture. Do not "simpl
 `shell: true` or by shipping a `.cmd`.
 
 The signal tests in `test/runner.test.ts` stay POSIX-only: Windows has no SIGTERM to ignore, so the
-escalation they cover does not exist there.
+escalation they cover does not exist there. So is the descendant-holds-the-pipes test, for a
+different reason found in CI: on Windows that run settled in 89 ms with `timedOut: false`, so
+`close` arrives as soon as the parent exits even when a descendant inherited its stdout — the stuck
+pipe the test needs does not occur. Both are platform differences, not gaps.
 
 ## Testing the server by hand
 
