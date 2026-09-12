@@ -4,6 +4,22 @@ The goal is a dependable bridge for multi-model orchestration: Claude Code decid
 doing and *how hard it is*, and hands the work to the right Codex model at the right reasoning
 depth. Everything below serves that, or it does not ship.
 
+## Where the work is tracked
+
+This document is the reasoning: why each thing was built the way it was, and why some things will
+not be built at all. It is not a task list and it does not track status.
+
+The work itself lives on GitHub, where it can actually be closed:
+
+- **[Issues](https://github.com/parisbs/codex-subagent-mcp/issues)** — one per piece of work, with
+  the reproduction where there is one.
+- **[Milestones](https://github.com/parisbs/codex-subagent-mcp/milestones)** — the same issues
+  grouped by the release that will carry them.
+
+A note on numbering, because the two do not line up: the phases below (v0.1 through v0.6) were all
+delivered inside the **0.1.0** release. They are development phases, not published versions. From
+here on the headings are the release versions themselves, matching the milestones.
+
 ## v0.1 — Correct core (done)
 
 The prototype's premise was right and its execution was not. This release replaces it.
@@ -25,8 +41,9 @@ The prototype's premise was right and its execution was not. This release replac
 - Concurrency cap, retention window, and cancellation of every child process on shutdown.
 
 The remaining gap: jobs live only in the server process. A Claude Code restart loses them. Whether
-that is worth fixing depends on how often long delegations outlive a session — revisited in v1.0,
-with real usage rather than on principle.
+that is worth fixing depends on how often long delegations outlive a session, so it is an open
+question rather than planned work:
+[#33](https://github.com/parisbs/codex-subagent-mcp/issues/33).
 
 ## v0.3 — Codex CLI preflight (done)
 
@@ -64,14 +81,19 @@ Cross-platform CI paid for itself immediately, finding three defects that were i
 3. The server could not find a Codex CLI installed through npm on Windows, and reported it as not
    installed. See [ADR 11](adr/0011-resolve-the-executable-without-a-shell.md).
 
-Still unverified: a real delegation on Windows or Linux, and the process-termination paths on
-Windows, where there are no POSIX signals and the behaviour differs by design.
+Since then, CI also runs a whole delegation cycle on all three platforms against a stand-in:
+spawning, the prompt going through stdin, incremental JSONL parsing, split lines, exit codes and
+stderr. It needs no Codex and no credentials. The trick is that the argv always begins with `exec`,
+so the runner can be pointed at Node itself with a CommonJS file of that name in the child's
+working directory — a shebang script is not executable on Windows and a `.cmd` shim is rejected by
+`resolve.ts` on purpose, so neither could serve as the fixture.
 
-Still unverified: a real delegation on Windows or Linux. CI proves the server builds, passes its
-tests, starts, and resolves the CLI on those platforms — it has never run an actual Codex task
-there, because the runners have no Codex installation or credentials.
+Still unverified off macOS: the coupling to the real CLI — that it accepts the argv built here and
+emits the events parsed here — and the process-termination paths on Windows, where there are no
+POSIX signals and the behaviour differs by design. Tracked in
+[#32](https://github.com/parisbs/codex-subagent-mcp/issues/32).
 
-## v0.5 — Publish to npm (prepared, not published)
+## v0.5 — Publish to npm (done)
 
 npm hosts the artifact; everything else layers on top of it. See
 [ADR 10](adr/0010-distribution-strategy.md).
@@ -93,8 +115,11 @@ Done:
 - Repository made public, so the links the npm page will carry resolve, and standard CI runners
   became free.
 
-Remaining: the README, which is the only thing a visitor reads before deciding whether to install.
-Then publishing is `npm login` followed by `npm publish`, and the install path it buys is:
+- README rewritten as the install and quick-start guide, with the safety section and the disclaimer
+  where they get read rather than at the bottom.
+
+Published as [`codex-subagent-mcp@0.1.0`](https://www.npmjs.com/package/codex-subagent-mcp) on
+2026-09-11, which buys this install path:
 
 ```bash
 claude mcp add codex-subagent -- npx -y codex-subagent-mcp
@@ -119,6 +144,79 @@ hands back the recommendation it would have made.
 
 See [ADR 12](adr/0012-mechanism-not-policy.md).
 
+## 0.1.1 — What the first review found
+
+Publishing 0.1.0 was not the end of the work; it was the point at which the code became worth
+reviewing properly. A cross-model review — Codex at `gpt-6-astra`, `xhigh` reasoning, read-only,
+through this server's own delegation tool — found seven defects in code with 90 tests and green CI
+on three platforms. Every one was reproduced rather than argued for.
+
+Two are security issues and are being handled through the repository's
+[Security tab](https://github.com/parisbs/codex-subagent-mcp/security/advisories) as draft
+advisories, published together with the release that fixes them. A published advisory reaches
+`npm audit` and Dependabot; a closed issue reaches nobody.
+
+The other five are open issues:
+
+- [#22](https://github.com/parisbs/codex-subagent-mcp/issues/22) — a malformed event *field* inside
+  valid JSON throws outside the promise and takes the process down.
+- [#23](https://github.com/parisbs/codex-subagent-mcp/issues/23) — failed delegations come back
+  without `isError`, including background jobs that exited non-zero.
+- [#24](https://github.com/parisbs/codex-subagent-mcp/issues/24) — the line buffer has no cap;
+  64 MiB without a newline is retained in full.
+- [#25](https://github.com/parisbs/codex-subagent-mcp/issues/25) — a child that exits while a
+  descendant holds the pipes defeats the timeout entirely.
+- [#26](https://github.com/parisbs/codex-subagent-mcp/issues/26) — a cancellation arriving during
+  the preflight is dropped, because `AbortSignal` does not replay.
+
+Worth recording as a judgement, not just a list: the defects cluster in the places where this server
+treats the CLI's output and the caller's input as well-formed. The parts that were designed
+adversarially — the prompt never touching the argv, the executable resolved without a shell — held
+up under direct attack. The parts that were merely written carefully did not.
+
+## 0.2.0 — Delegated code review
+
+`codex exec review` is a separate subcommand with its own flags (`--uncommitted`, `--base`,
+`--commit`, `--title`) and its own output shape. Wrapping it as `codex_review` gives the
+orchestrator a second opinion on a diff from a different model family, which is the most obviously
+valuable thing a cross-model setup can offer — and 0.1.1 is the evidence that it works.
+
+Open question: whether review findings are worth parsing into a structured list, or whether the
+prose summary is enough for the orchestrator to act on. That may depend on 0.3.0.
+
+[#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)
+
+## 0.3.0 — Structured results
+
+`codex exec --output-schema <FILE>` constrains the model's final response to a JSON Schema. Today
+the orchestrator receives prose and has to re-read it. An optional `output_schema` parameter would
+let a delegation return, for example, a list of findings with file, line and severity — parseable
+without a second model call.
+
+Requires writing the schema to a temporary file and cleaning it up, including when the run is
+killed — a path this project now knows it gets wrong in some orderings.
+
+[#28](https://github.com/parisbs/codex-subagent-mcp/issues/28)
+
+## 0.4.0 — Cost and configuration
+
+Token usage is captured per run and then thrown away, Codex profiles are not exposed, and monorepos
+have to restate their extra directories on every call.
+
+[#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
+[#30](https://github.com/parisbs/codex-subagent-mcp/issues/30),
+[#31](https://github.com/parisbs/codex-subagent-mcp/issues/31)
+
+## 1.0.0 — Hardening
+
+The leading digit is not a decision to be made by declaration; [VERSIONING.md](VERSIONING.md) says
+what it requires. The two open pieces are integration tests against the real CLI off macOS, and a
+settled answer on whether background jobs must survive a restart — which is a question about real
+usage, and may well close as `wontfix`.
+
+[#32](https://github.com/parisbs/codex-subagent-mcp/issues/32),
+[#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)
+
 ## Not planned: a triage skill, or a Claude Code plugin
 
 Both were on this roadmap and have been removed, for the reason in ADR 12.
@@ -132,41 +230,6 @@ well on its own.
 Escalation rules belong in each user's own `CLAUDE.md`, in plain language, where the orchestrating
 model applies them with real understanding. That is strictly better than any rule table this server
 could offer, and it costs nothing to build.
-
-## v0.7 — Delegated code review
-
-`codex exec review` is a separate subcommand with its own flags (`--uncommitted`, `--base`,
-`--commit`, `--title`) and its own output shape. Wrapping it as `codex_review` gives the
-orchestrator a second opinion on a diff from a different model family, which is the most obviously
-valuable thing a cross-model setup can offer.
-
-Open question: whether review findings are worth parsing into a structured list, or whether the
-prose summary is enough for the orchestrator to act on.
-
-## v0.8 — Structured results
-
-`codex exec --output-schema <FILE>` constrains the model's final response to a JSON Schema. Today
-the orchestrator receives prose and has to re-read it. An optional `output_schema` parameter would
-let a delegation return, for example, a list of findings with file, line and severity — parseable
-without a second model call.
-
-Requires writing the schema to a temporary file and cleaning it up, including when the run is
-killed.
-
-## v0.9 — Cost and configuration
-
-- Per-delegation accounting: token usage is already captured per run but discarded afterwards. A
-  local rolling summary would let the orchestrator notice it is spending `xhigh` effort on work that
-  `low` would have handled.
-- Codex profiles (`-p/--profile`), so a project can pin a named Codex configuration.
-- `--add-dir` ergonomics for monorepos, where the interesting code sits outside the working root.
-
-## v1.0 — Hardening
-
-- Integration tests that exercise the real CLI, gated behind an environment variable so the default
-  `npm test` stays free and offline.
-- Background jobs surviving a restart, if real usage shows it matters. Today they live only in the
-  server process.
 
 ## Deliberately out of scope
 
