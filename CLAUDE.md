@@ -48,7 +48,10 @@ Check with `codex exec --help`, `codex exec resume --help`, `codex features list
 **Never degrade to a plausible-looking answer when the CLI is unavailable.** Every tool runs the
 preflight first and fails with installation steps. Returning `FALLBACK_MODELS` as if the catalog had
 been read turns a clear, fixable problem into a confusing one — that was the bug ADR 9 fixes. The
-fallback now covers only a CLI that runs but whose `debug models` output was unusable.
+fallback now covers only a CLI that runs but whose `debug models` output was unusable, and it is
+never used to validate a delegation. A config Codex cannot load is its own failure: `login status`
+exits 1 for it just as for a signed-out account, so the preflight reads stderr
+(`Error loading configuration:`) instead of calling it "not signed in".
 
 **Windows resolves executables differently, and `spawn` does not do it for you.** `spawn` ignores
 PATHEXT and refuses to run `.cmd`/`.bat` files without a shell — and a global npm install of the
