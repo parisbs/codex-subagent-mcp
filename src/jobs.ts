@@ -18,6 +18,13 @@ const RETENTION_MS = 60 * 60 * 1000;
 /** Recent progress lines retained per job. */
 const ACTIVITY_LOG_SIZE = 30;
 
+/**
+ * Finished jobs kept at most. Retention alone does not bound memory: a caller
+ * can start and finish far more than eight jobs within the hour, and each keeps
+ * its whole result.
+ */
+const MAX_FINISHED_JOBS = 100;
+
 interface Job {
   id: string;
   state: JobState;
@@ -45,8 +52,22 @@ export interface JobHooks {
   onEvent: (event: CodexEvent, description: string | null) => void;
 }
 
+export interface JobRegistryOptions {
+  /** How long a finished job stays readable. */
+  retentionMs?: number;
+  /** Finished jobs kept at most, oldest dropped first. Running jobs never count. */
+  maxFinishedJobs?: number;
+}
+
 export class JobRegistry {
   private readonly jobs = new Map<string, Job>();
+  private readonly retentionMs: number;
+  private readonly maxFinishedJobs: number;
+
+  constructor(options: JobRegistryOptions = {}) {
+    this.retentionMs = options.retentionMs ?? RETENTION_MS;
+    this.maxFinishedJobs = options.maxFinishedJobs ?? MAX_FINISHED_JOBS;
+  }
 
   get runningCount(): number {
     let count = 0;
@@ -123,7 +144,11 @@ export class JobRegistry {
   }
 
   snapshot(jobId: string): JobSnapshot {
-    const job = this.require(jobId);
+    this.evictExpired();
+    return this.toSnapshot(this.require(jobId));
+  }
+
+  private toSnapshot(job: Job): JobSnapshot {
     const snapshot: JobSnapshot = {
       jobId: job.id,
       state: job.state,
@@ -141,10 +166,12 @@ export class JobRegistry {
   }
 
   activity(jobId: string): string[] {
+    this.evictExpired();
     return [...this.require(jobId).activity];
   }
 
   result(jobId: string): DelegationResult {
+    this.evictExpired();
     const job = this.require(jobId);
     if (job.state === "running") {
       throw new Error(
@@ -170,7 +197,9 @@ export class JobRegistry {
 
   list(): JobSnapshot[] {
     this.evictExpired();
-    return [...this.jobs.keys()].map((id) => this.snapshot(id));
+    // Snapshot the jobs directly rather than through snapshot(), which evicts
+    // again and could drop a job this list already decided to include.
+    return [...this.jobs.values()].map((job) => this.toSnapshot(job));
   }
 
   /** Aborts every running job. Called when the server shuts down. */
@@ -191,11 +220,16 @@ export class JobRegistry {
   }
 
   private evictExpired(): void {
-    const cutoff = Date.now() - RETENTION_MS;
+    const cutoff = Date.now() - this.retentionMs;
+    const finished: Job[] = [];
     for (const [id, job] of this.jobs) {
-      if (job.finishedAtMs !== null && job.finishedAtMs < cutoff) {
-        this.jobs.delete(id);
-      }
+      if (job.finishedAtMs === null) continue;
+      if (job.finishedAtMs < cutoff) this.jobs.delete(id);
+      else finished.push(job);
     }
+    const excess = finished.length - this.maxFinishedJobs;
+    if (excess <= 0) return;
+    finished.sort((a, b) => (a.finishedAtMs ?? 0) - (b.finishedAtMs ?? 0));
+    for (const job of finished.slice(0, excess)) this.jobs.delete(job.id);
   }
 }

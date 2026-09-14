@@ -273,3 +273,74 @@ test("bounds retained empty messages as well as message text", async () => {
   assert.ok(outcome.agentMessages.length <= 1000);
   assert.ok(outcome.errors.some((message) => /truncat.*message/i.test(message)));
 });
+
+const commandItem = (index: number) => ({
+  type: "item.completed",
+  item: { type: "command_execution", command: `cmd ${index}`, exit_code: 0, status: "completed", aggregated_output: "" },
+});
+const errorItem = (message: string) => ({ type: "item.completed", item: { type: "error", message } });
+const fileChangeItem = (changes: { path: string; kind: string }[]) => ({
+  type: "item.completed",
+  item: { type: "file_change", changes },
+});
+const answerItem = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
+
+test("keeps only the newest commands and says how many were omitted", async () => {
+  // #36 bounded agent messages; commands kept growing with every tool call.
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(...Array.from({ length: 600 }, (_, index) => commandItem(index)), answerItem)],
+  });
+
+  assert.equal(outcome.commands.length, 500);
+  assert.equal(outcome.commands[0]?.command, "cmd 100");
+  assert.equal(outcome.commands.at(-1)?.command, "cmd 599");
+  assert.ok(outcome.errors.some((message) => /Omitted 100 earlier command/.test(message)));
+});
+
+test("collapses a repeated error into one entry with a count", async () => {
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(...Array.from({ length: 50 }, () => errorItem("model overloaded")), answerItem)],
+  });
+
+  const matching = outcome.errors.filter((message) => message.includes("model overloaded"));
+  assert.equal(matching.length, 1);
+  assert.match(matching[0] ?? "", /repeated 50 times/);
+});
+
+test("caps distinct errors and keeps the most recent one last", async () => {
+  // The failure summary quotes the last error, so the newest real error has to
+  // stay at the end rather than an omission notice.
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(...Array.from({ length: 150 }, (_, index) => errorItem(`error ${index}`)))],
+  });
+
+  const real = outcome.errors.filter((message) => /^error \d+$/.test(message));
+  assert.equal(real.length, 100);
+  assert.equal(outcome.errors.at(-1), "error 149");
+  assert.ok(outcome.errors.some((message) => /Omitted 50 older distinct error/.test(message)));
+});
+
+test("shortens an oversized error message", async () => {
+  const { outcome } = await runAgainst({ chunks: [jsonl(errorItem("x".repeat(10_000)))] });
+
+  const longest = Math.max(...outcome.errors.map((message) => message.length));
+  assert.ok(longest <= 2100, `longest error was ${longest} characters`);
+});
+
+test("lists a file edited many times only once", async () => {
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(...Array.from({ length: 300 }, () => fileChangeItem([{ path: "src/a.ts", kind: "update" }])), answerItem)],
+  });
+
+  assert.deepEqual(outcome.fileChanges, [{ path: "src/a.ts", kind: "update" }]);
+});
+
+test("caps distinct file changes and reports how many were omitted", async () => {
+  const changes = Array.from({ length: 1200 }, (_, index) => ({ path: `src/file-${index}.ts`, kind: "add" }));
+  const { outcome } = await runAgainst({ chunks: [jsonl(fileChangeItem(changes), answerItem)] });
+
+  assert.equal(outcome.fileChanges.length, 1000);
+  assert.equal(outcome.fileChanges[0]?.path, "src/file-0.ts");
+  assert.ok(outcome.errors.some((message) => /Omitted 200 file change/.test(message)));
+});
+

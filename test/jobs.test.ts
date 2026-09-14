@@ -4,7 +4,15 @@ import { test } from "node:test";
 import { JobRegistry } from "../src/jobs.ts";
 
 async function settle(registry: JobRegistry, jobId: string): Promise<void> {
-  for (let attempt = 0; attempt < 200 && registry.snapshot(jobId).state === "running"; attempt++) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    try {
+      if (registry.snapshot(jobId).state !== "running") return;
+    } catch (error) {
+      // With a zero retention, a status read evicts the job the moment it
+      // finishes — which is the behaviour under test, and also means it settled.
+      if (error instanceof Error && /Unknown job id/.test(error.message)) return;
+      throw error;
+    }
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
@@ -44,3 +52,51 @@ test("still records a run that could not start for another reason as failed", as
   assert.equal(registry.snapshot(jobId).state, "failed");
   assert.match(registry.snapshot(jobId).error ?? "", /ENOENT/);
 });
+
+async function finishedJob(registry: JobRegistry): Promise<string> {
+  const jobId = registry.start({
+    model: null,
+    reasoningEffort: null,
+    controller: new AbortController(),
+    run: () => Promise.reject(new Error("done")),
+  });
+  await settle(registry, jobId);
+  return jobId;
+}
+
+test("evicts an expired job when its status is read, not only when listing", async () => {
+  // Expiry used to be swept only by start() and list(), so a caller that only
+  // polled status kept every finished job forever.
+  const registry = new JobRegistry({ retentionMs: 0 });
+  const jobId = await finishedJob(registry);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.throws(() => registry.snapshot(jobId), /Unknown job id/);
+});
+
+test("never evicts a job that is still running, however old", async () => {
+  const registry = new JobRegistry({ retentionMs: 0 });
+  const jobId = registry.start({
+    model: null,
+    reasoningEffort: null,
+    controller: new AbortController(),
+    run: () => new Promise(() => {}),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.equal(registry.snapshot(jobId).state, "running");
+});
+
+test("keeps at most the configured number of finished jobs, dropping the oldest", async () => {
+  const registry = new JobRegistry({ maxFinishedJobs: 2 });
+  const first = await finishedJob(registry);
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const second = await finishedJob(registry);
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const third = await finishedJob(registry);
+
+  assert.throws(() => registry.snapshot(first), /Unknown job id/);
+  assert.equal(registry.snapshot(second).state, "failed");
+  assert.equal(registry.snapshot(third).state, "failed");
+});
+

@@ -36,6 +36,18 @@ const STDERR_LIMIT = 64 * 1024;
 const MESSAGE_CHARS_LIMIT = 1024 * 1024;
 const MESSAGE_COUNT_LIMIT = 1000;
 
+/**
+ * Caps on the other per-run lists, which grow with every tool call a long run
+ * makes. Commands keep the newest, like messages, because the latest state of a
+ * run is what the caller acts on. File changes keep the first distinct entries:
+ * they are a set of touched files, not a timeline. Whatever is dropped is
+ * counted and reported, never silently lost.
+ */
+const COMMAND_COUNT_LIMIT = 500;
+const ERROR_DISTINCT_LIMIT = 100;
+const ERROR_CHARS_LIMIT = 2000;
+const FILE_CHANGE_LIMIT = 1000;
+
 export interface RunOptions {
   invocation: CodexInvocation;
   /** Full prompt; written to the child's stdin, never placed on the argv. */
@@ -104,8 +116,15 @@ export function runCodex(options: RunOptions): RunHandle {
   const parser = new JsonLinesParser();
   const agentMessages: string[] = [];
   const commands: ExecutedCommand[] = [];
-  const fileChanges: FileChange[] = [];
-  const errors: string[] = [];
+  let omittedCommands = 0;
+  // Keyed by message, so an error Codex repeats is one entry with a count.
+  // Re-inserting on every occurrence keeps the map in last-seen order: the
+  // newest error stays last, and the failure summary quotes the last one.
+  const errorCounts = new Map<string, number>();
+  let omittedErrors = 0;
+  // Keyed by kind and path, so a file edited many times is listed once.
+  const fileChanges = new Map<string, FileChange>();
+  let omittedFileChanges = 0;
   let messageChars = 0;
   let messagesTruncated = false;
   let streamErrorReported = false;
@@ -121,11 +140,28 @@ export function runCodex(options: RunOptions): RunHandle {
   let settled = false;
   let killTimer: NodeJS.Timeout | undefined;
 
+  const addError = (raw: string): void => {
+    const message =
+      raw.length > ERROR_CHARS_LIMIT ? `${raw.slice(0, ERROR_CHARS_LIMIT)}… [truncated]` : raw;
+    const count = errorCounts.get(message);
+    if (count !== undefined) {
+      errorCounts.delete(message);
+      errorCounts.set(message, count + 1);
+      return;
+    }
+    if (errorCounts.size >= ERROR_DISTINCT_LIMIT) {
+      const oldest = errorCounts.keys().next().value;
+      if (oldest !== undefined) errorCounts.delete(oldest);
+      omittedErrors += 1;
+    }
+    errorCounts.set(message, 1);
+  };
+
   const reportStreamError = (error: unknown): void => {
     if (streamErrorReported) return;
     streamErrorReported = true;
     const message = error instanceof Error ? error.message : String(error);
-    errors.push(`Could not interpret Codex output: ${message}`);
+    addError(`Could not interpret Codex output: ${message}`);
   };
 
   const handleEvents = (events: CodexEvent[]): void => {
@@ -147,10 +183,24 @@ export function runCodex(options: RunOptions): RunHandle {
             }
           }
           const executed = toExecutedCommand(event);
-          if (executed) commands.push(executed);
+          if (executed) {
+            commands.push(executed);
+            if (commands.length > COMMAND_COUNT_LIMIT) {
+              commands.shift();
+              omittedCommands += 1;
+            }
+          }
           const reported = toErrorMessage(event);
-          if (reported) errors.push(reported);
-          fileChanges.push(...toFileChanges(event));
+          if (reported) addError(reported);
+          for (const change of toFileChanges(event)) {
+            const key = `${change.kind}\0${change.path}`;
+            if (fileChanges.has(key)) continue;
+            if (fileChanges.size >= FILE_CHANGE_LIMIT) {
+              omittedFileChanges += 1;
+              continue;
+            }
+            fileChanges.set(key, change);
+          }
         }
         if (event.type === "turn.completed") {
           usage = parseUsage(event) ?? usage;
@@ -235,12 +285,30 @@ export function runCodex(options: RunOptions): RunHandle {
       } catch (error) {
         reportStreamError(error);
       }
+      // Notices about what was dropped go first, so the newest error Codex
+      // actually reported stays last in the list.
+      const notices: string[] = [];
       if (parser.truncatedLines > 0) {
-        errors.push(`Truncated Codex output: discarded ${parser.truncatedLines} oversized JSONL line(s).`);
+        notices.push(`Truncated Codex output: discarded ${parser.truncatedLines} oversized JSONL line(s).`);
       }
       if (messagesTruncated) {
-        errors.push("Truncated Codex agent messages: retained only the newest messages within the output limit.");
+        notices.push("Truncated Codex agent messages: retained only the newest messages within the output limit.");
       }
+      if (omittedCommands > 0) {
+        notices.push(`Omitted ${omittedCommands} earlier command(s); only the newest ${COMMAND_COUNT_LIMIT} are listed.`);
+      }
+      if (omittedErrors > 0) {
+        notices.push(`Omitted ${omittedErrors} older distinct error(s); only the newest ${ERROR_DISTINCT_LIMIT} are listed.`);
+      }
+      if (omittedFileChanges > 0) {
+        notices.push(`Omitted ${omittedFileChanges} file change(s) beyond the first ${FILE_CHANGE_LIMIT} distinct files.`);
+      }
+      const errors = [
+        ...notices,
+        ...[...errorCounts].map(([message, count]) =>
+          count > 1 ? `${message} (repeated ${count} times)` : message,
+        ),
+      ];
       cleanup();
 
       resolve({
@@ -250,7 +318,7 @@ export function runCodex(options: RunOptions): RunHandle {
         reasoningEffort: invocation.reasoningEffort ?? null,
         sandbox: invocation.sandbox,
         commands,
-        fileChanges,
+        fileChanges: [...fileChanges.values()],
         agentMessages,
         errors,
         usage,
