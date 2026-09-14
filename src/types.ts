@@ -88,6 +88,13 @@ export interface DelegationResult {
   agentMessages: string[];
   /** In-band errors Codex reported without failing the process. */
   errors: string[];
+  /**
+   * Error items that report no failure, such as ignored project config keys or a
+   * model switch on resume. De-duplicated: Codex emits some of them twice.
+   */
+  warnings: string[];
+  /** Why Codex reported the turn as failed, when it did. */
+  turnFailure: string | null;
   usage: TokenUsage | null;
   durationMs: number;
   exitCode: number | null;

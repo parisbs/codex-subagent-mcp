@@ -114,7 +114,8 @@ async function withServer<T>(
   }
 
   spawnedArgs = [];
-  nextRun = { events: [], exitCode: 0 };
+  // An answered run by default: a clean exit with no answer is itself a failure.
+  nextRun = { events: [{ type: "item.completed", item: { type: "agent_message", text: "Done." } }], exitCode: 0 };
   const { server, jobs } = createServer();
   const tools = server as unknown as ToolServer;
   const extra = { signal: new AbortController().signal, sendNotification: async () => {} };
@@ -423,5 +424,31 @@ test("returns a successful background job without isError", async () => {
     const result = (await call("codex_job_result", { job_id: jobId })) as ToolResult;
     assert.notEqual(result.isError, true);
     assert.match(result.content[0]?.text ?? "", /Done\./);
+  });
+});
+
+test("fails a delegation whose turn failed and names the reason", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [ANSWER, { type: "turn.failed", error: { message: "You've hit your usage limit." } }],
+      exitCode: 1,
+    };
+    const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /turn as failed: You've hit your usage limit\./);
+  });
+});
+
+test("shows configuration notices without counting them as errors", async () => {
+  await withServer({}, async (call) => {
+    const notice = { type: "item.completed", item: { type: "error", message: "Ignored unsupported project-local config keys in x: notify." } };
+    nextRun = { events: [notice, notice, ANSWER], exitCode: 0 };
+    const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.notEqual(result.isError, true);
+    assert.match(text, /Codex notices \(1\):/);
+    assert.doesNotMatch(text, /error\(s\)/);
   });
 });

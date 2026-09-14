@@ -11,10 +11,13 @@ import { resolveCodexExecutable } from "./resolve.js";
 import {
   JsonLinesParser,
   describeEvent,
+  isNotice,
   parseUsage,
   toErrorMessage,
   toExecutedCommand,
   toFileChanges,
+  toStreamError,
+  toTurnFailure,
   type CodexEvent,
 } from "./events.js";
 
@@ -140,9 +143,21 @@ export function runCodex(options: RunOptions): RunHandle {
   let settled = false;
   let killTimer: NodeJS.Timeout | undefined;
 
+  // Notices repeat verbatim (Codex prints configuration warnings twice), so a
+  // set is enough; they share the error cap because they come from the same
+  // stream and are just as unbounded.
+  const warnings = new Set<string>();
+  let turnFailure: string | null = null;
+
+  const bound = (raw: string): string =>
+    raw.length > ERROR_CHARS_LIMIT ? `${raw.slice(0, ERROR_CHARS_LIMIT)}… [truncated]` : raw;
+
+  const addWarning = (raw: string): void => {
+    if (warnings.size < ERROR_DISTINCT_LIMIT) warnings.add(bound(raw));
+  };
+
   const addError = (raw: string): void => {
-    const message =
-      raw.length > ERROR_CHARS_LIMIT ? `${raw.slice(0, ERROR_CHARS_LIMIT)}… [truncated]` : raw;
+    const message = bound(raw);
     const count = errorCounts.get(message);
     if (count !== undefined) {
       errorCounts.delete(message);
@@ -191,7 +206,10 @@ export function runCodex(options: RunOptions): RunHandle {
             }
           }
           const reported = toErrorMessage(event);
-          if (reported) addError(reported);
+          if (reported) {
+            if (isNotice(reported)) addWarning(reported);
+            else addError(reported);
+          }
           for (const change of toFileChanges(event)) {
             const key = `${change.kind}\0${change.path}`;
             if (fileChanges.has(key)) continue;
@@ -204,6 +222,15 @@ export function runCodex(options: RunOptions): RunHandle {
         }
         if (event.type === "turn.completed") {
           usage = parseUsage(event) ?? usage;
+        }
+        const streamError = toStreamError(event);
+        if (streamError) addError(streamError);
+        const failure = toTurnFailure(event);
+        if (failure) {
+          turnFailure = bound(failure);
+          // Codex announces a fatal error as an `error` event and then fails the
+          // turn with the same text; listing it twice would read as two problems.
+          errorCounts.delete(turnFailure);
         }
         onEvent?.(event, describeEvent(event));
       } catch (error) {
@@ -321,6 +348,8 @@ export function runCodex(options: RunOptions): RunHandle {
         fileChanges: [...fileChanges.values()],
         agentMessages,
         errors,
+        warnings: [...warnings],
+        turnFailure,
         usage,
         durationMs: Date.now() - startedAt,
         exitCode: code,
