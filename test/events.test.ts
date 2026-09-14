@@ -198,3 +198,26 @@ test("applies the line limit to complete lines and the final unterminated line",
   assert.equal(parser.truncatedLines, 2);
   assert.deepEqual(parser.push('{"type":"turn.completed"}\n'), [{ type: "turn.completed" }]);
 });
+
+test("describes a completed web search with its query", () => {
+  // Shapes captured from a real `web_search="live"` run on codex-cli 0.154.0.
+  const started = {
+    type: "item.started",
+    item: { id: "item_0", type: "web_search", query: "", action: { type: "other" } },
+  };
+  const completed = {
+    type: "item.completed",
+    item: {
+      id: "item_0",
+      type: "web_search",
+      query: "site:nodejs.org current latest stable release Node.js",
+      action: { type: "search", query: "site:nodejs.org current latest stable release Node.js" },
+    },
+  };
+
+  assert.equal(describeEvent(started), null);
+  assert.equal(
+    describeEvent(completed),
+    "Searched the web: site:nodejs.org current latest stable release Node.js",
+  );
+});

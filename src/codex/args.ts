@@ -38,6 +38,16 @@ export interface CodexInvocation {
 const WORKTREE_ARGS = ["--enable", "worktrees", "--worktree"] as const;
 
 /**
+ * Live web search, as a config override rather than a flag.
+ *
+ * `--search` belongs to `codex` itself, not to `codex exec`: after the
+ * subcommand, codex-cli 0.154.0 rejects it with "unexpected argument '--search'
+ * found". `web_search = "live"` is the documented setting behind it, `exec`
+ * accepts it through `--config`, and the argv keeps starting with `exec`.
+ */
+const WEB_SEARCH_ARGS = ["--config", 'web_search="live"'] as const;
+
+/**
  * Shape a thread id must have before it is allowed onto the argv.
  *
  * `exec resume` takes the thread id positionally, so a value beginning with a
@@ -99,7 +109,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
   }
 
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
-  if (invocation.webSearch) args.push("--search");
+  if (invocation.webSearch) args.push(...WEB_SEARCH_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
 

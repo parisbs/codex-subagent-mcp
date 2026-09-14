@@ -288,6 +288,12 @@ test("advertises the configured default and refusal behaviour for the delegate m
 
 const DESCRIPTION_CASES = [
   {
+    name: "advertises web search as live retrieval for the run",
+    tool: "codex_delegate",
+    parameter: "web_search",
+    description: "Enable live web search for this run, through Codex's web_search = \"live\" setting. When omitted, Codex's own configured web_search mode applies.",
+  },
+  {
     name: "advertises effort defaults and the supported ceiling constraint",
     tool: "codex_delegate",
     parameter: "reasoning_effort",
