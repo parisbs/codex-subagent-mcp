@@ -24,7 +24,10 @@ export type DiagnosisStatus =
   /** Found, but only as a Windows .cmd/.bat shim that cannot be spawned. */
   | "unsupported-shim"
   | "unauthenticated"
+  /** Installed, but its configuration cannot be loaded. */
+  | "config-error"
   | "unverified-version"
+  /** Installed, but the sign-in probe did not answer in time. */
   | "unknown";
 
 export interface Diagnosis {
@@ -40,9 +43,54 @@ export interface Diagnosis {
   remediation: string[];
 }
 
-/** True when the CLI is usable enough to attempt a delegation. */
+/**
+ * True when the CLI is usable enough to attempt a delegation.
+ *
+ * `unknown` is usable: a sign-in probe that timed out proves nothing either way,
+ * and the delegation's own failure is reported verbatim if something is wrong.
+ */
 export function isUsable(diagnosis: Diagnosis): boolean {
-  return diagnosis.status === "ok" || diagnosis.status === "unverified-version";
+  return (
+    diagnosis.status === "ok" ||
+    diagnosis.status === "unverified-version" ||
+    diagnosis.status === "unknown"
+  );
+}
+
+/**
+ * The prefix `codex login status` prints when the configuration cannot be loaded.
+ *
+ * Verified against codex-cli 0.154.0 with a scratch `CODEX_HOME`: a TOML syntax
+ * error, an invalid value such as `sandbox_mode="bogus"`, the removed top-level
+ * `profile = "x"` selector, an unknown `model_provider` and a missing
+ * `model_catalog_json` file all exit 1 with this prefix. Treating that exit as
+ * "signed out" sent users to sign in again when their config file was the
+ * problem.
+ */
+const CONFIG_LOAD_ERROR = /^Error loading configuration:/m;
+
+export type LoginProbe =
+  | { authenticated: boolean }
+  | { authenticated: null; configError?: string };
+
+/**
+ * Interprets how `codex login status` failed. Pure, for testing.
+ *
+ * A zero exit is handled by the caller; this only sees the rejection from
+ * `execFile`, which carries the child's stderr and whether it was killed.
+ */
+export function classifyLoginFailure(error: unknown): LoginProbe {
+  const failure = (typeof error === "object" && error !== null ? error : {}) as {
+    stderr?: unknown;
+    killed?: unknown;
+  };
+  const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
+  if (CONFIG_LOAD_ERROR.test(stderr)) {
+    return { authenticated: null, configError: stderr };
+  }
+  // A probe killed by its own timeout says nothing about the sign-in state.
+  if (failure.killed === true) return { authenticated: null };
+  return { authenticated: false };
 }
 
 /**
@@ -131,6 +179,8 @@ export function diagnose(input: {
   platform?: NodeJS.Platform;
   /** Set when the CLI was found only as an unrunnable Windows shim. */
   shimPath?: string;
+  /** The CLI's own message when its configuration could not be loaded. */
+  configError?: string;
 }): Diagnosis {
   const { codexPath, version, authenticated, platform = process.platform } = input;
   const base = { codexPath, version, authenticated };
@@ -168,6 +218,21 @@ export function diagnose(input: {
     };
   }
 
+  if (input.configError) {
+    return {
+      ...base,
+      status: "config-error",
+      summary:
+        `The Codex CLI ${version} is installed, but it cannot load its configuration, so every ` +
+        "delegation will fail. This is not a sign-in problem.",
+      remediation: [
+        "Codex reported:",
+        input.configError,
+        "Fix the file or value it names, then retry. To check the result without delegating, run: codex doctor",
+      ],
+    };
+  }
+
   if (authenticated === false) {
     return {
       ...base,
@@ -179,6 +244,17 @@ export function diagnose(input: {
         'Choose "Sign in with ChatGPT", or use an API key: printenv OPENAI_API_KEY | codex login --with-api-key',
         "Confirm with: codex login status",
       ],
+    };
+  }
+
+  if (authenticated === null) {
+    return {
+      ...base,
+      status: "unknown",
+      summary:
+        `The Codex CLI ${version} is installed, but checking whether an account is signed in did not ` +
+        "finish in time. Delegations will be attempted; if they fail, Codex's own error is reported.",
+      remediation: ["Check the sign-in state by running: codex login status"],
     };
   }
 
@@ -263,17 +339,23 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
   // the message varies by auth method, so the exit code is the signal.
   //
   // Verified against the real CLI: signed in exits 0 ("Logged in using ChatGPT"),
-  // signed out exits 1 ("Not logged in").
-  let authenticated: boolean | null = null;
+  // signed out exits 1 ("Not logged in"). A config that cannot be loaded also
+  // exits 1, which is why the failure is classified rather than read as signed out.
+  let probe: LoginProbe;
   try {
     await execFileAsync(target, ["login", "status"], { timeout: PROBE_TIMEOUT_MS });
-    authenticated = true;
-  } catch {
-    authenticated = false;
+    probe = { authenticated: true };
+  } catch (error) {
+    probe = classifyLoginFailure(error);
   }
 
   const diagnosis: Diagnosis = {
-    ...diagnose({ codexPath, version, authenticated }),
+    ...diagnose({
+      codexPath,
+      version,
+      authenticated: probe.authenticated,
+      ...("configError" in probe && probe.configError ? { configError: probe.configError } : {}),
+    }),
     resolvedPath: target,
   };
   if (diagnosis.status === "ok") cached = diagnosis;
