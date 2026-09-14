@@ -37,7 +37,7 @@ import {
 } from "./types.js";
 
 export const SERVER_NAME = "codex-subagent";
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.2.0";
 
 const effortSchema = z.enum(REASONING_EFFORTS);
 const sandboxSchema = z.enum(SANDBOX_MODES);
