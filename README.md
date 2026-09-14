@@ -231,6 +231,9 @@ Follow-ups reuse the context Codex already has, so they cost a fraction of the o
 
 > Ask Codex to expand on its second finding.
 
+The follow-up runs on the same model, effort and directory as the original. Codex itself does not
+keep those when a session resumes, so the server restates them for every thread it started.
+
 ### Let it write, when you mean it
 
 > Have Codex apply its first two suggestions. Let it edit files, but keep it inside a git worktree
@@ -346,8 +349,9 @@ For advice rather than a decision, ask:
 
 That routes mechanical edits to the fast model at `low`, everyday work to the balanced one at
 `medium`, multi-file migrations to the agentic workhorse at `high`, and hard reasoning problems to
-the most capable model at `xhigh` or `ultra`. It is a suggestion you can ignore. An effort the chosen
-model does not support is clamped down, with a note saying so.
+the most capable model at `xhigh` or `ultra`. It is a suggestion you can ignore, and it stays within
+the model allow-list and effort ceiling you configure. An effort the chosen model does not support is
+adjusted to the closest level it does, with a note saying so.
 
 ## Configuration
 

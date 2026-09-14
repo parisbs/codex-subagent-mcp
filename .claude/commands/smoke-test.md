@@ -16,8 +16,9 @@ Verify the server works against the real Codex CLI. Delegations cost quota, so u
 5. `codex_delegate` with `sandbox: "read-only"` against this repository, asking Codex to read one
    file and report a fact. Confirm progress notifications arrive, and that the result reports a
    `thread_id`, the token usage and the commands run.
-6. `codex_follow_up` with that `thread_id` and the same `model` — confirm Codex still has the
-   earlier context.
+6. `codex_follow_up` with that `thread_id` and no `model` — confirm Codex still has the earlier
+   context, that the argv restated the original model and effort, and that no "recorded with model"
+   notice appears.
 7. Error paths: an unknown model slug, `ultra` on `gpt-5.6-luna` (must clamp to `max` with a note),
    a relative `working_dir`, and a `timeout_seconds` of 10 on a long task (must report the timeout
    and be flagged as an error).

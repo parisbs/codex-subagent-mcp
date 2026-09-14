@@ -71,6 +71,13 @@ restoring it, which avoids signing the account out:
 - signed in: exits `0`, prints "Logged in using ChatGPT"
 - signed out: exits `1`, prints "Not logged in"
 
+Correction for 0.2.0: the exit code alone turned out not to be enough. A Codex configuration the CLI
+cannot load also makes `codex login status` exit `1`, with `Error loading configuration:` on stderr,
+and was reported as signed out. The preflight now reads that prefix and reports a separate
+`config-error` state, and a probe killed by its own timeout is `unknown` rather than signed out.
+The catalog no longer falls back to `FALLBACK_MODELS` for a configuration error, and no delegation is
+validated against the fallback.
+
 Worth recording how close that came to being measured wrong: the first attempt read `$?` after
 piping the command into `head`, so it captured `head`'s exit code and reported `0` for both cases.
 Had that reading been trusted, the signed-out branch would never fire. Measure the exit code of the
