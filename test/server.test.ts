@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import cp from "node:child_process";
 import { EventEmitter } from "node:events";
+import { tmpdir } from "node:os";
 import { syncBuiltinESMExports } from "node:module";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
@@ -47,6 +48,7 @@ const CATALOG = {
 };
 
 let spawnedArgs: string[][] = [];
+let spawnedCwds: (string | undefined)[] = [];
 
 /** What the next spawned "Codex" writes to stdout and how it exits. */
 let nextRun: { events: unknown[]; exitCode: number } = { events: [], exitCode: 0 };
@@ -60,8 +62,9 @@ const fakeExecFile = async (_file: string, args: string[]): Promise<{ stdout: st
 cp.execFile = (() => {}) as unknown as typeof cp.execFile;
 (cp.execFile as unknown as Record<symbol, unknown>)[promisify.custom] = fakeExecFile;
 
-cp.spawn = ((_file: string, args: string[]) => {
+cp.spawn = ((_file: string, args: string[], options?: { cwd?: string }) => {
   spawnedArgs.push(args);
+  spawnedCwds.push(options?.cwd);
   const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
   Object.assign(child, {
     stdin: new PassThrough(),
@@ -114,6 +117,7 @@ async function withServer<T>(
   }
 
   spawnedArgs = [];
+  spawnedCwds = [];
   // An answered run by default: a clean exit with no answer is itself a failure.
   nextRun = { events: [{ type: "item.completed", item: { type: "agent_message", text: "Done." } }], exitCode: 0 };
   const { server, jobs } = createServer();
@@ -139,9 +143,8 @@ async function withServer<T>(
 }
 
 test("applies the configured ceiling to a follow-up that passes no overrides", async () => {
-  // A resumed session keeps the model and effort it was created with, and the
-  // server cannot read those back. Skipping the policy here let a thread run
-  // above ALLOWED_MODELS and MAX_EFFORT forever, just by never overriding.
+  // Skipping the policy on follow-ups let a thread run above ALLOWED_MODELS and
+  // MAX_EFFORT forever, just by never overriding.
   await withServer(
     {
       CODEX_SUBAGENT_ALLOWED_MODELS: "cheap-model",
@@ -175,14 +178,80 @@ test("refuses a follow-up naming a model outside the allow-list", async () => {
   });
 });
 
-test("leaves a follow-up inheriting the session when no ceiling is configured", async () => {
-  // The ceiling is the reason to intervene. With none set, a follow-up should
-  // still be the cheap "just continue" call it is meant to be.
+test("refuses a follow-up on an unknown thread when no model can be stated", async () => {
+  // Resuming without --model lets the directory's config pick the model, so the
+  // server no longer leaves it out.
   await withServer({}, async (call) => {
-    await call("codex_follow_up", { thread_id: "some-thread", prompt: "continue" });
+    const result = (await call("codex_follow_up", { thread_id: "some-thread", prompt: "continue" })) as ToolResult;
 
-    const args = spawnedArgs[0] ?? [];
-    assert.ok(!args.includes("--model"), `expected no model override, got ${JSON.stringify(args)}`);
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /no record of thread "some-thread"/);
+    assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+  });
+});
+
+const threadStarted = (threadId: string) => ({ type: "thread.started", thread_id: threadId });
+const answered = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
+
+test("restates a thread's model, effort and directory on a follow-up", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [threadStarted("recorded-thread"), answered], exitCode: 0 };
+    await call("codex_delegate", {
+      prompt: "anything",
+      model: "expensive-model",
+      reasoning_effort: "low",
+      working_dir: tmpdir(),
+      skip_git_repo_check: true,
+    });
+
+    const result = (await call("codex_follow_up", { thread_id: "recorded-thread", prompt: "continue" })) as ToolResult;
+    const args = spawnedArgs[1] ?? [];
+
+    assert.notEqual(result.isError, true);
+    assert.equal(args[args.indexOf("--model") + 1], "expensive-model");
+    assert.ok(args.includes('model_reasoning_effort="low"'), JSON.stringify(args));
+    assert.ok(args.includes("--skip-git-repo-check"));
+    assert.equal(spawnedCwds[1], tmpdir());
+  });
+});
+
+test("does not carry a thread's effort over to a different model", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [threadStarted("switching-thread"), answered], exitCode: 0 };
+    await call("codex_delegate", { prompt: "anything", model: "expensive-model", reasoning_effort: "low" });
+
+    await call("codex_follow_up", { thread_id: "switching-thread", prompt: "continue", model: "cheap-model" });
+    const args = spawnedArgs[1] ?? [];
+
+    assert.equal(args[args.indexOf("--model") + 1], "cheap-model");
+    // cheap-model's own default, not the effort chosen for expensive-model.
+    assert.ok(args.includes('model_reasoning_effort="medium"'), JSON.stringify(args));
+  });
+});
+
+test("remembers the thread of a background delegation", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [threadStarted("background-thread"), answered], exitCode: 0 };
+    await runInBackground(call);
+
+    await call("codex_follow_up", { thread_id: "background-thread", prompt: "continue" });
+    const args = spawnedArgs[1] ?? [];
+    assert.equal(args[args.indexOf("--model") + 1], "cheap-model");
+  });
+});
+
+test("refuses auto_approve on a follow-up instead of dropping it", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    const result = (await call("codex_follow_up", {
+      thread_id: "some-thread",
+      prompt: "continue",
+      sandbox: "workspace-write",
+      auto_approve: true,
+    })) as ToolResult;
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /auto_approve is not supported on follow-ups/);
+    assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
   });
 });
 

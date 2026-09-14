@@ -49,6 +49,11 @@ subcommands and between versions. Two traps already found the hard way, both cov
   `turn.failed` as fatal. When a new warning shows up as an error, add its shape there rather than
   loosening the rule.
 
+- A resumed session does not keep its model. `codex exec resume` without `--model` takes the model
+  from the config of the directory it runs in, even when the thread was recorded on another one, and
+  an effort missing from the argv comes from config even if the model does not support it. That is
+  why follow-ups always restate model, effort and directory (`src/threads.ts`).
+
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
 

@@ -27,6 +27,7 @@ import { describeFailure } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { assemblePrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
+import { ThreadRegistry, type ThreadSettings } from "./threads.js";
 import {
   REASONING_EFFORTS,
   SANDBOX_MODES,
@@ -380,7 +381,14 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     { capabilities: { tools: {}, logging: {} } },
   );
   const jobs = new JobRegistry();
+  const threads = new ThreadRegistry();
   const { config, errors: configErrors } = loadConfig();
+
+  /** Records what a finished run used, so a follow-up on its thread can state it again. */
+  const rememberThread = (result: DelegationResult, settings: ThreadSettings): DelegationResult => {
+    if (result.threadId) threads.record(result.threadId, settings);
+    return result;
+  };
 
   /** Refuses every call while the environment is misconfigured. */
   const requireValidConfig = (): void => {
@@ -604,6 +612,12 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         };
 
         const timeoutSeconds = args.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS;
+        const threadSettings: ThreadSettings = {
+          model,
+          reasoningEffort: effort,
+          ...(args.working_dir ? { workingDir: args.working_dir } : {}),
+          skipGitRepoCheck: args.skip_git_repo_check ?? false,
+        };
 
         if (args.mode === "background") {
           const controller = new AbortController();
@@ -618,7 +632,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
                 timeoutSeconds,
                 signal: controller.signal,
                 onEvent: hooks.onEvent,
-              }).result,
+              }).result.then((result) => rememberThread(result, threadSettings)),
           });
 
           return textResult(
@@ -654,7 +668,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           onEvent,
           signal: extra.signal,
         });
-        const result = await handle.result;
+        const result = rememberThread(await handle.result, threadSettings);
         return textResult(renderResult(result, notes), isFailure(result));
       } catch (error) {
         return errorResult(error);
@@ -676,15 +690,24 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           .regex(THREAD_ID_PATTERN, "thread_id must be an identifier reported by a previous delegation")
           .describe("The thread_id reported by a previous codex_delegate call."),
         prompt: z.string().min(1).describe("The follow-up instruction."),
-        model: z.string().optional().describe("Override the model for this turn."),
+        model: z
+          .string()
+          .optional()
+          .describe("Override the model for this turn. Defaults to the model the thread last ran with on this server; for a thread this server has no record of, the configured default, else the call is refused."),
         reasoning_effort: effortSchema
           .optional()
-          .describe("Override the reasoning effort for this turn."),
+          .describe("Override the reasoning effort for this turn. Defaults to the thread's last effort when the model is unchanged, otherwise to the configured or model default."),
         sandbox: sandboxSchema
           .optional()
           .describe("Sandbox policy for this turn. Defaults to read-only."),
-        auto_approve: z.boolean().optional(),
-        working_dir: z.string().optional(),
+        auto_approve: z
+          .boolean()
+          .optional()
+          .describe("Not supported on follow-ups: true is refused and nothing runs."),
+        working_dir: z
+          .string()
+          .optional()
+          .describe("Absolute directory to resume in. Defaults to the directory the thread last ran in."),
         timeout_seconds: z.number().int().positive().max(7200).optional(),
       },
       annotations: { readOnlyHint: false, openWorldHint: true },
@@ -692,54 +715,66 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     async (args, extra) => {
       try {
         requireValidConfig();
-        validateWorkingDir(args.working_dir);
+
+        // `codex exec resume` has no --approve-for-me, and this server never
+        // applied the flag on resume. Accepting it and running without it told
+        // the caller something that did not happen.
+        if (args.auto_approve) {
+          throw new Error(
+            "auto_approve is not supported on follow-ups, so nothing was run. Continue without it, or " +
+              "start a new codex_delegate with auto_approve if the task needs it.",
+          );
+        }
 
         const sandbox: SandboxMode = (args.sandbox ?? "read-only") as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
 
-        const notes: string[] = [];
-        let model: string | undefined;
-        let effort: ReasoningEffort | undefined;
+        // A resumed session does not keep its model or effort: without them on
+        // the argv, Codex takes both from the configuration of the directory it
+        // resumes in (see `src/threads.ts`). So they are always stated — the
+        // caller's override, else what the thread last ran with here, else the
+        // configured default — and resolved through the same policy as a new
+        // delegation, which also keeps ALLOWED_MODELS and MAX_EFFORT in force.
+        const recorded = threads.get(args.thread_id);
+        const requestedModel = args.model ?? recorded?.model;
+        const keepsModel = recorded !== undefined && requestedModel === recorded.model;
+        const requestedEffort =
+          (args.reasoning_effort as ReasoningEffort | undefined) ??
+          (keepsModel ? recorded.reasoningEffort : undefined);
 
-        // A resumed session keeps whatever model and effort it was created with,
-        // and this server cannot read those back out of the CLI. So when the
-        // operator has configured a ceiling, stating the model and effort
-        // explicitly on the resume is the only way to honour it: skipping the
-        // policy here let a thread carry on above ALLOWED_MODELS and MAX_EFFORT
-        // indefinitely, just by never passing an override.
-        const ceilingApplies = config.allowedModels.length > 0 || config.maxEffort !== null;
-
-        if (args.model || args.reasoning_effort || ceilingApplies) {
-          const resolved = await resolveModelAndEffort(
-            args.model,
-            args.reasoning_effort as ReasoningEffort | undefined,
-            args.prompt,
-            config,
-          );
-          model = resolved.model;
-          effort = resolved.effort;
-          notes.push(...resolved.notes);
-          if (!args.model && !args.reasoning_effort) {
-            notes.push(
-              "This server is configured with model or effort limits, so the resumed turn states " +
-                "both explicitly rather than inheriting the session's own settings.",
+        let resolved: Awaited<ReturnType<typeof resolveModelAndEffort>>;
+        try {
+          resolved = await resolveModelAndEffort(requestedModel, requestedEffort, args.prompt, config);
+        } catch (error) {
+          if (error instanceof ModelRequiredError) {
+            throw new ModelRequiredError(
+              `This server has no record of thread "${args.thread_id}" (it was started by another ` +
+                "server process, or this one restarted), so it cannot restate the model the thread ran " +
+                "with. Without one, Codex would take the model from the configuration of the directory " +
+                "it resumes in. Pass the model the original delegation used.\n\n" +
+                error.message,
             );
           }
-        } else {
-          // resolveModelAndEffort runs the preflight as a side effect; when it
-          // is skipped the check still has to happen.
-          await requireUsableCodex();
+          throw error;
         }
+        const { model, effort, notes } = resolved;
+
+        const workingDir = args.working_dir ?? recorded?.workingDir;
+        validateWorkingDir(workingDir);
+        if (!args.working_dir && workingDir) {
+          notes.push(`Resuming in the directory the thread last ran in (${workingDir}).`);
+        }
+        const skipGitRepoCheck = recorded?.skipGitRepoCheck ?? false;
 
         const invocation: CodexInvocation = {
           kind: "resume",
           threadId: args.thread_id,
-          ...(model ? { model } : {}),
-          ...(effort ? { reasoningEffort: effort } : {}),
+          model,
+          reasoningEffort: effort,
           sandbox,
-          autoApprove: args.auto_approve ?? false,
-          workingDir: args.working_dir,
+          ...(workingDir ? { workingDir } : {}),
+          skipGitRepoCheck,
         };
 
         const progressToken = extra._meta?.progressToken;
@@ -764,7 +799,12 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           },
         });
 
-        const result = await handle.result;
+        const result = rememberThread(await handle.result, {
+          model,
+          reasoningEffort: effort,
+          ...(workingDir ? { workingDir } : {}),
+          skipGitRepoCheck,
+        });
         return textResult(renderResult(result, notes), isFailure(result));
       } catch (error) {
         return errorResult(error);
