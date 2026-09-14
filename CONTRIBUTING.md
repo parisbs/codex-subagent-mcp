@@ -11,7 +11,7 @@ npm run build
 npm test
 ```
 
-You need Node 20 or newer. For anything beyond unit tests you also need the
+You need Node 22 or newer. For anything beyond unit tests you also need the
 [Codex CLI](https://developers.openai.com/codex/cli) installed and signed in — the server delegates
 to it, so without it there is nothing to delegate to. On macOS install it with
 `brew install --cask codex` rather than npm; see the README for why.

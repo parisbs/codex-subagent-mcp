@@ -22,24 +22,25 @@ jobs:
       fail-fast: false
       matrix:
         # Node versions are exercised on Linux, which is the cheapest runner:
-        # 20 is the floor declared in package.json engines, 24 is what the
-        # project is developed against, and 26 is what a desktop app launched
-        # from the Dock would pick up on a machine with Homebrew's Node.
+        # 22 is the floor declared in package.json engines (the oldest Node line
+        # not yet end-of-life; see docs/VERSIONING.md), 24 is what the project is
+        # developed against, and 26 is what a desktop app launched from the Dock
+        # would pick up on a machine with Homebrew's Node.
         #
         # The other platforms get one Node version each: the risk they carry is
         # the operating system, not the runtime.
         include:
           - os: ubuntu-latest
-            node: "20"
+            node: "22"
           - os: ubuntu-latest
             node: "24"
           - os: ubuntu-latest
             node: "26"
-          # Windows on the engines floor is the combination most likely to
-          # break: cmd.exe does not expand globs, and neither does Node 20's
-          # --test, which only grew that ability in Node 22.
+          # Windows runs on the engines floor because npm scripts go through
+          # cmd.exe there, which expands no globs and has no rm. Node 22's --test
+          # can expand a pattern itself, but the suite must not rely on either.
           - os: windows-latest
-            node: "20"
+            node: "22"
           - os: windows-latest
             node: "24"
           - os: macos-latest
