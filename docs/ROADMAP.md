@@ -178,18 +178,45 @@ treats the CLI's output and the caller's input as well-formed. The parts that we
 adversarially — the prompt never touching the argv, the executable resolved without a shell — held
 up under direct attack. The parts that were merely written carefully did not.
 
-A planning review that followed found three more gaps of the same kind, now part of this release: the
-effort ceiling could produce an effort the model does not support
-([#38](https://github.com/parisbs/codex-subagent-mcp/issues/38)), the `model` parameter still told
-the orchestrator that omitting it picks one automatically
+A planning review that followed found three more gaps of the same kind, also fixed: the effort
+ceiling could produce an effort the model does not support
+([#38](https://github.com/parisbs/codex-subagent-mcp/issues/38)), the `model` parameter told the
+orchestrator that omitting it picks one automatically
 ([#39](https://github.com/parisbs/codex-subagent-mcp/issues/39)), and commands, errors and file
-changes are still retained without limit
+changes were retained without limit
 ([#42](https://github.com/parisbs/codex-subagent-mcp/issues/42)).
+
+Using the server for real work then found two things no review had. `web_search: true` had never
+worked: `--search` belongs to `codex`, not `codex exec`, and every run that set it died in argument
+parsing ([#48](https://github.com/parisbs/codex-subagent-mcp/issues/48)). And when a delegation hit
+the ChatGPT plan's usage limit, the only thing reported was an exit code.
+
+That second one led to a deliberate look at how Codex's own configuration — `config.toml` at user
+and project level, and managed `requirements.toml` — interacts with a delegation. Every behaviour was
+checked against the installed CLI with a scratch `CODEX_HOME`, and four fixes came out of it:
+
+- [#51](https://github.com/parisbs/codex-subagent-mcp/issues/51) — a config Codex cannot load was
+  reported as "not signed in", and the catalog quietly fell back to the static list.
+- [#52](https://github.com/parisbs/codex-subagent-mcp/issues/52) — a resumed session does not keep
+  its model: without `--model`, Codex takes it from the config of the directory it resumes in.
+  Follow-ups now always restate model, effort and directory.
+- [#53](https://github.com/parisbs/codex-subagent-mcp/issues/53) — `turn.failed` and top-level
+  `error` events were ignored, while configuration warnings were counted as errors.
+- [#54](https://github.com/parisbs/codex-subagent-mcp/issues/54) — recommendations ignored
+  `MAX_EFFORT`.
+
+The same work settled a design question: this server's policy stays in environment variables rather
+than moving into Codex's `config.toml`. Codex's files are layered per directory and a trusted
+repository can contribute to them, which is exactly where a ceiling meant to bound that repository
+must not live. Codex's own restrictions exist, but in administrator-managed `requirements.toml`, which
+this server cannot write and an individual user usually cannot either; they apply on top of this
+server's ceilings rather than replacing them.
 
 This was planned as a 0.1.1 of fixes alone. It becomes 0.2.0 because it also raises the supported
 Node floor to 22 ([#43](https://github.com/parisbs/codex-subagent-mcp/issues/43)): Node 20 reached
 end-of-life on 2026-04-30, and dropping a Node line is breaking under
-[VERSIONING.md](VERSIONING.md).
+[VERSIONING.md](VERSIONING.md). Several of the fixes above change behaviour a caller could see, which
+a minor bump also covers.
 
 ## 0.3.0 — Delegated code review
 
@@ -203,6 +230,14 @@ Open question: whether review findings are worth parsing into a structured list,
 prose summary is enough for the orchestrator to act on. That may depend on 0.4.0.
 
 [#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)
+
+The configuration work behind 0.2.0 left two follow-ups here. Results report the model, effort and
+sandbox this server *requested*; Codex writes what it actually applied to each session's rollout, and
+comparing the two would turn a silent override — by managed requirements, say — into a visible one,
+without this server re-implementing Codex's configuration merge
+([#55](https://github.com/parisbs/codex-subagent-mcp/issues/55)). And the preflight and catalog still
+run in the server's own directory rather than the delegation's, so a trusted project's config is not
+part of what they check ([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)).
 
 ## 0.4.0 — Structured results
 

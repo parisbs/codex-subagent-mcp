@@ -53,10 +53,31 @@ its answer.
 Defaults are chosen accordingly:
 
 - **`read-only` is the default sandbox.** Writing requires an explicit `sandbox: "workspace-write"`.
-- **`auto_approve` is off by default**, and is ignored under a read-only sandbox.
+- **`auto_approve` is off by default**, applies only under `workspace-write`, and is refused on
+  follow-ups rather than silently dropped.
 - **`danger-full-access` is never combined with auto-approval.** An unsandboxed run that also
   approves its own commands has no check left.
 - **`use_worktree`** confines writes to a managed git worktree rather than your working tree.
+
+### Codex configuration in the working directory
+
+Codex layers configuration: its own `~/.codex/config.toml`, and a project's `.codex/config.toml` when
+you have marked that project as trusted in Codex. A trusted repository can therefore set defaults
+for the delegations that run inside it — model, reasoning effort, sandbox mode, web search, MCP
+servers, hooks and rules. Verified against codex-cli 0.154.0:
+
+- An untrusted project's `.codex/config.toml` is not loaded at all.
+- Flags on the command line win over `config.toml` at every level; only administrator-managed
+  requirements can still restrict them further. This server always passes the sandbox, model and
+  reasoning effort explicitly, on new delegations and on follow-ups, so a repository cannot widen
+  the sandbox or switch the model of a delegation this server started. Before 0.2.0 a follow-up could
+  leave the model out, and the project's config then chose it.
+- Hooks from a project still need Codex's own hook trust; this server never bypasses it.
+
+Two consequences worth acting on. Only mark repositories you control as trusted in Codex. And keep
+this server's ceilings (`CODEX_SUBAGENT_*`) outside the working tree — in Claude Code's `local` or
+`user` scope, or Claude Desktop's config — because a `workspace-write` delegation can edit a project
+`.mcp.json`; Codex keeps only `.git`, `.codex` and `.agents` read-only there.
 
 ## Injection
 
@@ -87,8 +108,11 @@ Stated plainly, because a security policy that implies more coverage than it has
 
   There is a real mitigation, but it is not ours to apply. The Codex CLI's schema includes a
   `filesystem.deny_read` list within its managed requirements, read from `/etc/codex/requirements.toml`
-  on macOS and Linux — machine-wide configuration that needs administrator access. Its location on
-  Windows was not verified. It cannot be set per invocation, so
+  on macOS and Linux — machine-wide configuration that needs administrator access. OpenAI's
+  [managed configuration](https://learn.chatgpt.com/docs/enterprise/managed-configuration) page
+  gives `%ProgramData%\OpenAI\Codex\requirements.toml` on Windows, which has not been tried here. A
+  `requirements.toml` placed in `~/.codex` is ignored, at least on macOS. It cannot be set per
+  invocation, so
   this server cannot apply it on your behalf, and it would be wrong for it to try. If reads are a
   concern for you, that file is where to look. Note that we located this in the CLI's configuration
   schema but did not verify it working, because doing so would have meant altering a machine's
@@ -99,7 +123,11 @@ Stated plainly, because a security policy that implies more coverage than it has
   or container that has no access to the secrets in the first place.
 
 - **Delegation output is not sanitised.** What Codex returns is passed back to the orchestrator as
-  text. Treat it as data.
+  text. Each result opens with a line saying it is information, not instructions, which helps a model
+  keep the distinction but does not enforce it. Treat it as data.
+- **Other MCP servers are outside this server's reach.** A malicious server's tool description can
+  try to steer how the orchestrator uses this one. This server cannot detect that; install MCP
+  servers you trust. [docs/CONTROL.md](docs/CONTROL.md) covers the controls that do hold.
 - **The server trusts the Codex CLI.** If your Codex installation is compromised, so is this.
 - **`danger-full-access` removes the sandbox.** It is available because it is sometimes necessary;
   it is not defended.

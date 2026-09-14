@@ -99,8 +99,8 @@ diagnosis. `scripts/check-startup.mjs` asserts this in CI.
 `src/index.ts` starts the stdio transport and cancels running jobs on shutdown.
 `src/server.ts` registers the eight tools and owns all user-facing formatting.
 
-- `src/codex/doctor.ts` — preflight: is the CLI installed, recent enough and signed in, and what
-  should the user run if not.
+- `src/codex/doctor.ts` — preflight: is the CLI installed, recent enough, signed in and able to load
+  its configuration, and what should the user run if not.
 - `src/codex/resolve.ts` — finds the Codex executable the way a shell would, without a shell.
 - `src/codex/catalog.ts` — reads, normalises and caches the model catalog; clamps a requested
   reasoning effort to what the chosen model supports.
@@ -113,6 +113,8 @@ diagnosis. `scripts/check-startup.mjs` asserts this in CI.
 - `src/recommend.ts` — the model/effort matrix, always reconciled against the live catalog. Advice
   only.
 - `src/jobs.ts` — in-memory registry for `mode: "background"` delegations.
+- `src/threads.ts` — what each thread last ran with, so follow-ups can restate it.
+- `src/outcome.ts` — the one definition of a failed delegation, shared by blocking and background.
 
 Two independent axes govern a delegation: the **model** (`-m`) sets raw capability, the **reasoning
 effort** (`-c model_reasoning_effort=...`) sets how long it deliberates. Conflating them was the

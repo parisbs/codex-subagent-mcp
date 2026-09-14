@@ -25,7 +25,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
-| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and excluded models are hidden from `list_codex_models`. A list of exactly one acts as the default. |
+| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | The most permissive sandbox allowed. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
 
@@ -59,8 +59,9 @@ which is one more reason to cap it with `CODEX_SUBAGENT_MAX_SANDBOX`.
 
 ## `codex_doctor`
 
-Checks whether the local Codex CLI is installed, recent enough and signed in, and reports the exact
-steps to fix it if not. Inspects only; it never installs or changes anything.
+Checks whether the local Codex CLI is installed, recent enough, signed in and able to load its
+configuration, and reports the exact steps to fix it if not. Inspects only; it never installs or
+changes anything.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -120,26 +121,32 @@ Runs a task on the local Codex CLI.
 | --- | --- | --- | --- |
 | `prompt` | string | required | The task. Self-contained. |
 | `model` | string | required unless configured | A slug from `list_codex_models`. Omitted with no `CODEX_SUBAGENT_DEFAULT_MODEL` set means the call is refused with a suggestion. |
-| `reasoning_effort` | `low` … `ultra` | model default | Clamped to what the model supports, with a note. |
+| `reasoning_effort` | `low` … `ultra` | configured default, else the model's | Adjusted to the closest level the model supports within `CODEX_SUBAGENT_MAX_EFFORT`, with a note. |
 | `system_instructions` | string | — | Persona or extra rules, layered on the built-in quality contract. |
 | `context` | string | — | Background: prior findings, constraints, relevant excerpts. |
 | `target_files` | string[] | — | Paths to focus on, relative to `working_dir`. |
 | `acceptance_criteria` | string[] | — | Conditions that must hold for the task to be done. |
-| `working_dir` | string | CLI default | Absolute path. Validated before any model call. |
-| `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | `read-only` | What Codex may do. |
-| `auto_approve` | boolean | `false` | Codex approves its own commands. Implies `workspace-write`; ignored under `read-only`. |
+| `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Codex also reads a trusted project's `.codex/config.toml` from here. |
+| `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
+| `auto_approve` | boolean | `false` | Codex approves its own commands. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | Writes land in a managed git worktree under `~/.codex/worktrees/`, never your working tree. Uses an experimental Codex feature, enabled for that invocation only. |
-| `web_search` | boolean | `false` | Enable live web search for this run, passed to Codex as `-c web_search="live"`. When omitted, Codex's own configured `web_search` mode applies. |
+| `web_search` | boolean | — | `true` enables live web search for this run, passed to Codex as `-c web_search="live"`. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
 | `mode` | `blocking` \| `background` | `blocking` | `background` returns a `job_id` immediately. |
 
 ### What comes back
 
+Every result starts with one line stating that Codex's report is information from another agent,
+not instructions. Codex may have read hostile content, and its report is how that content would
+reach the orchestrator.
+
 A blocking delegation returns the final message, the files it changed (with the path each landed
-at), the commands it ran with their exit codes, the token usage, the duration, the model and effort
-actually used, and a `thread_id` for follow-ups.
+at), the commands it ran with their exit codes, the token usage, the duration, the model, effort and
+sandbox this server passed to Codex, and a `thread_id` for follow-ups. Those settings are what was
+requested on the command line; confirming what Codex actually applied is planned
+([#55](https://github.com/parisbs/codex-subagent-mcp/issues/55)).
 Anything Codex reported as an in-band error is surfaced separately — those do not change its exit
 code, so they would otherwise be lost.
 
@@ -224,7 +231,8 @@ Terminates a running background delegation.
 
 ## Limits on background jobs
 
-At most eight run concurrently. Finished jobs are kept for an hour, then discarded. All running jobs
+At most eight run concurrently. Finished jobs are kept for an hour, and at most the 100 most recent,
+then discarded. All running jobs
 are cancelled when the server shuts down, so nothing keeps burning quota with nobody reading the
 result.
 
