@@ -9,8 +9,8 @@ updates:
       prefix: "Update"
     ignore:
       # @types/node must track the OLDEST Node this package supports, not the
-      # newest available. `engines` declares >=20; typing against Node 26 would
-      # let the compiler accept APIs that do not exist on Node 20, turning a
+      # newest available. `engines` declares >=22; typing against Node 26 would
+      # let the compiler accept APIs that do not exist on Node 22, turning a
       # build-time error into a runtime one for anyone on the supported floor.
       # Raise this deliberately, together with `engines`, never automatically.
       - dependency-name: "@types/node"

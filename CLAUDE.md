@@ -52,8 +52,9 @@ this with `shell: true`; that reintroduces the injection hole ADR 4 closed.
 
 **Keep npm scripts shell-agnostic.** npm runs scripts through cmd.exe on Windows, which expands no
 globs and has no `rm`. That is why `npm test` goes through `scripts/run-tests.mjs` instead of a glob,
-and why `clean` removes the directory with Node rather than `rm -rf`. CI covers Windows on Node 20,
-the combination where neither the shell nor Node expands a pattern.
+and why `clean` removes the directory with Node rather than `rm -rf`. CI runs Windows on the Node
+floor, 22: cmd.exe still expands nothing, and the suite must not depend on Node 22's `--test` doing it
+instead.
 
 **Mechanism, not policy.** The server never decides which model a task deserves. With no model in
 the call and none configured, it refuses and returns the recommendation it would have made. The

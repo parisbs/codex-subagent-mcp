@@ -33,7 +33,7 @@ holds no credentials of its own.
 
 ## Requirements
 
-- **Node.js 20 or newer.**
+- **Node.js 22 or newer.**
 - **The [Codex CLI](https://developers.openai.com/codex/cli)**, installed, on `PATH`, and signed in.
 
 You do not have to check this by hand. Run the `codex_doctor` tool — or just ask Claude to — and it

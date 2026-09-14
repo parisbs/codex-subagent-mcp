@@ -59,3 +59,15 @@ rest of this record stands.
 The lesson worth keeping: the pin was applied because a version looked wrong, not because anything
 was observed to fail. Verify before constraining, the same way the CLI's behaviour is verified rather
 than assumed.
+
+## Update, 2026-09-14
+
+The supported Node floor is now 22. Node 20 reached end-of-life on 2026-04-30, and
+`docs/VERSIONING.md` now defines the floor as the oldest line that has not.
+
+That also resolves a contradiction in this record. The `@types/node` rule above was added in #15, but
+the prototype had shipped `@types/node` 22 against an `engines` floor of 20 from its first commit, and
+#15 wrote the rule without correcting the value. The code never used an API newer than Node 20 —
+typecheck, build and the full suite pass against `@types/node` 20.19 — so the mismatch caused no
+defect. With the floor at 22, the version in use and the rule finally agree.
+
