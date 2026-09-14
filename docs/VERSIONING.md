@@ -44,8 +44,47 @@ These are not breaking:
   reconciled against the live catalog on every call.
 - Wording changes in diagnostics, summaries or remediation steps.
 
-While on 0.x, a breaking change increments the minor (0.4.0 to 0.5.0) and everything else the patch,
-which is the common reading of semver before 1.0.
+## How the version number moves while on 0.x
+
+Semantic Versioning deliberately sets no rules for 0.x, so this project sets its own. There is one
+rule per kind of change, and a release takes the highest bump any change in it requires:
+
+| Change in the release | Bump | Example |
+|---|---|---|
+| Anything breaking, as defined above | minor | 0.4.2 → 0.5.0 |
+| A new tool, a new optional parameter, a new environment variable | minor | 0.4.2 → 0.5.0 |
+| Only fixes, including security fixes, with no new surface | patch | 0.4.2 → 0.4.3 |
+
+The minor carries both breaking and additive changes because that is how npm reads 0.x. A caret range
+such as `^0.4.0` accepts 0.4.3 but not 0.5.0, so anyone pinned that way receives fixes automatically
+and never receives new or changed behaviour without choosing to. A patch that added a tool would
+reach them uninvited; a minor that only fixed a bug would withhold the fix. Tying the bump to what a
+caret range lets through avoids both.
+
+Most people run this server through `npx -y codex-subagent-mcp`, which always resolves the latest
+version and ignores these ranges entirely. The rule still matters for anyone who installs it as a
+dependency, and for security advisories, whose patched version is what `npm audit` compares against.
+
+After 1.0 the ordinary rules apply: breaking changes bump the major.
+
+## Milestones and version numbers
+
+A GitHub milestone is named after the version its work is expected to ship as. That name is a
+forecast, not a promise, until the release is published: if a change that requires a higher bump is
+added to it, the milestone is renamed and every later milestone moves up with it. The number is
+settled at publication and never reused.
+
+## Supported Node versions
+
+The supported floor is the oldest Node line that has not reached end-of-life on the day of the
+release, according to the official schedule at
+[nodejs/Release](https://github.com/nodejs/Release). `engines` in `package.json`, the CI matrix and
+`@types/node` all follow that line together; `@types/node` tracks the floor rather than the newest
+Node, so the compiler rejects APIs the floor does not have.
+
+Dropping a line is breaking, and therefore a minor bump while on 0.x, even when that line is already
+end-of-life. It is done at the first release after the line's end-of-life date, never earlier: a line
+that still receives security fixes stays supported.
 
 ## What 1.0 requires
 
@@ -68,3 +107,8 @@ Every release states what changed, what broke, and the Codex CLI version it was 
 That last one matters more than usual here: a release verified against a newer CLI may behave
 differently on an older one, and the preflight reports that as `unverified-version` rather than
 guessing.
+
+`CHANGELOG.md` is written once per release, while preparing the publish, from the pull requests the
+release contains. Individual pull requests do not edit it. Entries written ahead of time describe
+what was planned rather than what shipped, and they turn every pair of parallel branches into a merge
+conflict over the same few lines.

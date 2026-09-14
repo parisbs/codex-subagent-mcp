@@ -77,10 +77,13 @@ Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is n
 accepted; it is superseded by a later one that links back. The exception is correcting a statement
 of fact that has become untrue, such as marking something verified that was previously inferred.
 
-A user-visible change gets an entry under `## [Unreleased]` in `CHANGELOG.md`. What counts is
-whether someone running the server would notice: a new or renamed tool, a changed default, a new
-environment variable, a fixed bug. Refactors, test changes and internal cleanups do not need one.
-Releases also record the Codex CLI version they were verified against, because the flag set
-differs between CLI versions.
+Do not edit `CHANGELOG.md` in a pull request. It is written once, when a release is prepared, from
+the pull requests that release contains. What a pull request must do instead is describe any
+user-visible change in its own description — a new or renamed tool, a changed default, a new
+environment variable, a fixed bug — clearly enough to be copied into the changelog later. Refactors,
+test changes and internal cleanups need no such note. Releases also record the Codex CLI version
+they were verified against, because the flag set differs between CLI versions.
+
+How a change affects the version number is defined in `docs/VERSIONING.md`.
 
 Code, comments, documentation and commit messages are written in English.
