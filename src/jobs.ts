@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { CodexEvent } from "./codex/events.js";
+import { describeFailure } from "./outcome.js";
 import type {
   DelegationResult,
   JobSnapshot,
@@ -104,20 +105,14 @@ export class JobRegistry {
       .then((result) => {
         job.result = result;
         job.threadId = result.threadId ?? job.threadId;
-        job.state = job.controller.signal.aborted
-          ? "cancelled"
-          : result.exitCode === 0 && !result.timedOut
-            ? "completed"
-            : "failed";
-        if (job.state === "failed") {
-          job.error = result.timedOut
-            ? "The delegation exceeded its timeout and was terminated."
-            : `Codex exited with code ${result.exitCode}.` +
-              (result.stderr ? ` ${result.stderr}` : "");
-        }
+        const failure = describeFailure(result);
+        job.state = job.controller.signal.aborted ? "cancelled" : failure ? "failed" : "completed";
+        if (job.state === "failed") job.error = failure;
       })
       .catch((error: unknown) => {
-        job.state = "failed";
+        // The runner rejects outright when cancellation arrives before it
+        // spawns anything. That is still a cancellation, not a failure.
+        job.state = job.controller.signal.aborted ? "cancelled" : "failed";
         job.error = error instanceof Error ? error.message : String(error);
       })
       .finally(() => {
