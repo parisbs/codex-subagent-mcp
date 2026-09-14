@@ -17,6 +17,22 @@ export interface CodexInvocation {
   skipGitRepoCheck?: boolean;
   /** Runs without persisting a session file; disables follow-ups. */
   ephemeral?: boolean;
+  /** Codex MCP entries that point back at this server, switched off for this run. */
+  disabledMcpServers?: string[];
+}
+
+/**
+ * Switches off Codex MCP entries for one run, so a delegation cannot call this server again.
+ *
+ * Verified against codex-cli 0.154.0: `-c mcp_servers.<name>.enabled=false` keeps the entry from
+ * starting, on `exec` and on `exec resume`. A name outside the bare-key characters is quoted, as a
+ * TOML dotted key requires.
+ */
+function disableMcpServerArgs(names: string[] | undefined): string[] {
+  return (names ?? []).flatMap((name) => [
+    "--config",
+    `mcp_servers.${/^[A-Za-z0-9_-]+$/.test(name) ? name : JSON.stringify(name)}.enabled=false`,
+  ]);
 }
 
 /**
@@ -112,6 +128,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
   if (invocation.webSearch) args.push(...WEB_SEARCH_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
+  args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
 
   return args;
 }
@@ -144,6 +161,7 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
 
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
+  args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
 
   return args;
 }

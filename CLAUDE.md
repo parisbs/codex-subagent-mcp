@@ -53,6 +53,10 @@ subcommands and between versions. Two traps already found the hard way, both cov
   from the config of the directory it runs in, even when the thread was recorded on another one, and
   an effort missing from the argv comes from config even if the model does not support it. That is
   why follow-ups always restate model, effort and directory (`src/threads.ts`).
+- Codex starts its MCP servers with almost no environment (`HOME`, `LOGNAME`, `PATH`, `SHELL`,
+  `TMPDIR`, `USER`) unless an entry lists `env_vars`, so an environment marker cannot tell this
+  server it is running inside a delegation. The recursion guard instead finds this server in
+  `codex mcp list --json` and passes `-c mcp_servers.<name>.enabled=false` (`src/codex/mcp.ts`).
 
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
