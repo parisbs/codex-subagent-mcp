@@ -8,7 +8,6 @@ import { z } from "zod";
 import { findModel, getCatalog, resolveEffort } from "./codex/catalog.js";
 import {
   ENV_PREFIX,
-  capEffort,
   checkModel,
   checkSandbox,
   impliedModel,
@@ -263,13 +262,14 @@ async function resolveModelAndEffort(
     notes.push(`No model was specified; using the configured default (${model.slug}).`);
   }
 
-  const resolved = resolveEffort(model, requestedEffort ?? config.defaultEffort ?? undefined);
+  const resolved = resolveEffort(
+    model,
+    requestedEffort ?? config.defaultEffort ?? undefined,
+    config.maxEffort,
+  );
   if (resolved.adjusted && resolved.reason) notes.push(resolved.reason);
 
-  const capped = capEffort(resolved.effort, config);
-  if (capped.note) notes.push(capped.note);
-
-  return { model: model.slug, effort: capped.effort, notes };
+  return { model: model.slug, effort: resolved.effort, notes };
 }
 
 const delegateShape = {
@@ -280,10 +280,10 @@ const delegateShape = {
   model: z
     .string()
     .optional()
-    .describe("Catalog slug from list_codex_models. Omitted means the recommendation matrix picks one."),
+    .describe("Catalog slug from list_codex_models. If omitted, the configured default is used; with no default configured the call is refused and the recommended model is returned."),
   reasoning_effort: effortSchema
     .optional()
-    .describe("Reasoning depth, independent of model choice. Clamped to what the chosen model supports."),
+    .describe("Reasoning depth, independent of model choice. Uses the configured default or the model's default when omitted. Clamped to supported levels within the configured ceiling; refused if none qualify."),
   system_instructions: z
     .string()
     .optional()
@@ -310,7 +310,7 @@ const delegateShape = {
   auto_approve: z
     .boolean()
     .optional()
-    .describe("Adds --approve-for-me so Codex auto-approves its own commands. Only applies when sandbox allows writes."),
+    .describe("Adds --approve-for-me so Codex auto-approves its own commands. Only applies when sandbox is workspace-write."),
   add_dirs: z
     .array(z.string())
     .optional()
@@ -318,7 +318,7 @@ const delegateShape = {
   use_worktree: z
     .boolean()
     .optional()
-    .describe("Run in a managed git worktree so changes never touch the current working tree."),
+    .describe("Run in a managed git worktree. Writes outside it remain subject to the sandbox policy and add_dirs."),
   web_search: z.boolean().optional().describe("Enable Codex's native web search tool."),
   skip_git_repo_check: z
     .boolean()
@@ -395,7 +395,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
       title: "List Codex models",
       description:
         "List the Codex models available on this machine, with the reasoning-effort levels each one supports. " +
-        "Read from the installed Codex CLI, never hardcoded. Call this before codex_delegate when choosing a model explicitly.",
+        "Read from the installed Codex CLI, with a warned static fallback if its catalog cannot be read. Call this before codex_delegate when choosing a model explicitly.",
       inputSchema: {
         refresh: z
           .boolean()
@@ -630,8 +630,8 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     {
       title: "Continue a Codex session",
       description:
-        "Send a follow-up message to a previous delegation using its thread_id. Codex still has the earlier context, " +
-        "so this is much cheaper than re-sending it with codex_delegate.",
+        "Send a follow-up message to a previous delegation using its thread_id. Codex retains the earlier context, " +
+        "so only the new instruction needs to be sent.",
       inputSchema: {
         thread_id: z
           .string()

@@ -31,6 +31,18 @@ const CATALOG = {
       default_reasoning_level: "high",
       supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "high" }],
     },
+    {
+      slug: "narrow-model",
+      visibility: "list",
+      default_reasoning_level: "high",
+      supported_reasoning_levels: [{ effort: "medium" }, { effort: "high" }],
+    },
+    {
+      slug: "gapped-model",
+      visibility: "list",
+      default_reasoning_level: "high",
+      supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+    },
   ],
 };
 
@@ -188,6 +200,143 @@ test("refuses an add_dirs entry that is not an existing absolute directory", asy
 });
 
 type ToolResult = { isError?: boolean; content: { text: string }[] };
+
+for (const tool of ["codex_delegate", "codex_follow_up"]) {
+  const input = { prompt: "continue", ...(tool === "codex_follow_up" ? { thread_id: "some-thread" } : {}) };
+
+  test(`${tool} refuses without spawning when the ceiling excludes every supported effort`, async () => {
+    await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "low" }, async (call) => {
+      const result = (await call(tool, { ...input, model: "narrow-model", reasoning_effort: "high" })) as ToolResult;
+      assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /narrow-model.*medium, high.*ceiling "low"/);
+    });
+  });
+
+  test(`${tool} uses a supported effort below an unsupported ceiling and reports the adjustment`, async () => {
+    await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "medium" }, async (call) => {
+      const result = (await call(tool, { ...input, model: "gapped-model", reasoning_effort: "high" })) as ToolResult;
+      assert.notEqual(result.isError, true);
+      assert.equal(spawnedArgs.length, 1);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="low"'));
+      assert.match(result.content[0]?.text ?? "", /Notes:.*ceiling "medium".*using "low"/);
+    });
+  });
+
+  test(`${tool} keeps capping to a ceiling the model supports`, async () => {
+    await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "medium" }, async (call) => {
+      const result = (await call(tool, { ...input, model: "cheap-model", reasoning_effort: "high" })) as ToolResult;
+      assert.notEqual(result.isError, true);
+      assert.equal(spawnedArgs.length, 1);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="medium"'));
+      assert.match(result.content[0]?.text ?? "", /Notes:.*using "medium"/);
+    });
+  });
+
+  test(`${tool} preserves closest-match clamping without a ceiling`, async () => {
+    await withServer({}, async (call) => {
+      const result = (await call(tool, { ...input, model: "gapped-model", reasoning_effort: "medium" })) as ToolResult;
+      assert.notEqual(result.isError, true);
+      assert.equal(spawnedArgs.length, 1);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="low"'));
+      assert.match(result.content[0]?.text ?? "", /Notes: gapped-model does not support reasoning effort "medium" \(supported: low, high\); using "low" instead\./);
+    });
+  });
+
+  test(`${tool} resolves an omitted effort from the model default within the ceiling`, async () => {
+    await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "medium", CODEX_SUBAGENT_DEFAULT_MODEL: "gapped-model" }, async (call) => {
+      const result = (await call(tool, input)) as ToolResult;
+      assert.notEqual(result.isError, true);
+      assert.equal(spawnedArgs.length, 1);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="low"'));
+      assert.match(result.content[0]?.text ?? "", /Notes:.*"high".*ceiling "medium".*using "low"/);
+    });
+  });
+
+  test(`${tool} prefers the requested effort over the configured default and the model default`, async () => {
+    await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "high", CODEX_SUBAGENT_DEFAULT_EFFORT: "low" }, async (call) => {
+      await call(tool, { ...input, model: "cheap-model", reasoning_effort: "high" });
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="high"'));
+    });
+  });
+
+  test(`${tool} prefers the configured effort over the model default within the ceiling`, async () => {
+    await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "high", CODEX_SUBAGENT_DEFAULT_EFFORT: "medium" }, async (call) => {
+      const result = (await call(tool, { ...input, model: "gapped-model" })) as ToolResult;
+      assert.notEqual(result.isError, true);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="low"'));
+      assert.match(result.content[0]?.text ?? "", /Notes:.*"medium".*using "low"/);
+    });
+  });
+}
+
+test("advertises the configured default and refusal behaviour for the delegate model", async () => {
+  const { server } = createServer();
+  try {
+    const tools = server as unknown as ToolServer;
+    const delegate = tools._registeredTools.codex_delegate as {
+      inputSchema: { shape: Record<string, { description?: string }> };
+    };
+    assert.equal(
+      delegate.inputSchema.shape.model?.description,
+      "Catalog slug from list_codex_models. If omitted, the configured default is used; with no default configured the call is refused and the recommended model is returned.",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+const DESCRIPTION_CASES = [
+  {
+    name: "advertises effort defaults and the supported ceiling constraint",
+    tool: "codex_delegate",
+    parameter: "reasoning_effort",
+    description: "Reasoning depth, independent of model choice. Uses the configured default or the model's default when omitted. Clamped to supported levels within the configured ceiling; refused if none qualify.",
+  },
+  {
+    name: "advertises auto-approval only for the workspace-write sandbox",
+    tool: "codex_delegate",
+    parameter: "auto_approve",
+    description: "Adds --approve-for-me so Codex auto-approves its own commands. Only applies when sandbox is workspace-write.",
+  },
+  {
+    name: "describes the worktree without promising to restrict all writes to it",
+    tool: "codex_delegate",
+    parameter: "use_worktree",
+    description: "Run in a managed git worktree. Writes outside it remain subject to the sandbox policy and add_dirs.",
+  },
+  {
+    name: "discloses the catalog fallback in the tool description",
+    tool: "list_codex_models",
+    parameter: undefined,
+    description: "List the Codex models available on this machine, with the reasoning-effort levels each one supports. Read from the installed Codex CLI, with a warned static fallback if its catalog cannot be read. Call this before codex_delegate when choosing a model explicitly.",
+  },
+  {
+    name: "describes retained follow-up context without promising lower cost",
+    tool: "codex_follow_up",
+    parameter: undefined,
+    description: "Send a follow-up message to a previous delegation using its thread_id. Codex retains the earlier context, so only the new instruction needs to be sent.",
+  },
+];
+
+for (const entry of DESCRIPTION_CASES) {
+  test(entry.name, async () => {
+    const { server } = createServer();
+    try {
+      const tools = server as unknown as ToolServer;
+      const tool = tools._registeredTools[entry.tool] as {
+        description?: string;
+        inputSchema: { shape: Record<string, { description?: string }> };
+      };
+      assert.equal(
+        entry.parameter ? tool.inputSchema.shape[entry.parameter]?.description : tool.description,
+        entry.description,
+      );
+    } finally {
+      await server.close();
+    }
+  });
+}
 
 const ERROR_ITEM = { type: "item.completed", item: { type: "error", message: "model overloaded" } };
 const ANSWER = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
