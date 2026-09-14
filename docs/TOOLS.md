@@ -163,15 +163,20 @@ this is far cheaper than re-sending it.
 | --- | --- | --- | --- |
 | `thread_id` | string | required | Reported by a previous `codex_delegate`. |
 | `prompt` | string | required | The follow-up instruction. |
-| `model` | string | session default | Pass the model the original run used. |
-| `reasoning_effort` | `low` … `ultra` | session default | Override for this turn. |
+| `model` | string | the thread's model | Override for this turn. Required for a thread this server has no record of, unless a default model is configured. |
+| `reasoning_effort` | `low` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
 | `sandbox` | see above | `read-only` | Applied as a config override; `resume` has no sandbox flag. |
-| `auto_approve` | boolean | `false` | |
-| `working_dir` | string | — | |
+| `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
+| `working_dir` | string | the thread's directory | Absolute directory to resume in. |
 | `timeout_seconds` | integer | `1800` | |
 
-Pass the same `model` the original delegation used. Without it Codex resumes with your configured
-default and reports the mismatch, which this server lists under "Codex notices".
+A resumed Codex session does not keep its model or effort: without them, Codex takes both from the
+configuration of the directory it resumes in, switches model mid-thread and compacts the history.
+So every follow-up states the model, effort and directory explicitly. The server remembers what each
+thread it ran used — for up to 500 threads, in memory — and restates it; overrides go through the
+same allow-list, effort ceiling and clamping as a new delegation. For a thread started by another
+server process, or before a restart, there is no record: pass the `model` the original delegation
+used, or the call is refused (unless `CODEX_SUBAGENT_DEFAULT_MODEL` is set).
 
 ---
 
