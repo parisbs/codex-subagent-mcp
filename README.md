@@ -40,7 +40,7 @@ You do not have to check this by hand. Run the `codex_doctor` tool — or just a
 reports what is missing and the exact commands for your platform. Every other tool runs the same
 check first, so you never get a bare `spawn ENOENT`. Nothing is ever installed on your behalf.
 
-If you do not have the Codex CLI yet:
+If you do not have the Codex CLI yet, install it without npm:
 
 ```bash
 # macOS — recommended
@@ -52,10 +52,23 @@ brew install --cask codex
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 ```
 
-On Windows, use the installer rather than npm:
-`powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`.
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
+```
 
-Then run `codex` once to sign in, and confirm with `codex login status`.
+Then run `codex` once to sign in, and confirm with `codex login status`. On Windows, open a new
+terminal first so the updated `PATH` is picked up.
+
+Codex's sandbox depends on the platform, so two notes from OpenAI's documentation:
+
+- **Linux and WSL2** — Codex sandboxes commands with `bubblewrap`. Install it with your package
+  manager before the first delegation. Without it Codex falls back to a bundled helper that needs
+  unprivileged user namespaces, which some distributions restrict. See
+  [sandboxing](https://learn.chatgpt.com/docs/sandboxing).
+- **Windows** — Codex runs natively, without WSL, and uses its own Windows sandbox. Windows 11 is
+  recommended; Windows 10 version 1809 or newer is the practical minimum. See the
+  [Windows sandbox](https://learn.chatgpt.com/docs/windows/windows-sandbox) documentation.
 
 <details>
 <summary>Why not install the Codex CLI with npm?</summary>
@@ -76,10 +89,23 @@ shim, which cannot be launched without a command shell — and this server never
 that case and says so, but the installer avoids it entirely. See
 [ADR 11](docs/adr/0011-resolve-the-executable-without-a-shell.md).
 
-Switching is two commands, and your sign-in survives because credentials live in `~/.codex`:
+Switching is two commands, and your sign-in survives because credentials live in Codex's home
+directory — `~/.codex`, or `%USERPROFILE%\.codex` on native Windows — not in the npm package:
 
 ```bash
+# macOS
 npm uninstall -g @openai/codex && brew install --cask codex
+```
+
+```bash
+# Linux
+npm uninstall -g @openai/codex && curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell) — two lines, because Windows PowerShell rejects `&&`
+npm uninstall -g @openai/codex
+powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
 ```
 
 </details>
@@ -117,6 +143,13 @@ Then point Claude Code at the `codex-subagent` binary.
 }
 ```
 
+**Settings → Developer → Edit Config** opens the file and creates it if it does not exist. Its
+documented locations are `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS
+and `%APPDATA%\Claude\claude_desktop_config.json` on Windows. The Linux desktop app is in beta, and its
+documentation does not say where the file lives. If the server does not appear after a restart, the
+MCP logs are in `~/Library/Logs/Claude` on macOS and `%APPDATA%\Claude\logs` on Windows. See
+[Connect to local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers).
+
 **From a clone**, for development:
 
 ```bash
@@ -126,7 +159,8 @@ cd codex-subagent-mcp && npm ci && npm run build
 
 The repository ships a `.mcp.json`, so running Claude Code from the project root picks the server up.
 
-Set `CODEX_BIN` if your Codex executable is not called `codex` or is not on `PATH`.
+Set `CODEX_BIN` if your Codex executable is not called `codex` or is not on `PATH`. On Windows, point
+it at the real `codex.exe`: a `.cmd` or `.bat` shim is refused rather than run through a shell.
 
 </details>
 
@@ -227,8 +261,11 @@ writes.
 Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`,
 and `use_worktree` confines those writes to a managed git worktree instead of your checkout.
 
-The confinement is not a promise from the model — it is the operating system's own sandbox (seatbelt
-on macOS). Measured against Codex CLI 0.154.0:
+The confinement is not a promise from the model — it is the operating system's own sandbox: Seatbelt
+on macOS, `bubblewrap` on Linux and WSL2, and a native sandbox on Windows. The table was measured on
+macOS against Codex CLI 0.154.0. Linux and Windows have not been measured here, and on Windows OpenAI's
+documentation notes that sandboxed commands can fail to read some directories, so reads may be
+stricter there:
 
 | | `read-only` | `workspace-write` | `danger-full-access` |
 | --- | --- | --- | --- |
@@ -244,7 +281,8 @@ inert.
 ### What does not protect you
 
 **Reads are not confined.** That last row is not a typo. Codex can read anything your user account
-can, in every mode — your SSH keys, your cloud credentials. Network access is blocked so it cannot
+can, in every mode — your SSH keys, your cloud credentials. That was measured on macOS, and it is the
+safe assumption on every platform. Network access is blocked so it cannot
 send them anywhere, but its report comes back to you, and that is a channel.
 
 **A prompt is untrusted input, and Codex acts on it.** This is prompt injection, and it is the risk
@@ -320,7 +358,7 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Anything else is refused. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | Ceiling on what a delegation may do. `read-only` forbids writing outright. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. A call above it is lowered to a level the model supports, or refused if the model has none that low. |
-| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. |
+| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
 
 One rule shapes all of these: **configuration can only restrict.** There is no setting that makes
 delegations more permissive, which is why you cannot change the default sandbox, only cap it. See
@@ -369,10 +407,12 @@ Most likely Windows with a global npm install, which produces a `codex.cmd` batc
 be launched without a command shell. `codex_doctor` reports this as `unsupported-shim` and offers two
 fixes. On macOS and Linux, check whether a Node version manager moved `codex` off `PATH`.
 
-**Does it work on Windows?**
+**Does it work on Windows and Linux?**
 CI builds, tests and starts the server on Windows, macOS and Linux on every change, and checks that
 the Codex CLI is resolved correctly on each. A real delegation has only been verified on macOS — the
 CI runners have no Codex installation or credentials. Reports from Windows and Linux are welcome.
+On Windows, install the Codex CLI with the PowerShell installer rather than npm; on Linux, install
+`bubblewrap` for Codex's sandbox. See [Requirements](#requirements).
 
 **Can Codex read files outside the directory I point it at?**
 Yes, in every sandbox mode — the sandbox restricts writes and network access, not reads. See

@@ -21,8 +21,11 @@ Verify the server works against the real Codex CLI. Delegations cost quota, so u
 7. Error paths: an unknown model slug, `ultra` on `gpt-5.6-luna` (must clamp to `max` with a note),
    a relative `working_dir`, and a `timeout_seconds` of 10 on a long task (must report the timeout
    and be flagged as an error).
-8. Injection: delegate a prompt containing `$(touch /tmp/canary)`, backticks and quotes, and confirm
-   the text reaches Codex verbatim and `/tmp/canary` was never created.
+8. Injection: with the scratchpad directory as `working_dir`, delegate a prompt containing
+   `$(touch canary)`, `& echo canary > canary`, `%PATH%`, backticks and quotes, and confirm the text
+   reaches Codex verbatim and no `canary` file appeared in that directory. The payload mixes POSIX
+   shell and cmd.exe syntax because the server must be inert to both, and a relative path keeps the
+   check the same on every platform.
 9. Background: `mode: "background"`, then poll `codex_job_status` and read `codex_job_result`.
 
 Report each step as pass or fail with the actual evidence. Do not claim a step passed if you did

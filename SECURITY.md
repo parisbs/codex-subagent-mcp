@@ -22,8 +22,17 @@ already granted.
 
 ### What the sandbox does and does not cover
 
-Measured against codex-cli 0.154.0 on macOS, where Codex confines the child process with seatbelt,
+Measured against codex-cli 0.154.0 on macOS, where Codex confines the child process with Seatbelt,
 the operating system's own sandbox. The model cannot talk its way out of it.
+
+The other platforms use different mechanisms, and the table below has not been measured on them.
+According to [OpenAI's sandboxing documentation](https://learn.chatgpt.com/docs/sandboxing), Codex
+uses `bubblewrap` on Linux and WSL2 — installed with the system package manager, or else a bundled
+helper that needs unprivileged user namespaces — and a native Windows sandbox when it runs from
+PowerShell. The [Windows sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+also notes that sandboxed commands can fail to read some directories, so reads may be more
+restricted there than the last row shows. Treat the table as the macOS behaviour, not a guarantee
+for every platform.
 
 | | `read-only` | `workspace-write` | `danger-full-access` |
 | --- | --- | --- | --- |
@@ -78,7 +87,8 @@ Stated plainly, because a security policy that implies more coverage than it has
 
   There is a real mitigation, but it is not ours to apply. The Codex CLI's schema includes a
   `filesystem.deny_read` list within its managed requirements, read from `/etc/codex/requirements.toml`
-  — machine-wide configuration that needs administrator access. It cannot be set per invocation, so
+  on macOS and Linux — machine-wide configuration that needs administrator access. Its location on
+  Windows was not verified. It cannot be set per invocation, so
   this server cannot apply it on your behalf, and it would be wrong for it to try. If reads are a
   concern for you, that file is where to look. Note that we located this in the CLI's configuration
   schema but did not verify it working, because doing so would have meant altering a machine's
