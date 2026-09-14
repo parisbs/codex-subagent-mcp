@@ -130,6 +130,13 @@ actually used, and a `thread_id` for follow-ups.
 Anything Codex reported as an in-band error is surfaced separately — those do not change its exit
 code, so they would otherwise be lost.
 
+Codex also reports some warnings as error items: configuration keys it ignored in a project's
+`.codex/config.toml`, or a model switch when a session resumes. Those are listed once under
+"Codex notices" and never make a delegation fail. When Codex gives up on a turn (`turn.failed`) —
+a usage limit, a lost connection — the reason is stated first and the delegation is reported as
+failed, even if the process exited 0. A run that exits cleanly without any answer is a failure
+too. Warnings Codex writes to stderr are shown on successful runs as well.
+
 Progress is reported through MCP progress notifications as the run proceeds, which is also what
 keeps a long delegation from being cut off by the client's tool timeout.
 
@@ -159,7 +166,7 @@ this is far cheaper than re-sending it.
 | `timeout_seconds` | integer | `1800` | |
 
 Pass the same `model` the original delegation used. Without it Codex resumes with your configured
-default and reports the mismatch as an in-band error, which this server surfaces.
+default and reports the mismatch, which this server lists under "Codex notices".
 
 ---
 
