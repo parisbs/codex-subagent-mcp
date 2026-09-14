@@ -27,7 +27,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and excluded models are hidden from `list_codex_models`. A list of exactly one acts as the default. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | The most permissive sandbox allowed. A call asking for more is **refused**. |
-| `CODEX_SUBAGENT_MAX_EFFORT` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. |
+| `CODEX_SUBAGENT_MAX_EFFORT` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
 
 Two rules govern all of this, and are explained in
 [ADR 12](adr/0012-mechanism-not-policy.md):
@@ -46,6 +46,14 @@ above the ceiling is clamped, because less deliberation makes the task worse rat
 
 Invalid values are reported on the first tool call, not at startup — a server that refuses to start
 cannot explain why.
+
+**Keep ceilings out of the working tree.** Set them where a delegation cannot edit them: Claude
+Code's default `local` scope or `--scope user` (both stored in your home directory), or Claude
+Desktop's own config file. Avoid `--scope project` for them, which writes a `.mcp.json` into the
+repository. A delegation with `workspace-write` can edit files in its working directory, and Codex
+keeps only `.git`, `.codex` and `.agents` read-only there — not `.mcp.json`. An edited ceiling would
+take effect the next time the server starts. `danger-full-access` removes that boundary entirely,
+which is one more reason to cap it with `CODEX_SUBAGENT_MAX_SANDBOX`.
 
 ---
 
