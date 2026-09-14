@@ -252,8 +252,19 @@ async function resolveModelAndEffort(
   const diagnosis = await requireUsableCodex();
   const catalog = await getCatalog();
   const notes: string[] = [];
-  if (diagnosis.status === "unverified-version") notes.push(diagnosis.summary);
-  if (catalog.warning) notes.push(catalog.warning);
+  if (diagnosis.status === "unverified-version" || diagnosis.status === "unknown") {
+    notes.push(diagnosis.summary);
+  }
+  if (catalog.stale) {
+    // A static list can name models the user's CLI or provider does not have,
+    // and efforts they do not support. Validating a paid run against it would
+    // be the plausible-looking degradation ADR 9 removed.
+    throw new Error(
+      `${catalog.warning ?? "The live model catalog could not be read."}\n\n` +
+        "A delegation is not validated against that static list. Fix the problem above, or run " +
+        "codex_doctor to see what is wrong with the Codex CLI.",
+    );
+  }
 
   const chosen = requestedModel ?? impliedModel(config);
 
@@ -385,7 +396,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     {
       title: "Check the Codex CLI installation",
       description:
-        "Check whether the local Codex CLI is installed, recent enough and signed in, and report the exact " +
+        "Check whether the local Codex CLI is installed, recent enough, signed in and able to load its configuration, and report the exact " +
         "steps to fix it if not. Run this when any other tool reports the CLI is unavailable, or before " +
         "relying on delegation for the first time. It only inspects the installation; it never installs or " +
         "changes anything.",
@@ -446,7 +457,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
 
         const lines: string[] = [];
 
-        if (diagnosis.status === "unverified-version") {
+        if (diagnosis.status === "unverified-version" || diagnosis.status === "unknown") {
           lines.push(`WARNING: ${diagnosis.summary}`, "");
         }
         if (catalog.warning) lines.push(`WARNING: ${catalog.warning}`, "");

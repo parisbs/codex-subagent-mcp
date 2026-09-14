@@ -3,7 +3,9 @@ import { test } from "node:test";
 
 import {
   VERIFIED_CODEX_VERSION,
+  classifyLoginFailure,
   compareVersions,
+  classifyLoginFailure,
   diagnose,
   formatDiagnosis,
   installationSteps,
@@ -173,4 +175,53 @@ test("prefers the shim diagnosis over every other state", () => {
 test("exposes the resolved path for spawning when one is known", () => {
   assert.equal(executableFor({ ...OK_DIAGNOSIS, resolvedPath: "/usr/local/bin/codex" }), "/usr/local/bin/codex");
   assert.equal(executableFor(OK_DIAGNOSIS), "codex");
+});
+
+// Verbatim stderr from `codex login status` on codex-cli 0.154.0 with a broken scratch config.
+const CONFIG_STDERR =
+  "Error loading configuration: /tmp/home/config.toml:1:9: string values must be quoted, expected literal string\n";
+
+test("reads a config that cannot load as a config error, not as signed out", () => {
+  // login status exits 1 both when signed out and when the config is broken.
+  const probe = classifyLoginFailure(Object.assign(new Error("Command failed"), { stderr: CONFIG_STDERR, code: 1 }));
+  assert.equal(probe.authenticated, null);
+  assert.match("configError" in probe ? (probe.configError ?? "") : "", /string values must be quoted/);
+
+  const legacyProfile = classifyLoginFailure({
+    stderr: 'Error loading configuration: legacy `profile = "x"` config is no longer supported',
+  });
+  assert.ok("configError" in legacyProfile && legacyProfile.configError);
+});
+
+test("reads a plain failed login probe as signed out and a timed-out one as unknown", () => {
+  assert.deepEqual(classifyLoginFailure({ stderr: "Not logged in\n", code: 1 }), { authenticated: false });
+  assert.deepEqual(classifyLoginFailure({ stderr: "", killed: true, signal: "SIGTERM" }), { authenticated: null });
+  assert.deepEqual(classifyLoginFailure("not an error object"), { authenticated: false });
+});
+
+test("reports a config error with Codex's message and no sign-in steps", () => {
+  const diagnosis = diagnose({
+    codexPath: "codex",
+    version: VERIFIED_CODEX_VERSION,
+    authenticated: null,
+    configError: CONFIG_STDERR.trim(),
+  });
+  assert.equal(diagnosis.status, "config-error");
+  assert.equal(isUsable(diagnosis), false);
+  const text = formatDiagnosis(diagnosis);
+  assert.match(text, /string values must be quoted/);
+  assert.match(text, /not a sign-in problem/);
+  assert.doesNotMatch(text, /Sign in by running/);
+});
+
+test("treats a sign-in probe that timed out as unknown but usable", () => {
+  const diagnosis = diagnose({ codexPath: "codex", version: VERIFIED_CODEX_VERSION, authenticated: null });
+  assert.equal(diagnosis.status, "unknown");
+  assert.equal(isUsable(diagnosis), true);
+  assert.match(diagnosis.remediation.join("\n"), /codex login status/);
+});
+
+test("still reports a missing CLI before a config error", () => {
+  const diagnosis = diagnose({ codexPath: "codex", version: null, authenticated: null, configError: "Error loading configuration: x" });
+  assert.equal(diagnosis.status, "missing");
 });

@@ -66,6 +66,8 @@ Reported states:
 | `unverified-version` | Older than the version this server was verified against. | yes, with a warning |
 | `missing` | The CLI could not be run at all. | no |
 | `unauthenticated` | Installed, but no account is signed in. | no |
+| `config-error` | Installed, but Codex cannot load its configuration (a TOML syntax error, an invalid value, a removed setting such as the top-level `profile = "…"`). Codex's own message names the file and value. This is not a sign-in problem. | no |
+| `unknown` | Installed, but the sign-in check did not finish in time. | yes, with a warning |
 | `unsupported-shim` | Found only as a Windows `.cmd`/`.bat` shim, which cannot be spawned safely. | no |
 
 Every other tool runs this check first, so a broken installation is reported the same way whichever
@@ -83,7 +85,10 @@ from the installed CLI at runtime, never hardcoded, so new models appear without
 | `refresh` | boolean | `false` | Bypass the ten-minute cache and re-read the catalog. |
 
 A `WARNING:` line means the live catalog could not be read and a static fallback was used. Treat the
-slugs below it as unconfirmed.
+slugs below it as unconfirmed: `codex_delegate` refuses to run while only that fallback is available,
+rather than validate a paid run against a list that may not match your CLI. When the catalog cannot
+be read because of a configuration problem, no fallback is shown at all; the tool reports Codex's
+message instead.
 
 ---
 
