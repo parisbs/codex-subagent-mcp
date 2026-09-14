@@ -269,7 +269,7 @@ async function resolveModelAndEffort(
   const chosen = requestedModel ?? impliedModel(config);
 
   if (!chosen) {
-    const suggestion = recommend(catalog, taskDescription, "balanced", config.allowedModels);
+    const suggestion = recommend(catalog, taskDescription, "balanced", config.allowedModels, config.maxEffort);
     throw new ModelRequiredError(
       `No model was specified, and this server does not choose one for you — which model a task ` +
         `deserves depends on your budget and on how costly a wrong answer is.\n\n` +
@@ -530,6 +530,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           task_description,
           (priority ?? "balanced") as Priority,
           config.allowedModels,
+          config.maxEffort,
         );
         const lines = [
           `model: ${suggestion.model}`,
