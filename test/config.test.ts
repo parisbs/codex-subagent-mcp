@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  capEffort,
   checkModel,
   checkSandbox,
   impliedModel,
@@ -81,18 +80,6 @@ test("allows a sandbox at or below the ceiling", () => {
   assert.equal(checkSandbox("read-only", config).ok, true);
   assert.equal(checkSandbox("workspace-write", config).ok, true);
   assert.equal(checkSandbox("danger-full-access", config).ok, false);
-});
-
-test("clamps effort above the ceiling instead of refusing", () => {
-  // Less deliberation makes the task worse, not impossible.
-  const { config } = loadConfig({ [`${P}MAX_EFFORT`]: "medium" });
-  const capped = capEffort("ultra", config);
-  assert.equal(capped.effort, "medium");
-  assert.match(capped.note ?? "", /exceeds CODEX_SUBAGENT_MAX_EFFORT/);
-});
-
-test("leaves effort alone with no ceiling configured", () => {
-  assert.deepEqual(capEffort("ultra", empty), { effort: "ultra" });
 });
 
 test("enforces the model allow-list", () => {

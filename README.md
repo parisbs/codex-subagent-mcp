@@ -319,7 +319,7 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Reasoning effort when a call specifies none. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Anything else is refused. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | Ceiling on what a delegation may do. `read-only` forbids writing outright. |
-| `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. |
+| `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. A call above it is lowered to a level the model supports, or refused if the model has none that low. |
 | `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. |
 
 One rule shapes all of these: **configuration can only restrict.** There is no setting that makes

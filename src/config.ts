@@ -147,28 +147,6 @@ export function checkSandbox(
   };
 }
 
-/**
- * Applies the effort ceiling.
- *
- * Unlike the sandbox, an effort that is too high is clamped rather than
- * refused: less deliberation makes the task worse, not impossible, and the
- * caller is told it happened.
- */
-export function capEffort(
-  requested: ReasoningEffort,
-  config: ServerConfig,
-): { effort: ReasoningEffort; note?: string } {
-  if (!config.maxEffort || effortRank(requested) <= effortRank(config.maxEffort)) {
-    return { effort: requested };
-  }
-  return {
-    effort: config.maxEffort,
-    note:
-      `Reasoning effort "${requested}" exceeds ${ENV_PREFIX}MAX_EFFORT ` +
-      `("${config.maxEffort}"); using "${config.maxEffort}" instead.`,
-  };
-}
-
 /** Applies the model allow-list. */
 export function checkModel(
   slug: string,
