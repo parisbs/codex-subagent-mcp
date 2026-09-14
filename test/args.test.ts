@@ -227,3 +227,15 @@ test("leaves Codex's own web search setting alone when not asked", () => {
 
   assert.ok(!args.some((arg) => arg.startsWith("web_search")));
 });
+
+test("switches off Codex MCP entries that point back at this server, on exec and resume", () => {
+  const exec = buildCodexArgs({ kind: "exec", sandbox: "read-only", disabledMcpServers: ["codex-subagent", "my server"] });
+  const resume = buildCodexArgs({ kind: "resume", threadId: "t", sandbox: "read-only", disabledMcpServers: ["codex-subagent"] });
+
+  assert.equal(exec[0], "exec");
+  assert.ok(exec.includes("mcp_servers.codex-subagent.enabled=false"));
+  assert.equal(exec[exec.indexOf("mcp_servers.codex-subagent.enabled=false") - 1], "--config");
+  assert.ok(exec.includes('mcp_servers."my server".enabled=false'));
+  assert.ok(resume.includes("mcp_servers.codex-subagent.enabled=false"));
+  assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).some((arg) => arg.startsWith("mcp_servers.")));
+});
