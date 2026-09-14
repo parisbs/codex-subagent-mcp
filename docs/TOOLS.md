@@ -14,15 +14,15 @@ Set through environment variables on the MCP server, which is the mechanism MCP 
 have:
 
 ```bash
-claude mcp add codex-subagent \
-  -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra \
-  -e CODEX_SUBAGENT_MAX_SANDBOX=read-only \
-  -- npx -y codex-subagent-mcp
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -e CODEX_SUBAGENT_MAX_SANDBOX=read-only -- npx -y codex-subagent-mcp
 ```
+
+Kept on one line on purpose: a trailing `\` continues a line only in POSIX shells, not in PowerShell
+or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 
 | Variable | Effect |
 | --- | --- |
-| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. |
+| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and excluded models are hidden from `list_codex_models`. A list of exactly one acts as the default. |

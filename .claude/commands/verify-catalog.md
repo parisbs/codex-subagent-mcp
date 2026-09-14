@@ -6,7 +6,11 @@ allowed-tools: Bash(codex debug models), Bash(codex --version), Bash(npm test), 
 The Codex model catalog changes when OpenAI ships new models. Confirm this repository still
 describes reality.
 
-1. Run `codex --version` and `codex debug models | jq -r '.models[] | select(.visibility=="list") | "\(.slug) default=\(.default_reasoning_level) efforts=[\([.supported_reasoning_levels[].effort] | join(","))]"'`.
+1. Run `codex --version` and `codex debug models`. From the JSON, list every model whose
+   `visibility` is `list`, with its `slug`, its `default_reasoning_level` and the `effort` of each
+   entry in `supported_reasoning_levels`. Read the JSON directly rather than piping it through
+   `jq`: `jq` is not available everywhere, and on native Windows Claude Code may run commands in
+   PowerShell, where that quoting does not work.
 2. Compare that output with `FALLBACK_MODELS` in `src/codex/catalog.ts`. The fallback is only used
    when the CLI is unreachable, but a stale fallback still misleads callers — update it if the real
    catalog has moved.

@@ -13,8 +13,11 @@ npm test
 
 You need Node 22 or newer. For anything beyond unit tests you also need the
 [Codex CLI](https://developers.openai.com/codex/cli) installed and signed in — the server delegates
-to it, so without it there is nothing to delegate to. On macOS install it with
-`brew install --cask codex` rather than npm; see the README for why.
+to it, so without it there is nothing to delegate to. Install it without npm on every platform: with
+Homebrew (`brew install --cask codex`) on macOS, the standalone installer on Linux, and the
+PowerShell installer on Windows, where a global npm install produces a `codex.cmd` shim this server
+refuses to run. The README has the exact commands and the reasons, including the `bubblewrap`
+prerequisite for Codex's sandbox on Linux.
 
 Verify your setup with the `codex_doctor` tool, or by running the server and calling it.
 
