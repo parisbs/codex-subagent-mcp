@@ -256,22 +256,37 @@ export function findModel(
  * When the requested effort is not supported by that model, it is clamped to
  * the closest supported level instead of failing, and the caller is told what
  * happened so it can surface the downgrade.
+ * A ceiling restricts the candidates before clamping: the ceiling itself need
+ * not be supported, and an empty intersection cannot be honoured.
  */
 export function resolveEffort(
   model: CodexModel,
   requested: ReasoningEffort | undefined,
+  ceiling: ReasoningEffort | null = null,
 ): { effort: ReasoningEffort; adjusted: boolean; reason?: string } {
-  if (!requested) {
+  if (!requested && !ceiling) {
     return { effort: model.defaultReasoningEffort, adjusted: false };
   }
-  if (model.supportedReasoningEfforts.includes(requested)) {
-    return { effort: requested, adjusted: false };
+  const wanted = requested ?? model.defaultReasoningEffort;
+  const supported = ceiling
+    ? model.supportedReasoningEfforts.filter(
+        (effort) => REASONING_EFFORTS.indexOf(effort) <= REASONING_EFFORTS.indexOf(ceiling),
+      )
+    : model.supportedReasoningEfforts;
+  if (ceiling && supported.length === 0) {
+    throw new Error(
+      `Model "${model.slug}" supports reasoning efforts ${model.supportedReasoningEfforts.join(", ")}; ` +
+        `none are at or below the ceiling "${ceiling}".`,
+    );
+  }
+  if (supported.includes(wanted)) {
+    return { effort: wanted, adjusted: false };
   }
 
-  const requestedRank = REASONING_EFFORTS.indexOf(requested);
-  let closest = model.supportedReasoningEfforts[0] ?? model.defaultReasoningEffort;
+  const requestedRank = REASONING_EFFORTS.indexOf(wanted);
+  let closest = supported[0] ?? model.defaultReasoningEffort;
   let closestDistance = Number.MAX_SAFE_INTEGER;
-  for (const candidate of model.supportedReasoningEfforts) {
+  for (const candidate of supported) {
     const distance = Math.abs(REASONING_EFFORTS.indexOf(candidate) - requestedRank);
     if (distance < closestDistance) {
       closest = candidate;
@@ -282,8 +297,10 @@ export function resolveEffort(
   return {
     effort: closest,
     adjusted: true,
-    reason:
-      `${model.slug} does not support reasoning effort "${requested}" ` +
-      `(supported: ${model.supportedReasoningEfforts.join(", ")}); using "${closest}" instead.`,
+    reason: ceiling
+      ? `${model.slug} cannot use reasoning effort "${wanted}" ` +
+        `(supported: ${model.supportedReasoningEfforts.join(", ")}; ceiling "${ceiling}"); using "${closest}" instead.`
+      : `${model.slug} does not support reasoning effort "${wanted}" ` +
+        `(supported: ${model.supportedReasoningEfforts.join(", ")}); using "${closest}" instead.`,
   };
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { normaliseModel, parseCatalog, resolveEffort } from "../src/codex/catalog.ts";
+import type { CodexModel, ReasoningEffort } from "../src/types.ts";
 
 // Shaped after the real `codex debug models` payload, minus the ~350 KB of
 // per-model system prompts the server discards.
@@ -114,4 +115,65 @@ test("falls back to the model default when no effort is requested", () => {
     effort: "medium",
     adjusted: false,
   });
+});
+
+function modelWithEfforts(efforts: ReasoningEffort[]): CodexModel {
+  return {
+    ...parseCatalog(RAW)[0]!,
+    slug: "test-model",
+    defaultReasoningEffort: "high",
+    supportedReasoningEfforts: efforts,
+  };
+}
+
+test("refuses when no supported effort is at or below the ceiling", () => {
+  const model = modelWithEfforts(["medium", "high"]);
+  assert.throws(
+    () => resolveEffort(model, "high", "low"),
+    /test-model.*medium, high.*ceiling "low"/,
+  );
+});
+
+test("chooses a supported effort below an unsupported ceiling", () => {
+  const resolved = resolveEffort(modelWithEfforts(["low", "high"]), "high", "medium");
+  assert.equal(resolved.effort, "low");
+  assert.equal(resolved.adjusted, true);
+  assert.match(resolved.reason ?? "", /ceiling "medium".*using "low"/);
+});
+
+test("keeps the existing cap when the model supports the ceiling", () => {
+  const resolved = resolveEffort(modelWithEfforts(["low", "medium", "high"]), "high", "medium");
+  assert.equal(resolved.effort, "medium");
+  assert.equal(resolved.adjusted, true);
+});
+
+test("chooses the closest eligible effort rather than always using the ceiling", () => {
+  const resolved = resolveEffort(modelWithEfforts(["low", "high"]), "medium", "high");
+  assert.equal(resolved.effort, "low");
+  assert.equal(resolved.adjusted, true);
+});
+
+test("resolves the model default against the supported efforts below the ceiling", () => {
+  const resolved = resolveEffort(modelWithEfforts(["low", "high"]), undefined, "medium");
+  assert.equal(resolved.effort, "low");
+  assert.equal(resolved.adjusted, true);
+  assert.match(resolved.reason ?? "", /"high".*ceiling "medium".*using "low"/);
+});
+
+test("preserves closest-match clamping and defaults without a ceiling", () => {
+  const model = modelWithEfforts(["low", "high"]);
+  assert.deepEqual(resolveEffort(model, "medium"), {
+    effort: "low",
+    adjusted: true,
+    reason: 'test-model does not support reasoning effort "medium" (supported: low, high); using "low" instead.',
+  });
+  assert.deepEqual(resolveEffort(model, undefined), { effort: "high", adjusted: false });
+});
+
+test("validates an unsupported model default only when a ceiling is configured", () => {
+  const model = { ...modelWithEfforts(["low", "medium"]), defaultReasoningEffort: "high" as const };
+  assert.deepEqual(resolveEffort(model, undefined), { effort: "high", adjusted: false });
+  const resolved = resolveEffort(model, undefined, "high");
+  assert.equal(resolved.effort, "medium");
+  assert.equal(resolved.adjusted, true);
 });
