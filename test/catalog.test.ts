@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { normaliseModel, parseCatalog, resolveEffort } from "../src/codex/catalog.ts";
+import { classifyCatalogFailure, normaliseModel, parseCatalog, resolveEffort } from "../src/codex/catalog.ts";
 import type { CodexModel, ReasoningEffort } from "../src/types.ts";
 
 // Shaped after the real `codex debug models` payload, minus the ~350 KB of
@@ -176,4 +176,21 @@ test("validates an unsupported model default only when a ceiling is configured",
   const resolved = resolveEffort(model, undefined, "high");
   assert.equal(resolved.effort, "medium");
   assert.equal(resolved.adjusted, true);
+});
+
+test("tells a configuration failure of debug models from unusable output", () => {
+  // Verbatim first lines of stderr on codex-cli 0.154.0.
+  for (const stderr of [
+    "Error: /tmp/home/config.toml:1:9: string values must be quoted, expected literal string\n",
+    "Error: unknown variant `bogus`, expected one of `read-only`, `workspace-write`, `danger-full-access`\nin `sandbox_mode`\n",
+    'Error: legacy `profile = "x"` config is no longer supported; use `--profile x` with `x.config.toml` instead\n',
+    "Error: Model provider `oss` not found\n",
+  ]) {
+    assert.equal(classifyCatalogFailure({ stderr, code: 1 }), "configuration", stderr);
+  }
+
+  // An older CLI without the subcommand fails in argument parsing, lowercase.
+  assert.equal(classifyCatalogFailure({ stderr: "error: unrecognized subcommand 'models'\n", code: 2 }), "unusable");
+  assert.equal(classifyCatalogFailure(new SyntaxError("Unexpected token")), "unusable");
+  assert.equal(classifyCatalogFailure({ killed: true, stderr: "" }), "unusable");
 });

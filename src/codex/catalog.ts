@@ -175,6 +175,27 @@ export function parseCatalog(json: string): CodexModel[] {
     .sort((a, b) => a.priority - b.priority || a.slug.localeCompare(b.slug));
 }
 
+/**
+ * Tells a configuration failure of `codex debug models` from unusable output.
+ *
+ * Verified against codex-cli 0.154.0: when configuration is the problem the
+ * command exits non-zero with an `Error:` line — `Error: <path>:1:9: string
+ * values must be quoted`, `Error: unknown variant ...`, `Error: legacy
+ * \`profile\` ...`, `Error: Model provider \`oss\` not found`, `Error: failed to
+ * parse model_catalog_json ...`. Argument parsing, which is what an older release
+ * without the subcommand fails at, prints a lowercase `error:` instead
+ * ("error: unrecognized subcommand"). Falling back to the static list for the
+ * first kind hid a fixable problem behind models that may not even exist for
+ * the user's provider.
+ */
+export function classifyCatalogFailure(error: unknown): "configuration" | "unusable" {
+  const stderr =
+    typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
+      ? ((error as { stderr: string }).stderr)
+      : "";
+  return /^Error(?: loading configuration)?:/m.test(stderr) ? "configuration" : "unusable";
+}
+
 let cached: CodexCatalog | null = null;
 let cachedAtMs = 0;
 
@@ -217,14 +238,24 @@ export async function getCatalog(
     cachedAtMs = Date.now();
     return cached;
   } catch (error) {
+    if (classifyCatalogFailure(error) === "configuration") {
+      const stderr = (error as { stderr: string }).stderr.trim();
+      throw new Error(
+        "Codex could not read its model catalog because of a configuration problem, so no model can be " +
+          `validated. Codex reported:\n${stderr}\n` +
+          "Fix the file or value it names, then retry. Run codex_doctor to check.",
+      );
+    }
     const reason = error instanceof Error ? error.message : String(error);
     // Do not cache the fallback: the CLI may become available at any moment.
     //
     // Callers run the preflight (`src/codex/doctor.ts`) before reaching this, so
-    // a missing or signed-out CLI has already been reported with remediation
-    // steps. What lands here is the narrower case of a CLI that runs but whose
-    // `debug models` output could not be used — an older release without the
-    // subcommand, for instance — where degrading is more useful than failing.
+    // a missing or signed-out CLI, or one whose configuration cannot load, has
+    // already been reported with remediation steps. What lands here is the
+    // narrower case of a CLI that runs but whose `debug models` output could not
+    // be used — an older release without the subcommand, for instance — where a
+    // warned list is more useful than nothing for browsing. It is never used to
+    // validate a delegation (see `resolveModelAndEffort` in `src/server.ts`).
     return {
       models: FALLBACK_MODELS,
       stale: true,
