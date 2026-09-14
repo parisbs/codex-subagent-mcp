@@ -42,6 +42,13 @@ subcommands and between versions. Two traps already found the hard way, both cov
   `exec`, which the cross-platform test fixture depends on. Tests that only check a flag is
   *present* in the argv would not have caught this; check the position against `--help`.
 
+- Warnings arrive as failures and failures arrive outside items. Configuration warnings (ignored
+  project config keys, a model switch on resume) are `item.completed` items of type `error`, printed
+  twice before `turn.started`; a usage limit or a lost connection is a top-level `error` event
+  followed by `turn.failed`. `src/codex/events.ts` downgrades only known warning shapes and treats
+  `turn.failed` as fatal. When a new warning shows up as an error, add its shape there rather than
+  loosening the rule.
+
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
 

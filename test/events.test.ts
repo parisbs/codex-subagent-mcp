@@ -4,9 +4,12 @@ import { test } from "node:test";
 import {
   JsonLinesParser,
   describeEvent,
+  isNotice,
   parseUsage,
   toExecutedCommand,
   toErrorMessage,
+  toStreamError,
+  toTurnFailure,
   type CodexEvent,
   toFileChanges,
 } from "../src/codex/events.ts";
@@ -219,5 +222,54 @@ test("describes a completed web search with its query", () => {
   assert.equal(
     describeEvent(completed),
     "Searched the web: site:nodejs.org current latest stable release Node.js",
+  );
+});
+
+// Messages captured from codex-cli 0.154.0 runs against a scratch CODEX_HOME.
+const IGNORED_KEYS_NOTICE =
+  "Ignored unsupported project-local config keys in /tmp/proj/.codex/config.toml: model_provider, notify. " +
+  "If you want these settings to apply, manually set them in your user-level config.toml.";
+const MODEL_SWITCH_NOTICE =
+  "This session was recorded with model `gpt-5.5` but is resuming with `gpt-5.6-luna`. " +
+  "Consider switching back to `gpt-5.5` as it may affect Codex performance.";
+const USAGE_LIMIT =
+  "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit " +
+  "https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 3:20 PM.";
+
+test("treats known configuration and resume warnings as notices, anything else as an error", () => {
+  assert.equal(isNotice(IGNORED_KEYS_NOTICE), true);
+  assert.equal(isNotice(MODEL_SWITCH_NOTICE), true);
+  assert.equal(isNotice("Falling back from WebSockets to HTTPS transport. unexpected status 401"), true);
+  assert.equal(isNotice("model overloaded"), false);
+  assert.equal(isNotice(USAGE_LIMIT), false);
+});
+
+test("extracts a failed turn and top-level errors, but not reconnect progress", () => {
+  assert.equal(toTurnFailure({ type: "turn.failed", error: { message: USAGE_LIMIT } }), USAGE_LIMIT);
+  assert.match(toTurnFailure({ type: "turn.failed" }) ?? "", /without a reason/);
+  assert.equal(toTurnFailure({ type: "turn.completed" }), null);
+
+  assert.equal(toStreamError({ type: "error", message: USAGE_LIMIT }), USAGE_LIMIT);
+  assert.equal(
+    toStreamError({ type: "error", message: "Reconnecting... 2/5 (unexpected status 401 Unauthorized)" }),
+    null,
+  );
+  assert.equal(toStreamError({ type: "item.completed", message: USAGE_LIMIT }), null);
+});
+
+test("skips top-level error fields with the wrong shape", () => {
+  const parser = new JsonLinesParser();
+  const events = parser.push(
+    '{"type":"turn.failed","error":"not an object"}\n{"type":"error","message":42}\n{"type":"turn.failed","error":{"message":"real"}}\n',
+  );
+  assert.deepEqual(events, [{ type: "turn.failed", error: { message: "real" } }]);
+});
+
+test("describes failed turns, reconnects and notices for progress", () => {
+  assert.match(describeEvent({ type: "turn.failed", error: { message: USAGE_LIMIT } }) ?? "", /^Codex turn failed: You've hit/);
+  assert.match(describeEvent({ type: "error", message: "Reconnecting... 3/5 (timeout)" }) ?? "", /^Codex is reconnecting/);
+  assert.match(
+    describeEvent({ type: "item.completed", item: { type: "error", message: IGNORED_KEYS_NOTICE } }) ?? "",
+    /^Codex notice:/,
   );
 });

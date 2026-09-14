@@ -9,6 +9,10 @@ import type { ExecutedCommand, FileChange, TokenUsage } from "../types.js";
 export interface CodexEvent {
   type: string;
   thread_id?: string;
+  /** Present on top-level `error` events: reconnect progress or a stream failure. */
+  message?: string;
+  /** Present on `turn.failed`: why Codex gave up on the turn. */
+  error?: { message?: string };
   item?: {
     id?: string;
     type?: string;
@@ -45,6 +49,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isCodexEvent(value: unknown): value is CodexEvent {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   if (value.thread_id !== undefined && typeof value.thread_id !== "string") return false;
+  if (value.message !== undefined && typeof value.message !== "string") return false;
+  if (value.error !== undefined) {
+    if (!isRecord(value.error)) return false;
+    if (value.error.message !== undefined && typeof value.error.message !== "string") return false;
+  }
   if (value.item !== undefined) {
     const item = value.item;
     if (!isRecord(item)) return false;
@@ -210,7 +219,10 @@ export function describeEvent(event: CodexEvent): string | null {
         return truncate(event.item.text ?? "", 160);
       }
       if (event.item?.type === "error") {
-        return `Codex reported an error: ${truncate(event.item.message ?? "", 200)}`;
+        const message = event.item.message ?? "";
+        return isNotice(message)
+          ? `Codex notice: ${truncate(message, 200)}`
+          : `Codex reported an error: ${truncate(message, 200)}`;
       }
       if (event.item?.type === "web_search" && event.item.query) {
         return `Searched the web: ${truncate(event.item.query, 160)}`;
@@ -224,6 +236,13 @@ export function describeEvent(event: CodexEvent): string | null {
       return null;
     case "turn.completed":
       return "Codex finished the turn.";
+    case "turn.failed":
+      return `Codex turn failed: ${truncate(event.error?.message ?? "no reason given", 200)}`;
+    case "error":
+      if (!event.message) return null;
+      return RECONNECT_PATTERN.test(event.message)
+        ? `Codex is reconnecting: ${truncate(event.message, 160)}`
+        : `Codex reported an error: ${truncate(event.message, 200)}`;
     default:
       return null;
   }
@@ -247,4 +266,57 @@ export function toErrorMessage(event: CodexEvent): string | null {
   if (event.item?.type !== "error") return null;
   const message = event.item.message?.trim();
   return message && message.length > 0 ? message : null;
+}
+
+/**
+ * Error items that do not report a failure.
+ *
+ * Verified against codex-cli 0.154.0: configuration warnings arrive as
+ * `item.completed` items of type `error` — emitted twice, before the turn
+ * starts — and so do a model switch on resume and a transport fallback. Listing
+ * them as errors buried real failures among warnings about a project's
+ * `.codex/config.toml`. Only known shapes are downgraded: anything unrecognised
+ * stays an error, so a new failure is never hidden by this list.
+ */
+const NOTICE_PATTERNS: readonly RegExp[] = [
+  /^Ignored unsupported project-local config keys\b/,
+  /^This session was recorded with model\b/,
+  /\boverridden by requirements\b/,
+  /^Falling back from WebSockets to HTTPS transport\b/,
+];
+
+export function isNotice(message: string): boolean {
+  return NOTICE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/** Top-level progress while the CLI retries its connection: "Reconnecting... 2/5 (...)". */
+const RECONNECT_PATTERN = /^Reconnecting\.\.\. \d+\/\d+/;
+
+/**
+ * Extracts a top-level `error` event that is not reconnect progress.
+ *
+ * These carry failures the process exit code does not explain on its own — a
+ * usage limit, an authentication failure — and were previously ignored.
+ * Reconnect notices are left out: they describe a retry, and if the retries run
+ * out the turn fails with its own reason.
+ */
+export function toStreamError(event: CodexEvent): string | null {
+  if (!isCodexEvent(event)) return null;
+  if (event.type !== "error") return null;
+  const message = event.message?.trim();
+  if (!message || RECONNECT_PATTERN.test(message)) return null;
+  return message;
+}
+
+/**
+ * Extracts why Codex gave up on a turn.
+ *
+ * A `turn.failed` is fatal even when the process exits 0 or earlier commentary
+ * reads like an answer, so it is kept apart from the recoverable errors.
+ */
+export function toTurnFailure(event: CodexEvent): string | null {
+  if (!isCodexEvent(event)) return null;
+  if (event.type !== "turn.failed") return null;
+  const message = event.error?.message?.trim();
+  return message && message.length > 0 ? message : "Codex reported the turn as failed without a reason.";
 }

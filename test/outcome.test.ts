@@ -15,6 +15,8 @@ function result(overrides: Partial<DelegationResult>): DelegationResult {
     fileChanges: [],
     agentMessages: ["Done."],
     errors: [],
+    warnings: [],
+    turnFailure: null,
     usage: null,
     durationMs: 1,
     exitCode: 0,
@@ -48,4 +50,23 @@ test("fails an in-band error that left no answer", () => {
 
 test("does not fail a run that reported an error and still answered", () => {
   assert.equal(describeFailure(result({ errors: ["Truncated Codex output: discarded 1 line."] })), null);
+});
+
+test("fails a failed turn even when the process exited zero and something was said", () => {
+  const failure = describeFailure(result({ turnFailure: "stream disconnected" }));
+  assert.match(failure ?? "", /turn as failed: stream disconnected/);
+});
+
+test("names the turn failure rather than only the exit code", () => {
+  // A usage limit exits 1; the exit code alone said nothing about why.
+  const failure = describeFailure(result({ exitCode: 1, turnFailure: "You've hit your usage limit." }));
+  assert.match(failure ?? "", /exit code 1.*usage limit/);
+});
+
+test("fails a clean exit that produced no answer at all", () => {
+  assert.match(describeFailure(result({ finalMessage: "", agentMessages: [] })) ?? "", /without producing an answer/);
+});
+
+test("does not fail an answered run that only carried notices", () => {
+  assert.equal(describeFailure(result({ warnings: ["Ignored unsupported project-local config keys in x: notify."] })), null);
 });

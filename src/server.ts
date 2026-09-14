@@ -128,12 +128,27 @@ function formatDuration(ms: number): string {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+/** Printed to stderr by `codex exec` on every run that reads its prompt from stdin. */
+const STDIN_NOTICE = "Reading prompt from stdin...";
+
 /** Renders a finished delegation as the text the orchestrator reads. */
 function renderResult(result: DelegationResult, notes: string[]): string {
   const lines: string[] = [];
 
   if (notes.length > 0) {
     lines.push(`Notes: ${notes.join(" ")}`, "");
+  }
+
+  if (result.turnFailure) {
+    lines.push(`Codex reported the turn as failed: ${result.turnFailure}`, "");
+  }
+
+  if (result.warnings.length > 0) {
+    lines.push(
+      `Codex notices (${result.warnings.length}):`,
+      ...result.warnings.map((message) => `- ${message}`),
+      "",
+    );
   }
 
   if (result.errors.length > 0) {
@@ -155,6 +170,14 @@ function renderResult(result: DelegationResult, notes: string[]): string {
         (result.stderr ? ` stderr: ${result.stderr}` : ""),
       "",
     );
+  } else {
+    // A successful run still writes warnings to stderr, and those used to be
+    // dropped. The one line every run prints carries no information.
+    const stderr = result.stderr
+      .split("\n")
+      .filter((line) => line.trim().length > 0 && line.trim() !== STDIN_NOTICE)
+      .join("\n");
+    if (stderr) lines.push(`Codex stderr: ${stderr}`, "");
   }
 
   lines.push(

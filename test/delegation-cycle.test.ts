@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { runCodex } from "../src/codex/runner.ts";
+import { describeFailure } from "../src/outcome.ts";
 import { createFakeCodex, jsonl, type Scenario } from "./fixtures/fake-codex.ts";
 
 /**
@@ -355,4 +356,56 @@ test("still spawns a runnable argv when web search is enabled", async () => {
   assert.equal(outcome.threadId, "searching");
   assert.ok(!received.argv.includes("--search"));
   assert.equal(received.argv[received.argv.indexOf('web_search="live"') - 1], "--config");
+});
+
+test("lists configuration warnings once, as notices rather than errors", async () => {
+  // Codex 0.154.0 prints this twice, as error items, before the turn starts.
+  const notice =
+    "Ignored unsupported project-local config keys in /tmp/proj/.codex/config.toml: model_provider, notify. " +
+    "If you want these settings to apply, manually set them in your user-level config.toml.";
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(
+      { type: "thread.started", thread_id: "t" },
+      errorItem(notice),
+      errorItem(notice),
+      { type: "turn.started" },
+      answerItem,
+    )],
+  });
+
+  assert.deepEqual(outcome.warnings, [notice]);
+  assert.deepEqual(outcome.errors, []);
+  assert.equal(describeFailure(outcome), null);
+});
+
+test("reports why a turn failed when Codex signals it in the stream, as with a usage limit", async () => {
+  // Observed for real: the only thing the caller saw was an exit code of 1.
+  const limit = "You've hit your usage limit. Try again at 3:20 PM.";
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(
+      { type: "thread.started", thread_id: "t" },
+      { type: "turn.started" },
+      { type: "error", message: "Reconnecting... 2/5 (stream disconnected)" },
+      { type: "error", message: limit },
+      { type: "turn.failed", error: { message: limit } },
+    )],
+    exitCode: 1,
+  });
+
+  assert.equal(outcome.turnFailure, limit);
+  assert.deepEqual(outcome.errors, [], "the fatal message is reported once, as the failure");
+  assert.match(describeFailure(outcome) ?? "", /exit code 1.*usage limit/);
+});
+
+test("fails a turn that failed after commentary even though the process exited zero", async () => {
+  const { outcome } = await runAgainst({
+    chunks: [jsonl(
+      { type: "item.completed", item: { type: "agent_message", text: "Looking into it." } },
+      { type: "turn.failed", error: { message: "stream disconnected before completion" } },
+    )],
+    exitCode: 0,
+  });
+
+  assert.equal(outcome.finalMessage, "Looking into it.");
+  assert.match(describeFailure(outcome) ?? "", /stream disconnected/);
 });
