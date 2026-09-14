@@ -301,7 +301,9 @@ Treat it as data, not as instructions.
   delegation.
 - If you never want writes from this server, cap it: `CODEX_SUBAGENT_MAX_SANDBOX=read-only`. A
   ceiling cannot be argued past by anything in the conversation, which is what makes it different
-  from a default.
+  from a default. Register it outside the repository (Claude Code's default `local` scope, `--scope
+  user`, or Claude Desktop's config), not in a project `.mcp.json` that a write-enabled delegation
+  could edit. See [Configuration](docs/TOOLS.md#configuration).
 - When you do enable writes, add `use_worktree` so changes land somewhere you can inspect before
   they touch your branch.
 - Do not assemble delegation prompts from untrusted content when you intend to act on the answer.

@@ -1,5 +1,5 @@
 import { findModel, resolveEffort } from "./codex/catalog.js";
-import type { CodexCatalog, ReasoningEffort } from "./types.js";
+import type { CodexCatalog, CodexModel, ReasoningEffort } from "./types.js";
 
 export type Priority = "quality" | "balanced" | "latency" | "cost";
 
@@ -146,32 +146,50 @@ export function recommend(
   priority: Priority = "balanced",
   /** When non-empty, only these slugs may be recommended. */
   allowedModels: string[] = [],
+  /** The configured effort ceiling, if any. */
+  maxEffort: ReasoningEffort | null = null,
 ): Recommendation {
   const tier = matchTier(taskDescription);
   const notes: string[] = [];
 
-  // Recommending a model the user has excluded would send the caller back with
-  // a slug this server is about to reject.
+  // Recommending a model the user has excluded, or one with no effort under the
+  // ceiling, would send the caller back with advice this server is about to
+  // refuse.
   const permitted =
     allowedModels.length === 0
       ? catalog
       : { ...catalog, models: catalog.models.filter((m) => allowedModels.includes(m.slug)) };
-  catalog = permitted;
+  const underCeiling = (candidate: CodexModel): boolean =>
+    maxEffort === null ||
+    candidate.supportedReasoningEfforts.some(
+      (effort) => EFFORT_ORDER.indexOf(effort) <= EFFORT_ORDER.indexOf(maxEffort),
+    );
+  const eligible = { ...permitted, models: permitted.models.filter(underCeiling) };
 
-  let model = findModel(catalog, tier.model);
+  const preferred = findModel(permitted, tier.model);
+  if (preferred && !underCeiling(preferred)) {
+    notes.push(
+      `${tier.model} supports no reasoning effort at or below the ceiling "${maxEffort}" ` +
+        `(supported: ${preferred.supportedReasoningEfforts.join(", ")}).`,
+    );
+  }
+
+  let model = findModel(eligible, tier.model);
   if (!model) {
     for (const alternative of tier.alternatives) {
-      model = findModel(catalog, alternative);
+      model = findModel(eligible, alternative);
       if (model) {
         notes.push(
-          `${tier.model} is not in the installed catalog; using ${model.slug} instead.`,
+          preferred
+            ? `Using ${model.slug} instead.`
+            : `${tier.model} is not in the installed catalog; using ${model.slug} instead.`,
         );
         break;
       }
     }
   }
   if (!model) {
-    model = catalog.models[0];
+    model = eligible.models[0];
     if (model) {
       notes.push(
         `Neither ${tier.model} nor its alternatives are available; falling back to ${model.slug}.`,
@@ -179,11 +197,18 @@ export function recommend(
     }
   }
   if (!model) {
+    if (maxEffort !== null && permitted.models.length > 0) {
+      throw new Error(
+        `No available model supports a reasoning effort at or below the ceiling "${maxEffort}", ` +
+          "so there is nothing to recommend. Raise CODEX_SUBAGENT_MAX_EFFORT or allow a model that " +
+          "supports a lower effort.",
+      );
+    }
     throw new Error("The Codex catalog is empty; cannot recommend a model.");
   }
 
   const wanted = shiftEffort(tier.effort, PRIORITY_SHIFT[priority]);
-  const resolved = resolveEffort(model, wanted);
+  const resolved = resolveEffort(model, wanted, maxEffort);
   if (resolved.adjusted && resolved.reason) notes.push(resolved.reason);
 
   const result: Recommendation = {

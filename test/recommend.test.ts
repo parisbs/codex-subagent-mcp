@@ -140,3 +140,39 @@ test("fails loudly on an empty catalog", () => {
     /catalog is empty/,
   );
 });
+
+test("never suggests an effort above the configured ceiling", () => {
+  // The hard tier asks for xhigh; a delegation would clamp it, so the advice must too.
+  const suggestion = recommend(
+    CATALOG,
+    "Find the root cause of a race condition in the connection pool",
+    "balanced",
+    [],
+    "medium",
+  );
+  assert.equal(suggestion.model, "gpt-6-astra");
+  assert.equal(suggestion.reasoningEffort, "medium");
+  assert.match(suggestion.adjustment ?? "", /ceiling "medium"/);
+});
+
+test("skips a model with no effort at or below the ceiling", () => {
+  const catalog: CodexCatalog = {
+    ...CATALOG,
+    models: CATALOG.models.map((model) =>
+      model.slug === "gpt-5.6-luna"
+        ? { ...model, supportedReasoningEfforts: ["medium", "high"], defaultReasoningEffort: "medium" }
+        : model,
+    ),
+  };
+  const suggestion = recommend(catalog, "Fix a typo in the changelog", "balanced", [], "low");
+  assert.equal(suggestion.model, "gpt-5.6-terra");
+  assert.equal(suggestion.reasoningEffort, "low");
+  assert.match(suggestion.adjustment ?? "", /gpt-5\.6-luna supports no reasoning effort at or below the ceiling "low"/);
+});
+
+test("refuses to recommend when no model has an effort under the ceiling", () => {
+  assert.throws(
+    () => recommend(CATALOG, "Implement the profile endpoint", "balanced", [], "minimal"),
+    /ceiling "minimal"/,
+  );
+});
