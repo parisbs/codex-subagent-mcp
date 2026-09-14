@@ -75,7 +75,7 @@ test("forwards every optional flag", () => {
   assert.equal(args[args.indexOf("--cd") + 1], "/tmp/project");
   assert.equal(args.filter((arg) => arg === "--add-dir").length, 2);
   assert.ok(args.includes("--worktree"));
-  assert.ok(args.includes("--search"));
+  assert.ok(args.includes('web_search="live"'));
   assert.ok(args.includes("--skip-git-repo-check"));
   assert.ok(args.includes("--ephemeral"));
 });
@@ -208,4 +208,22 @@ test("names the offending value when it refuses a thread id", () => {
     () => buildCodexArgs({ kind: "resume", threadId: "--help", sandbox: "read-only" }),
     /"--help"/,
   );
+});
+
+test("enables live web search through a config override, never the top-level flag", () => {
+  // `--search` is an option of `codex` itself, not of `codex exec`. Placed after
+  // the subcommand, codex-cli 0.154.0 exits 2 with "unexpected argument
+  // '--search' found", so `web_search: true` failed every time. The config key
+  // is accepted by `exec` and keeps the argv starting with the subcommand.
+  const args = buildCodexArgs({ kind: "exec", sandbox: "read-only", webSearch: true });
+
+  assert.equal(args[0], "exec");
+  assert.ok(!args.includes("--search"));
+  assert.equal(args[args.indexOf('web_search="live"') - 1], "--config");
+});
+
+test("leaves Codex's own web search setting alone when not asked", () => {
+  const args = buildCodexArgs({ kind: "exec", sandbox: "read-only" });
+
+  assert.ok(!args.some((arg) => arg.startsWith("web_search")));
 });

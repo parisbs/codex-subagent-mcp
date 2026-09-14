@@ -21,6 +21,8 @@ export interface CodexEvent {
     message?: string;
     /** Present on `file_change` items: what Codex added, edited or deleted. */
     changes?: { path?: string; kind?: string }[];
+    /** Present on `web_search` items; empty until the search has been issued. */
+    query?: string;
   };
   usage?: {
     input_tokens?: number;
@@ -46,7 +48,7 @@ function isCodexEvent(value: unknown): value is CodexEvent {
   if (value.item !== undefined) {
     const item = value.item;
     if (!isRecord(item)) return false;
-    for (const field of ["id", "type", "text", "command", "aggregated_output", "status", "message"]) {
+    for (const field of ["id", "type", "text", "command", "aggregated_output", "status", "message", "query"]) {
       if (item[field] !== undefined && typeof item[field] !== "string") return false;
     }
     if (
@@ -209,6 +211,9 @@ export function describeEvent(event: CodexEvent): string | null {
       }
       if (event.item?.type === "error") {
         return `Codex reported an error: ${truncate(event.item.message ?? "", 200)}`;
+      }
+      if (event.item?.type === "web_search" && event.item.query) {
+        return `Searched the web: ${truncate(event.item.query, 160)}`;
       }
       if (event.item?.type === "file_change") {
         const changes = toFileChanges(event);

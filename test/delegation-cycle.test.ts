@@ -344,3 +344,15 @@ test("caps distinct file changes and reports how many were omitted", async () =>
   assert.ok(outcome.errors.some((message) => /Omitted 200 file change/.test(message)));
 });
 
+test("still spawns a runnable argv when web search is enabled", async () => {
+  // The stand-in only runs if the argv starts with `exec`, which is exactly the
+  // property a top-level `--search` would have broken.
+  const { outcome, received } = await runAgainst(
+    { chunks: [jsonl({ type: "thread.started", thread_id: "searching" })] },
+    { invocation: { kind: "exec", sandbox: "read-only", webSearch: true } },
+  );
+
+  assert.equal(outcome.threadId, "searching");
+  assert.ok(!received.argv.includes("--search"));
+  assert.equal(received.argv[received.argv.indexOf('web_search="live"') - 1], "--config");
+});

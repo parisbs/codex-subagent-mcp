@@ -36,6 +36,12 @@ subcommands and between versions. Two traps already found the hard way, both cov
 - `--worktree` needs `--enable worktrees` on the same invocation: the feature is experimental and
   off by default, and the flag alone exits with "requires the worktrees feature".
 
+- `--search` is an option of `codex`, not of `codex exec`: after the subcommand the CLI exits 2 with
+  "unexpected argument '--search' found", so `web_search: true` never worked until it was replaced
+  by `-c web_search="live"`. That form is accepted by `exec` and keeps the argv starting with
+  `exec`, which the cross-platform test fixture depends on. Tests that only check a flag is
+  *present* in the argv would not have caught this; check the position against `--help`.
+
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
 

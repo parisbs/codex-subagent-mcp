@@ -117,7 +117,7 @@ Runs a task on the local Codex CLI.
 | `auto_approve` | boolean | `false` | Codex approves its own commands. Implies `workspace-write`; ignored under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | Writes land in a managed git worktree under `~/.codex/worktrees/`, never your working tree. Uses an experimental Codex feature, enabled for that invocation only. |
-| `web_search` | boolean | `false` | Enable Codex's native web search. |
+| `web_search` | boolean | `false` | Enable live web search for this run, passed to Codex as `-c web_search="live"`. When omitted, Codex's own configured `web_search` mode applies. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
 | `mode` | `blocking` \| `background` | `blocking` | `background` returns a `job_id` immediately. |

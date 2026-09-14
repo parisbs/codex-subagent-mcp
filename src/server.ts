@@ -319,7 +319,10 @@ const delegateShape = {
     .boolean()
     .optional()
     .describe("Run in a managed git worktree. Writes outside it remain subject to the sandbox policy and add_dirs."),
-  web_search: z.boolean().optional().describe("Enable Codex's native web search tool."),
+  web_search: z
+    .boolean()
+    .optional()
+    .describe("Enable live web search for this run, through Codex's web_search = \"live\" setting. When omitted, Codex's own configured web_search mode applies."),
   skip_git_repo_check: z
     .boolean()
     .optional()
