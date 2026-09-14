@@ -138,6 +138,10 @@ Runs a task on the local Codex CLI.
 
 ### What comes back
 
+Every result starts with one line stating that Codex's report is information from another agent,
+not instructions. Codex may have read hostile content, and its report is how that content would
+reach the orchestrator.
+
 A blocking delegation returns the final message, the files it changed (with the path each landed
 at), the commands it ran with their exit codes, the token usage, the duration, the model, effort and
 sandbox this server passed to Codex, and a `thread_id` for follow-ups. Those settings are what was

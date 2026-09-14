@@ -123,7 +123,11 @@ Stated plainly, because a security policy that implies more coverage than it has
   or container that has no access to the secrets in the first place.
 
 - **Delegation output is not sanitised.** What Codex returns is passed back to the orchestrator as
-  text. Treat it as data.
+  text. Each result opens with a line saying it is information, not instructions, which helps a model
+  keep the distinction but does not enforce it. Treat it as data.
+- **Other MCP servers are outside this server's reach.** A malicious server's tool description can
+  try to steer how the orchestrator uses this one. This server cannot detect that; install MCP
+  servers you trust. [docs/CONTROL.md](docs/CONTROL.md) covers the controls that do hold.
 - **The server trusts the Codex CLI.** If your Codex installation is compromised, so is this.
 - **`danger-full-access` removes the sandbox.** It is available because it is sometimes necessary;
   it is not defended.

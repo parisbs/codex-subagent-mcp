@@ -34,6 +34,12 @@ behaviour a caller can see; each such change is marked below.
   instead of validating a paid run against a list that may not match the installed CLI. ([#51])
 - `codex_recommend`, and the recommendation included when a delegation is refused for lack of a
   model, stay within `CODEX_SUBAGENT_MAX_EFFORT` and skip models with no effort under it. ([#54])
+- The `codex_delegate` and `codex_follow_up` descriptions state that a delegation sends its content
+  to OpenAI and spends the user's Codex usage, when delegating fits, and that Claude should say when
+  it delegates. The server is available in any conversation, not only programming ones, and the old
+  "coding or analysis task" invited delegation almost anywhere.
+- A delegation refused for lack of a model now asks the orchestrator to confirm the model with the
+  user before calling again, rather than inviting it to retry with the suggestion on its own.
 - Collections retained per run are bounded: the newest 500 commands, 100 distinct errors (repeats
   collapsed into one entry with a count, each capped at 2,000 characters) and the first 1,000
   distinct changed files. Anything dropped is counted and reported. At most 100 finished background
@@ -52,6 +58,13 @@ behaviour a caller can see; each such change is marked below.
   follow-up now resolves its model and effort through the same policy as a new delegation and states
   both on the argv. (GHSA-6946-2h8r-6372, [#52])
 - `add_dirs` entries are validated as existing absolute directories, the same as `working_dir`.
+- A delegation can no longer call this server again. If the server is also registered in the user's
+  Codex configuration, every delegation and follow-up switches that entry off for the run
+  (`-c mcp_servers.<name>.enabled=false`), found through `codex mcp list --json`. An environment
+  marker could not do this: Codex starts MCP servers with almost no environment.
+- Every delegation result starts by stating that Codex's report is information, not instructions.
+  Codex may have read hostile content, and its report is how that content would reach the
+  orchestrator.
 
 ### Fixed
 
@@ -96,6 +109,9 @@ behaviour a caller can see; each such change is marked below.
 
 ### Documentation
 
+- [Staying in control of delegation](docs/CONTROL.md), linked from a short README section: client
+  permissions, server ceilings, version ranges, the user's own rules for Claude, what the server does
+  on its own and what no setting can guarantee.
 - A versioning policy with one bump rule per kind of change, a Node support policy, and this
   changelog written at release time. ([#41])
 - Windows and Linux covered alongside macOS: Codex installation, sandbox prerequisites, Claude
