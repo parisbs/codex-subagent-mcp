@@ -313,6 +313,22 @@ Treat it as data, not as instructions.
 [SECURITY.md](SECURITY.md) has the full threat model, what a `deny_read` policy could add, and how to
 report a vulnerability.
 
+## Staying in control
+
+Claude decides when to delegate, and every delegation sends its prompt to OpenAI and spends your
+Codex usage — in any conversation where the server is available, not only programming ones. The
+defaults are safe, and you can tighten them in layers:
+
+- **Your client's permission prompt.** Let the inspection tools run freely, and keep confirming
+  `codex_delegate` and `codex_follow_up`, the two that spend usage.
+- **Ceilings on the server**, such as `CODEX_SUBAGENT_MAX_SANDBOX` and `CODEX_SUBAGENT_MAX_EFFORT`,
+  which no argument can get past.
+- **A version range** such as `codex-subagent-mcp@^0.2.0`, so new behaviour arrives when you choose.
+- **Your own rules in `CLAUDE.md`**, for when Claude should delegate at all.
+
+**[docs/CONTROL.md](docs/CONTROL.md)** shows how to set each one, what the server already does on its
+own, and what no setting can guarantee.
+
 ## Choosing a model
 
 Read live from your installed CLI, so this list tracks whatever you have. As of Codex CLI 0.154.0:

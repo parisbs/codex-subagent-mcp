@@ -129,7 +129,9 @@ claude mcp add codex-subagent -- npx -y codex-subagent-mcp
 
 Not done, deliberately: a release workflow. Automating a publish that has never been run once by
 hand, against a secret that does not exist yet, would be untested machinery guarding the riskiest
-operation in the project.
+operation in the project. After two manual releases that reasoning has run its course; publishing
+from GitHub Actions with npm provenance is now under consideration
+([#66](https://github.com/parisbs/codex-subagent-mcp/issues/66)).
 
 ## v0.6 — Configurable policy (done)
 
@@ -239,6 +241,29 @@ usage, and may well close as `wontfix`.
 
 [#32](https://github.com/parisbs/codex-subagent-mcp/issues/32),
 [#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)
+
+## Under consideration: keeping delegation under the user's control
+
+Not tied to a release. This server can be called from any conversation, not only programming ones,
+and every call sends a prompt to OpenAI and spends the user's usage. An evaluation of how it gets
+triggered — a vague "delegate this", a general-purpose chat, content that steers the orchestrator —
+led to guardrails that shipped at once (tool descriptions that state the cost, a refusal that asks the
+orchestrator to confirm the model with the user, results framed as information, and a guard against
+a delegation calling this server again) and to four ideas that need design or evidence first:
+
+- A limit on how many delegations a session can start, counted in delegations rather than quota
+  ([#62](https://github.com/parisbs/codex-subagent-mcp/issues/62)).
+- Refusing to run in a directory nobody chose, once its real impact on everyday use is measured
+  ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)).
+- Turning off Codex plugins and features a delegation inherits from the user's own setup, once it is
+  verified what they can do under `codex exec`
+  ([#64](https://github.com/parisbs/codex-subagent-mcp/issues/64)).
+- Asking the user directly before expensive runs through MCP elicitation, if clients actually show it
+  ([#65](https://github.com/parisbs/codex-subagent-mcp/issues/65)).
+
+The strongest controls remain the ones the user already has: the client's permission prompt, the
+server's ceilings, and their own instructions to Claude. [CONTROL.md](CONTROL.md) explains how to use
+them.
 
 ## Not planned: a triage skill, or a Claude Code plugin
 
