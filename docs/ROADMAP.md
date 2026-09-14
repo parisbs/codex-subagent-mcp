@@ -18,7 +18,9 @@ The work itself lives on GitHub, where it can actually be closed:
 
 A note on numbering, because the two do not line up: the phases below (v0.1 through v0.6) were all
 delivered inside the **0.1.0** release. They are development phases, not published versions. From
-here on the headings are the release versions themselves, matching the milestones.
+here on the headings are the release versions themselves, matching the milestones — and like the
+milestones, a version not yet published is a forecast. [VERSIONING.md](VERSIONING.md) says how the
+number is chosen and when it can still move.
 
 ## v0.1 — Correct core (done)
 
@@ -144,7 +146,7 @@ hands back the recommendation it would have made.
 
 See [ADR 12](adr/0012-mechanism-not-policy.md).
 
-## 0.1.1 — What the first review found
+## 0.2.0 — Hardening after the first review
 
 Publishing 0.1.0 was not the end of the work; it was the point at which the code became worth
 reviewing properly. A cross-model review — Codex at `gpt-6-astra`, `xhigh` reasoning, read-only,
@@ -156,7 +158,7 @@ Two are security issues and are being handled through the repository's
 advisories, published together with the release that fixes them. A published advisory reaches
 `npm audit` and Dependabot; a closed issue reaches nobody.
 
-The other five are open issues:
+The other five are fixed on `main`:
 
 - [#22](https://github.com/parisbs/codex-subagent-mcp/issues/22) — a malformed event *field* inside
   valid JSON throws outside the promise and takes the process down.
@@ -174,19 +176,33 @@ treats the CLI's output and the caller's input as well-formed. The parts that we
 adversarially — the prompt never touching the argv, the executable resolved without a shell — held
 up under direct attack. The parts that were merely written carefully did not.
 
-## 0.2.0 — Delegated code review
+A planning review that followed found three more gaps of the same kind, now part of this release: the
+effort ceiling could produce an effort the model does not support
+([#38](https://github.com/parisbs/codex-subagent-mcp/issues/38)), the `model` parameter still told
+the orchestrator that omitting it picks one automatically
+([#39](https://github.com/parisbs/codex-subagent-mcp/issues/39)), and commands, errors and file
+changes are still retained without limit
+([#42](https://github.com/parisbs/codex-subagent-mcp/issues/42)).
+
+This was planned as a 0.1.1 of fixes alone. It becomes 0.2.0 because it also raises the supported
+Node floor to 22 ([#43](https://github.com/parisbs/codex-subagent-mcp/issues/43)): Node 20 reached
+end-of-life on 2026-04-30, and dropping a Node line is breaking under
+[VERSIONING.md](VERSIONING.md).
+
+## 0.3.0 — Delegated code review
 
 `codex exec review` is a separate subcommand with its own flags (`--uncommitted`, `--base`,
 `--commit`, `--title`) and its own output shape. Wrapping it as `codex_review` gives the
 orchestrator a second opinion on a diff from a different model family, which is the most obviously
-valuable thing a cross-model setup can offer — and 0.1.1 is the evidence that it works.
+valuable thing a cross-model setup can offer — and the review behind 0.2.0 is the evidence that it
+works.
 
 Open question: whether review findings are worth parsing into a structured list, or whether the
-prose summary is enough for the orchestrator to act on. That may depend on 0.3.0.
+prose summary is enough for the orchestrator to act on. That may depend on 0.4.0.
 
 [#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)
 
-## 0.3.0 — Structured results
+## 0.4.0 — Structured results
 
 `codex exec --output-schema <FILE>` constrains the model's final response to a JSON Schema. Today
 the orchestrator receives prose and has to re-read it. An optional `output_schema` parameter would
@@ -198,10 +214,17 @@ killed — a path this project now knows it gets wrong in some orderings.
 
 [#28](https://github.com/parisbs/codex-subagent-mcp/issues/28)
 
-## 0.4.0 — Cost and configuration
+## 0.5.0 — Cost and configuration
 
-Token usage is captured per run and then thrown away, Codex profiles are not exposed, and monorepos
+Every result already reports the tokens the CLI counted — input, cached, output and reasoning. What
+does not exist is any view across delegations, so there is no way to notice a pattern such as `xhigh`
+effort spent on work that `low` would have handled. Codex profiles are not exposed, and monorepos
 have to restate their extra directories on every call.
+
+One thing this will deliberately never do: report or estimate subscription quota, such as the share
+of a usage window a delegation consumed. The CLI's own logs expose those percentages, but plan limits
+and credit rates are OpenAI's to change without notice, and a figure this server printed would go
+wrong silently. Tokens reported by the CLI are the only usage figure surfaced.
 
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
 [#30](https://github.com/parisbs/codex-subagent-mcp/issues/30),
