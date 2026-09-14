@@ -36,6 +36,9 @@ const CATALOG = {
 
 let spawnedArgs: string[][] = [];
 
+/** What the next spawned "Codex" writes to stdout and how it exits. */
+let nextRun: { events: unknown[]; exitCode: number } = { events: [], exitCode: 0 };
+
 const fakeExecFile = async (_file: string, args: string[]): Promise<{ stdout: string; stderr: string }> => {
   if (args[0] === "--version") return { stdout: "codex-cli 0.154.0", stderr: "" };
   if (args[0] === "debug") return { stdout: JSON.stringify(CATALOG), stderr: "" };
@@ -56,9 +59,13 @@ cp.spawn = ((_file: string, args: string[]) => {
     signalCode: null,
     kill: () => true,
   });
+  const { events, exitCode } = nextRun;
   setImmediate(() => {
-    child["exitCode"] = 0;
-    child.emit("close", 0);
+    const stdout = child["stdout"] as PassThrough;
+    for (const event of events) stdout.write(`${JSON.stringify(event)}\n`);
+    child["exitCode"] = exitCode;
+    // Let the stdout data events drain before close, as a real child would.
+    setImmediate(() => child.emit("close", exitCode));
   });
   return child;
 }) as unknown as typeof cp.spawn;
@@ -95,6 +102,7 @@ async function withServer<T>(
   }
 
   spawnedArgs = [];
+  nextRun = { events: [], exitCode: 0 };
   const { server, jobs } = createServer();
   const tools = server as unknown as ToolServer;
   const extra = { signal: new AbortController().signal, sendNotification: async () => {} };
@@ -176,5 +184,89 @@ test("refuses an add_dirs entry that is not an existing absolute directory", asy
     assert.equal(result.isError, true);
     assert.match(result.content[0]?.text ?? "", /add_dirs entry must be an absolute path/);
     assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+  });
+});
+
+type ToolResult = { isError?: boolean; content: { text: string }[] };
+
+const ERROR_ITEM = { type: "item.completed", item: { type: "error", message: "model overloaded" } };
+const ANSWER = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
+
+/** Starts a background delegation and waits until the registry reports it finished. */
+async function runInBackground(call: (name: string, args: unknown) => Promise<unknown>): Promise<string> {
+  const started = (await call("codex_delegate", {
+    prompt: "anything",
+    model: "cheap-model",
+    mode: "background",
+  })) as ToolResult;
+  const jobId = /[0-9a-f-]{36}/.exec(started.content[0]?.text ?? "")?.[0];
+  assert.ok(jobId, `no job id in ${started.content[0]?.text}`);
+
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const status = (await call("codex_job_status", { job_id: jobId })) as ToolResult;
+    if (!/state: running/.test(status.content[0]?.text ?? "")) return jobId;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`job ${jobId} never finished`);
+}
+
+test("reports an in-band error with no answer as a failed delegation", async () => {
+  // Codex can report a failure as an error item while still exiting 0. Checking
+  // the exit code alone handed that back to the orchestrator as a success.
+  await withServer({}, async (call) => {
+    nextRun = { events: [ERROR_ITEM], exitCode: 0 };
+    const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /model overloaded/);
+  });
+});
+
+test("does not flag a delegation that recovered from an error and still answered", async () => {
+  // `errors` also carries truncation notices and errors Codex got past. Flagging
+  // those would teach the orchestrator to ignore isError altogether.
+  await withServer({}, async (call) => {
+    nextRun = { events: [ERROR_ITEM, ANSWER], exitCode: 0 };
+    const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
+
+    assert.notEqual(result.isError, true);
+  });
+});
+
+test("marks the result of a background job that exited non-zero as an error", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [], exitCode: 1 };
+    const jobId = await runInBackground(call);
+
+    const status = (await call("codex_job_status", { job_id: jobId })) as ToolResult;
+    assert.match(status.content[0]?.text ?? "", /state: failed/);
+
+    const result = (await call("codex_job_result", { job_id: jobId })) as ToolResult;
+    assert.equal(result.isError, true);
+  });
+});
+
+test("fails a background job whose only signal was an in-band error", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [ERROR_ITEM], exitCode: 0 };
+    const jobId = await runInBackground(call);
+
+    const status = (await call("codex_job_status", { job_id: jobId })) as ToolResult;
+    assert.match(status.content[0]?.text ?? "", /state: failed/);
+    assert.match(status.content[0]?.text ?? "", /model overloaded/);
+
+    const result = (await call("codex_job_result", { job_id: jobId })) as ToolResult;
+    assert.equal(result.isError, true);
+  });
+});
+
+test("returns a successful background job without isError", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [ANSWER], exitCode: 0 };
+    const jobId = await runInBackground(call);
+
+    const result = (await call("codex_job_result", { job_id: jobId })) as ToolResult;
+    assert.notEqual(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /Done\./);
   });
 });

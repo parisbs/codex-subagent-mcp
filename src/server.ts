@@ -24,6 +24,7 @@ import {
 import type { CodexEvent } from "./codex/events.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
+import { describeFailure } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { assemblePrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
@@ -117,13 +118,9 @@ function validateAddDirs(dirs: string[] | undefined): void {
   }
 }
 
-/**
- * A delegation failed if Codex exited non-zero or was killed for running past
- * its budget. A timeout leaves `exitCode` null (the process died on a signal),
- * so it has to be checked separately.
- */
+/** See `src/outcome.ts` for what counts as a failed delegation. */
 function isFailure(result: DelegationResult): boolean {
-  return result.timedOut || result.exitCode !== 0;
+  return describeFailure(result) !== null;
 }
 
 function formatDuration(ms: number): string {
@@ -807,7 +804,11 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async ({ job_id }) => {
       try {
-        return textResult(renderResult(jobs.result(job_id), []));
+        const result = jobs.result(job_id);
+        // A cancelled job also has a result, but a partial one; only a job that
+        // ran to completion is a success.
+        const { state } = jobs.snapshot(job_id);
+        return textResult(renderResult(result, []), state !== "completed");
       } catch (error) {
         return errorResult(error);
       }

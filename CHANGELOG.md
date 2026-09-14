@@ -41,11 +41,19 @@ preflight reports that case as `unverified-version` rather than guessing.
 - The timeout now holds even when the Codex process exits while a descendant keeps its stdout and
   stderr open. Settlement no longer waits for a `close` event that in that case never arrives, which
   could leave a background job pending indefinitely. ([#25])
+- Failed delegations are reported as errors. Codex can signal failure with an in-band error item
+  while still exiting 0, and those runs came back without `isError`; background jobs whose process
+  exited non-zero were also returned by `codex_job_result` as successes. One classification in
+  `src/outcome.ts` now serves both the blocking tools and the job registry. An error only counts when
+  the run produced no answer, so a truncation notice or a recovered error does not flag a run that
+  did its job. ([#23])
+- A background job cancelled before its run started is recorded as cancelled rather than failed.
 - A cancellation that arrives before the runner starts is honoured, and no child is spawned at all.
   `AbortSignal` does not replay its event, so a signal already aborted during the preflight was
   never heard. ([#26])
 
 [#22]: https://github.com/parisbs/codex-subagent-mcp/issues/22
+[#23]: https://github.com/parisbs/codex-subagent-mcp/issues/23
 [#24]: https://github.com/parisbs/codex-subagent-mcp/issues/24
 [#25]: https://github.com/parisbs/codex-subagent-mcp/issues/25
 [#26]: https://github.com/parisbs/codex-subagent-mcp/issues/26
