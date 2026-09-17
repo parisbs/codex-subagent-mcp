@@ -27,19 +27,21 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. |
-| `CODEX_SUBAGENT_MAX_SANDBOX` | The most permissive sandbox allowed. A call asking for more is **refused**. |
+| `CODEX_SUBAGENT_DEFAULT_SANDBOX` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
+| `CODEX_SUBAGENT_MAX_SANDBOX` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
 
 Two rules govern all of this, and are explained in
-[ADR 12](adr/0012-mechanism-not-policy.md):
+[ADR 12](adr/0012-mechanism-not-policy.md) and
+[ADR 14](adr/0014-user-controlled-sandbox-defaults.md):
 
 **The server never chooses a model silently.** Which model a task deserves depends on your budget and
 on how costly a wrong answer is. With no model in the call and none configured, the delegation is
 refused — and the refusal includes the recommendation it would have made.
 
-**Configuration may only restrict.** There is no setting that makes delegations more permissive than
-the defaults, which is why there is no configurable default sandbox: `read-only` stays the floor and
-a ceiling can only lower what a caller may reach.
+**A caller cannot widen the user's policy.** The user may choose a more permissive default sandbox
+outside the repository, but a call can never exceed `CODEX_SUBAGENT_MAX_SANDBOX`. That ceiling is
+`workspace-write` when unset, so removing the sandbox requires the user to opt in explicitly.
 
 Ceilings differ by kind on purpose. A sandbox above the ceiling is refused, because the caller asked
 for write access for a reason and running read-only anyway would fail the task silently. An effort
@@ -48,13 +50,14 @@ above the ceiling is clamped, because less deliberation makes the task worse rat
 Invalid values are reported on the first tool call, not at startup — a server that refuses to start
 cannot explain why.
 
-**Keep ceilings out of the working tree.** Set them where a delegation cannot edit them: Claude
+**Keep sandbox defaults and ceilings out of the working tree.** Set them where a delegation cannot edit them: Claude
 Code's default `local` scope or `--scope user` (both stored in your home directory), or Claude
 Desktop's own config file. Avoid `--scope project` for them, which writes a `.mcp.json` into the
 repository. A delegation with `workspace-write` can edit files in its working directory, and Codex
 keeps only `.git`, `.codex` and `.agents` read-only there — not `.mcp.json`. An edited ceiling would
-take effect the next time the server starts. `danger-full-access` removes that boundary entirely,
-which is one more reason to cap it with `CODEX_SUBAGENT_MAX_SANDBOX`.
+take effect the next time the server starts; an edited default could make later delegations write
+without asking for a sandbox. `danger-full-access` removes that boundary entirely, which is one more
+reason to leave its explicit opt-in outside the repository.
 
 ---
 
@@ -134,7 +137,7 @@ Runs a task on the local Codex CLI.
 | `target_files` | string[] | — | Paths to focus on, relative to `working_dir`. |
 | `acceptance_criteria` | string[] | — | Conditions that must hold for the task to be done. |
 | `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Codex also reads a trusted project's `.codex/config.toml` from here. |
-| `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
+| `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
 | `auto_approve` | boolean | `false` | Codex approves its own commands. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | Writes land in a managed git worktree under `~/.codex/worktrees/`, never your working tree. Uses an experimental Codex feature, enabled for that invocation only. |
@@ -189,10 +192,11 @@ keeps a long delegation from being cut off by the client's tool timeout.
 
 ### Sandbox
 
-`read-only` is the default: Codex investigates and reports, and the prompt tells it so explicitly so
-it does not waste the run discovering the restriction. Writing requires
-`sandbox: "workspace-write"`. `use_worktree` confines those writes to a managed git worktree, which
-the server does not clean up — a worktree may hold changes you have not applied yet.
+`read-only` is the built-in default: Codex investigates and reports, and the prompt tells it so
+explicitly so it does not waste the run discovering the restriction. Writing requires either
+`sandbox: "workspace-write"` in the call or a user-set `CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write`.
+`use_worktree` confines those writes to a managed git worktree, which the server does not clean up —
+a worktree may hold changes you have not applied yet.
 
 ---
 
@@ -207,7 +211,7 @@ this is far cheaper than re-sending it.
 | `prompt` | string | required | The follow-up instruction. |
 | `model` | string | the thread's model | Override for this turn. Required for a thread this server has no record of, unless a default model is configured. |
 | `reasoning_effort` | `low` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
-| `sandbox` | see above | `read-only` | Applied as a config override; `resume` has no sandbox flag. |
+| `sandbox` | see above | configured default, else `read-only` | Applied as a config override; `resume` has no sandbox flag. |
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
 | `working_dir` | string | the thread's directory | Absolute directory to resume in. |
 | `timeout_seconds` | integer | `1800` | |

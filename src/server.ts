@@ -479,7 +479,7 @@ const delegateShape = {
     .describe("Absolute path Codex uses as its working root."),
   sandbox: sandboxSchema
     .optional()
-    .describe("Sandbox policy. Defaults to read-only: Codex analyses and reports but cannot modify files."),
+    .describe("Sandbox policy. Uses the configured default when omitted; without one, Codex runs read-only."),
   auto_approve: z
     .boolean()
     .optional()
@@ -721,7 +721,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         "from a different model family, or an investigation that would otherwise flood this conversation. " +
         "Everything passed in prompt, context and target_files is sent to OpenAI, and every run spends the user's own " +
         "Codex usage, so do not delegate what you can answer directly, and tell the user when you delegate. " +
-        "Codex runs read-only by default: it investigates and reports. Set sandbox to workspace-write to let it edit files. " +
+        "Codex runs read-only unless a different default sandbox is configured. Set sandbox to workspace-write to let it edit files. " +
         "Codex cannot see this conversation, so pass everything it needs in prompt, context, and target_files.",
       inputSchema: delegateShape,
       annotations: { readOnlyHint: false, openWorldHint: true },
@@ -732,7 +732,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         validateWorkingDir(args.working_dir);
         validateAddDirs(args.add_dirs);
 
-        const sandbox: SandboxMode = (args.sandbox ?? "read-only") as SandboxMode;
+        const sandbox: SandboxMode = (args.sandbox ?? config.defaultSandbox) as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
 
@@ -862,7 +862,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           .describe("Override the reasoning effort for this turn. Defaults to the thread's last effort when the model is unchanged, otherwise to the configured or model default."),
         sandbox: sandboxSchema
           .optional()
-          .describe("Sandbox policy for this turn. Defaults to read-only."),
+          .describe("Sandbox policy for this turn. Uses the configured default when omitted; read-only when unset."),
         auto_approve: z
           .boolean()
           .optional()
@@ -889,7 +889,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           );
         }
 
-        const sandbox: SandboxMode = (args.sandbox ?? "read-only") as SandboxMode;
+        const sandbox: SandboxMode = (args.sandbox ?? config.defaultSandbox) as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
 

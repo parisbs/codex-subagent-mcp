@@ -15,9 +15,9 @@ import {
  * model, or the user has configured one, or the delegation is refused with a
  * suggestion rather than guessed at.
  *
- * A second rule follows from that: configuration may only *restrict*. There is
- * no setting that makes delegations more permissive than the defaults, because
- * the useful direction for a limit is the safe one.
+ * Sandbox policy has two user-controlled layers: a default for calls that omit
+ * one, and a ceiling no call may exceed. A caller can override the former but
+ * cannot widen the latter.
  */
 export interface ServerConfig {
   /** Used when the caller specifies no model. Unset means: refuse and suggest. */
@@ -26,8 +26,12 @@ export interface ServerConfig {
   defaultEffort: ReasoningEffort | null;
   /** When non-empty, only these model slugs may be used. */
   allowedModels: string[];
+  /** Used when the caller specifies no sandbox. */
+  defaultSandbox: SandboxMode;
   /** The most permissive sandbox this server will pass to Codex. */
   maxSandbox: SandboxMode;
+  /** True when the ceiling came from the environment rather than the built-in default. */
+  maxSandboxConfigured: boolean;
   /** The highest reasoning effort this server will request. */
   maxEffort: ReasoningEffort | null;
 }
@@ -88,6 +92,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
   };
 
   const maxSandbox = readEnum("MAX_SANDBOX", SANDBOX_MODES);
+  const defaultSandbox = readEnum("DEFAULT_SANDBOX", SANDBOX_MODES);
   const maxEffort = readEnum("MAX_EFFORT", REASONING_EFFORTS);
   const defaultEffort = readEnum("DEFAULT_EFFORT", REASONING_EFFORTS);
   const allowedModels = readList(env[`${ENV_PREFIX}ALLOWED_MODELS`]);
@@ -111,14 +116,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     );
   }
 
+  const effectiveMaxSandbox = maxSandbox ?? "workspace-write";
+  const effectiveDefaultSandbox = defaultSandbox ?? "read-only";
+  if (sandboxRank(effectiveDefaultSandbox) > sandboxRank(effectiveMaxSandbox)) {
+    errors.push(
+      `${ENV_PREFIX}DEFAULT_SANDBOX ("${effectiveDefaultSandbox}") is higher than ` +
+        `${ENV_PREFIX}MAX_SANDBOX ("${effectiveMaxSandbox}").`,
+    );
+  }
+
   return {
     config: {
       defaultModel,
       defaultEffort,
       allowedModels,
-      // Absent means the existing default: read-only is already the floor, and
-      // this only ever caps how far a caller may go above it.
-      maxSandbox: maxSandbox ?? "danger-full-access",
+      defaultSandbox: effectiveDefaultSandbox,
+      // Removing the sandbox entirely must be a deliberate user opt-in.
+      maxSandbox: effectiveMaxSandbox,
+      maxSandboxConfigured: maxSandbox !== null,
       maxEffort,
     },
     errors,
@@ -138,12 +153,18 @@ export function checkSandbox(
   config: ServerConfig,
 ): { ok: true } | { ok: false; reason: string } {
   if (sandboxRank(requested) <= sandboxRank(config.maxSandbox)) return { ok: true };
+  // The message must not claim the ceiling was configured when it is the
+  // built-in one: a user told they set something they never set goes looking
+  // for it in the wrong place.
+  const source = config.maxSandboxConfigured
+    ? `configured with ${ENV_PREFIX}MAX_SANDBOX="${config.maxSandbox}"`
+    : `built-in ceiling of "${config.maxSandbox}", which is what applies when ${ENV_PREFIX}MAX_SANDBOX is unset`;
   return {
     ok: false,
     reason:
-      `This server is configured with ${ENV_PREFIX}MAX_SANDBOX="${config.maxSandbox}", ` +
-      `so sandbox "${requested}" is not allowed. Either run the task read-only, or change that ` +
-      "setting in the MCP server configuration.",
+      `This server runs with a ${source}, so sandbox "${requested}" is not allowed. Either run the ` +
+      `task within that ceiling, or raise it with ${ENV_PREFIX}MAX_SANDBOX in the MCP server ` +
+      "configuration — which is where removing the sandbox has to be decided, not in a tool call.",
   };
 }
 

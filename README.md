@@ -9,6 +9,10 @@ task.
 
 Claude stays the orchestrator. Codex becomes a subagent it can call.
 
+> **This runs another agent on your machine.** Codex can read local files and run commands with the
+> permissions you grant it. Read the [security model](SECURITY.md) before enabling writes or
+> unsandboxed runs.
+
 > An independent project. Not affiliated with, endorsed by, or supported by OpenAI or Anthropic.
 
 ## Why this exists
@@ -174,14 +178,15 @@ You should see `status: ok`, a version, and `signed in: yes`. Then see what you 
 
 > What Codex models are available, and what are they each good for?
 
-Then try a real one. This is read-only, so Codex investigates and reports without touching anything:
+Then try a real one. With the built-in default this is read-only, so Codex investigates and reports
+without touching anything:
 
 > Have Codex look at this repository and explain how the build is wired together.
 
 ## Using it
 
 Delegations run **read-only by default**: Codex investigates and reports, but cannot modify files.
-Letting it write is a deliberate, separate request.
+Letting it write is a deliberate call argument or a default you set in the server environment.
 
 The examples below are the four situations where delegating beats doing it in the main conversation.
 Each one has been run against the real Codex CLI — writing them is how two defects in this server
@@ -261,8 +266,9 @@ writes.
 
 ### What protects you
 
-Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`,
-and `use_worktree` confines those writes to a managed git worktree instead of your checkout.
+Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`
+or a user-set default, and `use_worktree` confines those writes to a managed git worktree instead of
+your checkout. Unsandboxed runs are unavailable unless you explicitly opt into that ceiling.
 
 The confinement is not a promise from the model — it is the operating system's own sandbox: Seatbelt
 on macOS, `bubblewrap` on Linux and WSL2, and a native sandbox on Windows. The table was measured on
@@ -300,8 +306,8 @@ Treat it as data, not as instructions.
 
 ### Reducing the risk
 
-- Leave the default alone. Read-only handles investigation, review and diagnosis, which is most
-  delegation.
+- Leave the built-in default alone. Read-only handles investigation, review and diagnosis, which is
+  most delegation.
 - If you never want writes from this server, cap it: `CODEX_SUBAGENT_MAX_SANDBOX=read-only`. A
   ceiling cannot be argued past by anything in the conversation, which is what makes it different
   from a default. Register it outside the repository (Claude Code's default `local` scope, `--scope
@@ -378,17 +384,19 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Stops the server asking which model to use. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Reasoning effort when a call specifies none. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Anything else is refused. |
-| `CODEX_SUBAGENT_MAX_SANDBOX` | Ceiling on what a delegation may do. `read-only` forbids writing outright. |
+| `CODEX_SUBAGENT_DEFAULT_SANDBOX` | Sandbox when a call specifies none. Defaults to `read-only` and cannot exceed the ceiling. |
+| `CODEX_SUBAGENT_MAX_SANDBOX` | Ceiling on what a delegation may do. Defaults to `workspace-write`; it must be set to `danger-full-access` explicitly before unsandboxed calls are allowed. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. A call above it is lowered to a level the model supports, or refused if the model has none that low. |
 | `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
 
-One rule shapes all of these: **configuration can only restrict.** There is no setting that makes
-delegations more permissive, which is why you cannot change the default sandbox, only cap it. See
-[Safety](#safety) for why a ceiling is worth more than a default.
+The sandbox settings express policy you choose outside the repository: a default saves repeated
+arguments, while the ceiling is the boundary no call can cross. See [Safety](#safety) for why the
+built-in ceiling stops at `workspace-write`.
 
 Your own escalation rules belong in your `CLAUDE.md`, in plain language, where Claude applies them
 with actual understanding and they stay yours. See
-[ADR 12](docs/adr/0012-mechanism-not-policy.md) for why they are not built into this server.
+[ADR 12](docs/adr/0012-mechanism-not-policy.md) for why they are not built into this server, and
+[ADR 14](docs/adr/0014-user-controlled-sandbox-defaults.md) for the sandbox policy split.
 
 ## Tools
 

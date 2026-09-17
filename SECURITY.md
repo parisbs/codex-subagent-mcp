@@ -52,7 +52,11 @@ its answer.
 
 Defaults are chosen accordingly:
 
-- **`read-only` is the default sandbox.** Writing requires an explicit `sandbox: "workspace-write"`.
+- **`read-only` is the built-in default sandbox.** Writing requires either an explicit
+  `sandbox: "workspace-write"` or a user-set `CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write`.
+- **The sandbox ceiling defaults to `workspace-write`.** Removing the sandbox requires the user to
+  set `CODEX_SUBAGENT_MAX_SANDBOX=danger-full-access` in the server environment explicitly; a tool
+  call cannot opt in on a fresh installation.
 - **`auto_approve` is off by default**, applies only under `workspace-write`, and is refused on
   follow-ups rather than silently dropped.
 - **`danger-full-access` is never combined with auto-approval.** An unsandboxed run that also
@@ -82,9 +86,10 @@ the managed `requirements.toml` described below. See
 [ADR 13](docs/adr/0013-confirm-applied-settings.md).
 
 Two consequences worth acting on. Only mark repositories you control as trusted in Codex. And keep
-this server's ceilings (`CODEX_SUBAGENT_*`) outside the working tree — in Claude Code's `local` or
-`user` scope, or Claude Desktop's config — because a `workspace-write` delegation can edit a project
-`.mcp.json`; Codex keeps only `.git`, `.codex` and `.agents` read-only there.
+this server's defaults and ceilings (`CODEX_SUBAGENT_*`) outside the working tree — in Claude Code's
+`local` or `user` scope, or Claude Desktop's config — because a `workspace-write` delegation can edit
+a project `.mcp.json`; Codex keeps only `.git`, `.codex` and `.agents` read-only there. Such an edit
+could raise the default sandbox or the ceiling the next time the server starts.
 
 ## Injection
 
@@ -136,8 +141,9 @@ Stated plainly, because a security policy that implies more coverage than it has
   try to steer how the orchestrator uses this one. This server cannot detect that; install MCP
   servers you trust. [docs/CONTROL.md](docs/CONTROL.md) covers the controls that do hold.
 - **The server trusts the Codex CLI.** If your Codex installation is compromised, so is this.
-- **`danger-full-access` removes the sandbox.** It is available because it is sometimes necessary;
-  it is not defended.
+- **`danger-full-access` removes the sandbox.** It is available because it is sometimes necessary,
+  but only after the server environment explicitly opts into that ceiling; once enabled, it is not
+  defended.
 
 ## Not an official product
 
