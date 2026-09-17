@@ -23,6 +23,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | Variable | Effect |
 | --- | --- |
 | `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
+| `CODEX_HOME` | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings are looked up. Unset means `~/.codex`. |
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. |
@@ -144,11 +145,31 @@ reach the orchestrator.
 
 A blocking delegation returns the final message, the files it changed (with the path each landed
 at), the commands it ran with their exit codes, the token usage, the duration, the model, effort and
-sandbox this server passed to Codex, and a `thread_id` for follow-ups. Those settings are what was
-requested on the command line; confirming what Codex actually applied is planned
-([#55](https://github.com/parisbs/codex-subagent-mcp/issues/55)).
+sandbox this server passed to Codex, and a `thread_id` for follow-ups.
 Anything Codex reported as an in-band error is surfaced separately — those do not change its exit
 code, so they would otherwise be lost.
+
+### What Codex actually applied
+
+The command line is not the last word on a run: managed requirements can lower a value, a model may
+not support the effort requested, and a resumed session takes what it is not given from the
+configuration of the directory it runs in. So after the run, this server reads the session file
+Codex writes for the thread and compares the model, effort, sandbox and working directory it
+recorded against the ones it was given. The metadata line ends with `applied=confirmed`,
+`applied=differs` or `applied=unconfirmed`.
+
+| Outcome | What is reported |
+| --- | --- |
+| Everything matched | Nothing beyond `applied=confirmed`. |
+| A different model, effort, narrower sandbox or directory | Listed before Codex's report, as requested vs applied. The delegation does **not** fail: a shallower answer is still an answer. |
+| A sandbox wider than the one requested | The delegation **fails** with a security notice saying the run is already over and its commands already ran under that sandbox. |
+| A model outside `ALLOWED_MODELS`, or an effort above `MAX_EFFORT` | Reported as a policy breach. The ceilings are applied when the run is built; this is what Codex ended up running. |
+| Nothing could be read | `applied=unconfirmed`, with the reason. The settings shown are what was requested, not an observation. |
+
+Confirmation is an observation, not a guarantee, and it arrives after the run. It depends on a Codex
+file format that is internal and undocumented, so a change there shows up as `unconfirmed` rather
+than as a wrong answer, and nothing else about the delegation depends on it. See
+[ADR 13](adr/0013-confirm-applied-settings.md).
 
 Codex also reports some warnings as error items: configuration keys it ignored in a project's
 `.codex/config.toml`, or a model switch when a session resumes. Those are listed once under

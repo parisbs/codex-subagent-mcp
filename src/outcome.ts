@@ -1,4 +1,33 @@
-import type { DelegationResult } from "./types.js";
+import { sandboxRank } from "./config.js";
+import { SANDBOX_MODES, type DelegationResult, type SandboxMode } from "./types.js";
+
+/**
+ * Reports a run Codex recorded as running under a wider sandbox than it was given.
+ *
+ * This is the one difference between requested and applied settings that is a
+ * security finding rather than a surprise: the sandbox is what bounds an
+ * untrusted prompt, and by the time it is read back the run is over. The
+ * wording says so, because "sandbox mismatch" reads like a configuration note.
+ *
+ * A value this server does not recognise is reported as unconfirmed elsewhere,
+ * not here: an unknown name carries no ordering, and guessing one would be the
+ * same mistake in the other direction.
+ */
+export function describeSandboxBreach(result: DelegationResult): string | null {
+  const { requested, applied, state } = result.applied.sandbox;
+  if (state !== "differs" || applied === null) return null;
+
+  const isMode = (value: string): value is SandboxMode =>
+    (SANDBOX_MODES as readonly string[]).includes(value);
+  if (!isMode(applied) || requested === null || !isMode(requested)) return null;
+  if (sandboxRank(applied) <= sandboxRank(requested)) return null;
+
+  return (
+    `Codex ran under a more permissive sandbox than this server requested: requested ` +
+    `"${requested}", applied "${applied}". The run is already over, so any command it ran ` +
+    "did so under that sandbox. Check what it changed before acting on its report."
+  );
+}
 
 /**
  * Decides whether a finished delegation failed, and why.
@@ -23,6 +52,8 @@ import type { DelegationResult } from "./types.js";
  * tools and the background job registry must never disagree about this.
  */
 export function describeFailure(result: DelegationResult): string | null {
+  const breach = describeSandboxBreach(result);
+  if (breach) return breach;
   if (result.timedOut) {
     return "The delegation exceeded its timeout and was terminated.";
   }

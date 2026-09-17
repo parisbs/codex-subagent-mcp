@@ -77,12 +77,50 @@ export interface TokenUsage {
   reasoningOutputTokens: number;
 }
 
+/**
+ * Whether one setting Codex recorded matches what this server asked for.
+ *
+ * `unconfirmed` is not a soft `confirmed`: it means nothing was observed, or
+ * that what was observed cannot be interpreted.
+ */
+export type AppliedState = "confirmed" | "differs" | "unconfirmed";
+
+export interface AppliedSetting {
+  requested: string | null;
+  /** What Codex recorded. Null when it recorded nothing for this field. */
+  applied: string | null;
+  state: AppliedState;
+}
+
+/**
+ * What Codex actually applied to a run, read back from its own session file.
+ *
+ * The command line is not the last word on a delegation: managed requirements
+ * can lower a value, a model may not support the effort requested, and a
+ * resumed session takes whatever it is not given from configuration. See
+ * `src/codex/rollout.ts` and ADR 13.
+ */
+export interface AppliedSettings {
+  /** Where the observation came from; null when nothing could be observed. */
+  source: "rollout" | null;
+  /** Why nothing could be observed. Null when `source` is set. */
+  reason: string | null;
+  model: AppliedSetting;
+  reasoningEffort: AppliedSetting;
+  sandbox: AppliedSetting;
+  workingDir: AppliedSetting;
+  /** Recorded for the reader; `exec` always records "never". */
+  approvalPolicy: string | null;
+}
+
 export interface DelegationResult {
   finalMessage: string;
   threadId: string | null;
   model: string | null;
   reasoningEffort: ReasoningEffort | null;
   sandbox: SandboxMode;
+  /** What Codex recorded as applied, compared against the three fields above. */
+  applied: AppliedSettings;
   commands: ExecutedCommand[];
   fileChanges: FileChange[];
   agentMessages: string[];

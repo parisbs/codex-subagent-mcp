@@ -104,6 +104,12 @@ that project in Codex, and administrator-managed `requirements.toml`. This serve
 model and effort explicitly, so those files cannot widen a delegation; managed requirements can still
 restrict it further. [SECURITY.md](../SECURITY.md) has the details.
 
+After a run, the server reads Codex's own session file and reports whether the model, effort, sandbox
+and directory it recorded are the ones it was given: the result's metadata line ends with
+`applied=confirmed`, `applied=differs` or `applied=unconfirmed`. A sandbox recorded as wider than the
+one requested fails the delegation. This tells you when something moved; it does not hold it in
+place.
+
 ## What the server does on its own
 
 - Delegations are read-only unless a write-enabled sandbox is requested.
@@ -114,6 +120,8 @@ restrict it further. [SECURITY.md](../SECURITY.md) has the details.
 - If this server is also registered in your Codex configuration, it is switched off for each
   delegation, so a delegated run cannot call it and delegate again.
 - Failed turns, usage limits and configuration warnings are reported with Codex's own message.
+- What Codex recorded as applied is compared with what was requested, and any difference is stated
+  before its report.
 
 ## What no setting can guarantee
 
@@ -123,6 +131,8 @@ restrict it further. [SECURITY.md](../SECURITY.md) has the details.
 - That content Claude reads — a web page, an email, an issue — does not talk it into delegating,
   within whatever limits you left open. That is what the permission prompt and the ceilings are for.
 - That Codex cannot read your files. Its sandbox restricts writes and network access, not reads.
+- That the applied settings can always be confirmed. The check reads a Codex file format that is
+  internal and undocumented; when it cannot, it says `unconfirmed` rather than assuming.
 
 ## Being considered
 
