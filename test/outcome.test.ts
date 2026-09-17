@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeFailure } from "../src/outcome.ts";
-import type { DelegationResult } from "../src/types.ts";
+import { describeFailure, describeSandboxBreach } from "../src/outcome.ts";
+import type { AppliedSettings, DelegationResult } from "../src/types.ts";
+
+/** Everything Codex recorded matching what was requested: the ordinary case. */
+function applied(overrides: Partial<AppliedSettings> = {}): AppliedSettings {
+  const confirmed = (value: string) => ({ requested: value, applied: value, state: "confirmed" as const });
+  return {
+    source: "rollout",
+    reason: null,
+    model: confirmed("m"),
+    reasoningEffort: confirmed("low"),
+    sandbox: confirmed("read-only"),
+    workingDir: confirmed("/repo"),
+    approvalPolicy: "never",
+    ...overrides,
+  };
+}
 
 function result(overrides: Partial<DelegationResult>): DelegationResult {
   return {
@@ -11,6 +26,7 @@ function result(overrides: Partial<DelegationResult>): DelegationResult {
     model: "m",
     reasoningEffort: "low",
     sandbox: "read-only",
+    applied: applied(),
     commands: [],
     fileChanges: [],
     agentMessages: ["Done."],
@@ -69,4 +85,59 @@ test("fails a clean exit that produced no answer at all", () => {
 
 test("does not fail an answered run that only carried notices", () => {
   assert.equal(describeFailure(result({ warnings: ["Ignored unsupported project-local config keys in x: notify."] })), null);
+});
+
+test("fails a run Codex recorded under a wider sandbox than requested", () => {
+  const failure = describeFailure(
+    result({
+      applied: applied({
+        sandbox: { requested: "read-only", applied: "workspace-write", state: "differs" },
+      }),
+    }),
+  );
+  assert.match(failure ?? "", /more permissive sandbox/);
+  // The run is over by the time this is read, and the wording has to say so.
+  assert.match(failure ?? "", /already over/);
+});
+
+test("does not fail a run Codex recorded under a narrower sandbox than requested", () => {
+  assert.equal(
+    describeFailure(
+      result({
+        applied: applied({
+          sandbox: { requested: "workspace-write", applied: "read-only", state: "differs" },
+        }),
+      }),
+    ),
+    null,
+  );
+});
+
+test("does not rank a sandbox value it does not recognise", () => {
+  // An unknown name carries no ordering. It is reported as unconfirmed, not as
+  // a breach, so a CLI rename cannot fail every delegation at once.
+  assert.equal(
+    describeSandboxBreach(
+      result({
+        applied: applied({
+          sandbox: { requested: "read-only", applied: "container-write", state: "differs" },
+        }),
+      }),
+    ),
+    null,
+  );
+});
+
+test("does not treat a different model or effort as a failure", () => {
+  assert.equal(
+    describeFailure(
+      result({
+        applied: applied({
+          model: { requested: "m", applied: "other", state: "differs" },
+          reasoningEffort: { requested: "high", applied: "low", state: "differs" },
+        }),
+      }),
+    ),
+    null,
+  );
 });

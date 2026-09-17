@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { runCodex } from "../src/codex/runner.ts";
 import { describeFailure } from "../src/outcome.ts";
+import { createCodexHome, SESSION_META_LINE, turnContextLine } from "./fixtures/codex-home.ts";
 import { createFakeCodex, jsonl, type Scenario } from "./fixtures/fake-codex.ts";
 
 /**
@@ -20,7 +21,10 @@ import { createFakeCodex, jsonl, type Scenario } from "./fixtures/fake-codex.ts"
 
 async function runAgainst(
   scenario: Scenario,
-  overrides: { invocation?: Partial<Parameters<typeof runCodex>[0]["invocation"]> } = {},
+  overrides: {
+    invocation?: Partial<Parameters<typeof runCodex>[0]["invocation"]>;
+    codexHome?: string;
+  } = {},
 ) {
   const fake = createFakeCodex(scenario);
   try {
@@ -36,6 +40,9 @@ async function runAgainst(
       prompt: "irrelevant",
       codexPath: fake.codexPath,
       timeoutSeconds: 60,
+      // An empty directory by default: a run whose session file is not there
+      // must report unconfirmed rather than read the developer's real one.
+      codexHome: overrides.codexHome ?? fake.workingDir,
     });
     return { outcome: await result, received: fake.received() };
   } finally {
@@ -408,4 +415,88 @@ test("fails a turn that failed after commentary even though the process exited z
 
   assert.equal(outcome.finalMessage, "Looking into it.");
   assert.match(describeFailure(outcome) ?? "", /stream disconnected/);
+});
+
+/**
+ * The applied settings are read back from the session file Codex writes, so
+ * these tests write that file the way the CLI would and then run a delegation
+ * against it. See `src/codex/rollout.ts` and ADR 13.
+ */
+async function runWithSessionFile(options: {
+  turnContext: Record<string, unknown>;
+  invocation?: Partial<Parameters<typeof runCodex>[0]["invocation"]>;
+}) {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "t",
+      day: "2026-09-17",
+      lines: [SESSION_META_LINE, turnContextLine(options.turnContext)],
+    });
+    const { outcome } = await runAgainst(
+      {
+        chunks: [jsonl(
+          { type: "thread.started", thread_id: "t" },
+          { type: "item.completed", item: { type: "agent_message", text: "Done." } },
+        )],
+        exitCode: 0,
+      },
+      { codexHome: home.path, invocation: options.invocation },
+    );
+    return outcome;
+  } finally {
+    home.dispose();
+  }
+}
+
+test("confirms the settings Codex recorded against the ones it was given", async () => {
+  const outcome = await runWithSessionFile({
+    turnContext: { model: "gpt-5.6-luna", effort: "low", sandbox_policy: { type: "read-only" } },
+    invocation: { model: "gpt-5.6-luna", reasoningEffort: "low", sandbox: "read-only" },
+  });
+
+  assert.equal(outcome.applied.source, "rollout");
+  assert.equal(outcome.applied.model.state, "confirmed");
+  assert.equal(outcome.applied.reasoningEffort.state, "confirmed");
+  assert.equal(outcome.applied.sandbox.state, "confirmed");
+  // The working directory is the fake CLI's own, not the one in the fixture.
+  assert.equal(outcome.applied.workingDir.state, "differs");
+  assert.equal(describeFailure(outcome), null);
+});
+
+test("reports an effort Codex lowered without failing the delegation", async () => {
+  const outcome = await runWithSessionFile({
+    turnContext: { model: "gpt-5.6-luna", effort: "low" },
+    invocation: { model: "gpt-5.6-luna", reasoningEffort: "high", sandbox: "read-only" },
+  });
+
+  assert.equal(outcome.applied.reasoningEffort.state, "differs");
+  assert.equal(outcome.applied.reasoningEffort.requested, "high");
+  assert.equal(outcome.applied.reasoningEffort.applied, "low");
+  // A shallower answer is still an answer; only the sandbox is a failure.
+  assert.equal(describeFailure(outcome), null);
+});
+
+test("fails a run Codex recorded under a wider sandbox than it was given", async () => {
+  const outcome = await runWithSessionFile({
+    turnContext: { sandbox_policy: { type: "danger-full-access" } },
+    invocation: { model: "gpt-5.6-luna", reasoningEffort: "low", sandbox: "read-only" },
+  });
+
+  assert.equal(outcome.applied.sandbox.applied, "danger-full-access");
+  assert.match(describeFailure(outcome) ?? "", /more permissive sandbox/);
+});
+
+test("reports unconfirmed settings when no session file was written", async () => {
+  // What an --ephemeral run looks like from here: the stream carries no thread
+  // id, so there is nothing to look up.
+  const { outcome } = await runAgainst({
+    chunks: [jsonl({ type: "item.completed", item: { type: "agent_message", text: "Done." } })],
+    exitCode: 0,
+  });
+
+  assert.equal(outcome.applied.source, null);
+  assert.match(outcome.applied.reason ?? "", /ephemeral/);
+  assert.equal(outcome.applied.model.state, "unconfirmed");
+  assert.equal(describeFailure(outcome), null);
 });
