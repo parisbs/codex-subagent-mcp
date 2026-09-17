@@ -58,10 +58,23 @@ let nextRun: { events: unknown[]; exitCode: number } = { events: [], exitCode: 0
 /** What `codex mcp list --json` reports. */
 let mcpList = "[]";
 
-const fakeExecFile = async (_file: string, args: string[]): Promise<{ stdout: string; stderr: string }> => {
+/** Directories where the CLI reports a catalog of its own, as a trusted project can. */
+let catalogByCwd = new Map<string, unknown>();
+/** The cwd of every probe the server ran, in order. */
+let probedCwds: (string | undefined)[] = [];
+
+const fakeExecFile = async (
+  _file: string,
+  args: string[],
+  options?: { cwd?: string },
+): Promise<{ stdout: string; stderr: string }> => {
+  probedCwds.push(options?.cwd);
   if (args[0] === "--version") return { stdout: "codex-cli 0.154.0", stderr: "" };
   if (args[0] === "mcp") return { stdout: mcpList, stderr: "" };
-  if (args[0] === "debug") return { stdout: JSON.stringify(CATALOG), stderr: "" };
+  if (args[0] === "debug") {
+    const local = options?.cwd === undefined ? undefined : catalogByCwd.get(options.cwd);
+    return { stdout: JSON.stringify(local ?? CATALOG), stderr: "" };
+  }
   return { stdout: "Logged in using ChatGPT", stderr: "" };
 };
 
@@ -94,6 +107,8 @@ cp.spawn = ((_file: string, args: string[], options?: { cwd?: string }) => {
 syncBuiltinESMExports();
 
 const { createServer } = await import("../src/server.ts");
+const { resetCatalogCache } = await import("../src/codex/catalog.ts");
+const { resetDoctorCache } = await import("../src/codex/doctor.ts");
 
 interface ToolServer {
   _registeredTools: Record<string, unknown>;
@@ -132,7 +147,13 @@ async function withServer<T>(
 
   spawnedArgs = [];
   spawnedCwds = [];
+  probedCwds = [];
+  catalogByCwd = new Map();
   mcpList = "[]";
+  // The catalog and the preflight are cached per directory; a test must not
+  // inherit the entries another test's directory left behind.
+  resetCatalogCache();
+  resetDoctorCache();
   // An answered run by default: a clean exit with no answer is itself a failure.
   nextRun = { events: [{ type: "item.completed", item: { type: "agent_message", text: "Done." } }], exitCode: 0 };
   const { server, jobs } = createServer();
@@ -715,5 +736,81 @@ test("says plainly when the applied settings could not be confirmed", async () =
     assert.match(text, /could not be confirmed/);
     assert.match(text, /applied=unconfirmed/);
     assert.equal(result.isError, undefined);
+  });
+});
+
+test("validates a delegation against the catalog of its working directory", async () => {
+  // A project the user has trusted in Codex can set `model_catalog_json`, so the
+  // models of the server's own directory are not the models of the delegation's.
+  await withServer({}, async (call) => {
+    catalogByCwd.set(tmpdir(), {
+      models: [
+        {
+          slug: "project-model",
+          visibility: "list",
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }],
+        },
+      ],
+    });
+
+    const accepted = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "project-model",
+      working_dir: tmpdir(),
+    })) as ToolResult;
+    assert.equal(accepted.isError, undefined, accepted.content[0]?.text);
+    assert.equal(spawnedArgs.length, 1);
+    assert.ok(probedCwds.includes(tmpdir()), "the catalog was read in the delegation's directory");
+
+    const refused = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+      working_dir: tmpdir(),
+    })) as ToolResult;
+    assert.equal(refused.isError, true);
+    // cheap-model exists in the server's own catalog, not in this directory's.
+    assert.match(refused.content[0]?.text ?? "", /project-model/);
+    assert.equal(spawnedArgs.length, 1, "nothing else should have been spawned");
+  });
+});
+
+test("checks the installation in the directory codex_doctor was given", async () => {
+  await withServer({}, async (call) => {
+    const result = (await call("codex_doctor", { working_dir: tmpdir() })) as ToolResult;
+
+    assert.match(result.content[0]?.text ?? "", new RegExp(`checked in: ${tmpdir().replace(/\\/g, "\\\\")}`));
+    assert.ok(probedCwds.includes(tmpdir()));
+  });
+});
+
+test("lists the models of the directory list_codex_models was given", async () => {
+  await withServer({}, async (call) => {
+    catalogByCwd.set(tmpdir(), {
+      models: [
+        {
+          slug: "project-model",
+          visibility: "list",
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [{ effort: "medium" }],
+        },
+      ],
+    });
+
+    const result = (await call("list_codex_models", { working_dir: tmpdir() })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(text, /project-model/);
+    assert.doesNotMatch(text, /cheap-model/);
+  });
+});
+
+test("refuses a working_dir that is not an absolute existing directory", async () => {
+  await withServer({}, async (call) => {
+    for (const tool of ["codex_doctor", "list_codex_models"]) {
+      const result = (await call(tool, { working_dir: "relative/path" })) as ToolResult;
+      assert.equal(result.isError, true, tool);
+      assert.match(result.content[0]?.text ?? "", /absolute/);
+    }
   });
 });

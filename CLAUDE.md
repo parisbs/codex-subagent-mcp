@@ -53,6 +53,10 @@ subcommands and between versions. Two traps already found the hard way, both cov
   from the config of the directory it runs in, even when the thread was recorded on another one, and
   an effort missing from the argv comes from config even if the model does not support it. That is
   why follow-ups always restate model, effort and directory (`src/threads.ts`).
+- Configuration is resolved against the working directory, so a probe's answer is a property of the
+  directory, not of the machine. `codex doctor --json` reports the `cwd` its `config.load` check
+  resolved for. That is why `runDoctor` and `getCatalog` take a `cwd` and cache per directory, and
+  why the delegation tools pass their `working_dir` to both.
 - What a run *applied* is not what it was *asked for*. The session file under
   `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
   turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and

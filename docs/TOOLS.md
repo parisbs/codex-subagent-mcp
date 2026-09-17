@@ -67,6 +67,7 @@ changes anything.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `refresh` | boolean | `false` | Re-probe the CLI instead of reusing the cached diagnosis. |
+| `working_dir` | string | the server's working directory | Absolute directory to run the check in. Codex loads the configuration of the directory it runs in, so pass the one a delegation would use. The result states which directory was checked. |
 
 Reported states:
 
@@ -81,7 +82,11 @@ Reported states:
 | `unsupported-shim` | Found only as a Windows `.cmd`/`.bat` shim, which cannot be spawned safely. | no |
 
 Every other tool runs this check first, so a broken installation is reported the same way whichever
-tool you happen to call.
+tool you happen to call. The check — and the catalog read that follows it — runs in the directory
+the delegation will run in, because that is where Codex resolves its configuration: a
+`.codex/config.toml` Codex cannot parse, or a project catalog, is only visible from inside that
+project. Diagnoses and catalogs are cached per directory, and only a clean diagnosis is cached, so
+signing in or fixing a file takes effect without restarting the server.
 
 ---
 
@@ -93,6 +98,7 @@ from the installed CLI at runtime, never hardcoded, so new models appear without
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `refresh` | boolean | `false` | Bypass the ten-minute cache and re-read the catalog. |
+| `working_dir` | string | the server's working directory | Absolute directory to read the catalog in. A project you have trusted in Codex can set its own `model_catalog_json`, so this is the directory whose models a delegation there would actually have. |
 
 A `WARNING:` line means the live catalog could not be read and a static fallback was used. Treat the
 slugs below it as unconfirmed: `codex_delegate` refuses to run while only that fallback is available,
