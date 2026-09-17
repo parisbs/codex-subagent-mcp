@@ -162,3 +162,9 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
 Code, comments and documentation are written in English. Commit messages are a single English
 sentence with an infinitive verb. See `docs/adr/` for why the design is the way it is, and
 `docs/ROADMAP.md` for what is planned.
+
+**Release branches are deleted once the release is published.** A `release/X.Y.Z` branch exists only
+to prepare a release: the documentation pass, the changelog and the version bump. It is squash-merged
+into `main` like any other branch, and the annotated tag `vX.Y.Z` is what records the published
+state — the branch keeps nothing the tag does not, and a stale copy of a released tree invites
+someone to commit onto it. This overrides the general gitflow habit of keeping release branches.
