@@ -1,0 +1,113 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to publish (for example, v0.2.0)
+        required: true
+        type: string
+
+concurrency:
+  group: publish-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test tagged commit
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+  publish:
+    name: Publish package
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # Trusted publishing exchanges an OIDC token for a short-lived credential
+      # (npm 11.5.1 and newer) and staged publishing needs 11.15.0. The npm
+      # bundled with a Node release can be older than that, and the failure mode
+      # is an error at the last step of a release.
+      - name: Use an npm that supports staged trusted publishing
+        run: |
+          npm install --global npm@^11.15.0
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release versions agree
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const tag = process.env.RELEASE_TAG;
+          if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(tag)) {
+            console.error(`Invalid release tag "${tag}"; expected v<major>.<minor>.<patch>.`);
+            process.exit(1);
+          }
+
+          const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+          const serverSource = readFileSync("src/server.ts", "utf8");
+          const serverMatch = serverSource.match(
+            /export const SERVER_VERSION\s*=\s*["']([^"']+)["']/,
+          );
+          if (!serverMatch) {
+            console.error("Could not find the exported SERVER_VERSION constant in src/server.ts.");
+            process.exit(1);
+          }
+
+          const tagVersion = tag.slice(1);
+          const serverVersion = serverMatch[1];
+          if (tagVersion !== packageVersion || tagVersion !== serverVersion) {
+            console.error([
+              "Release version mismatch:",
+              `  git tag:            ${tag}`,
+              `  package.json:       ${packageVersion}`,
+              `  src/server.ts:      ${serverVersion}`,
+            ].join("\n"));
+            process.exit(1);
+          }
+
+          console.log(`Verified release version ${tagVersion}.`);
+          NODE
+
+      # Trusted publishing exchanges GitHub's OIDC token for a short-lived npm
+      # credential. Token fallback (not the default): create an NPM_TOKEN secret
+      # and set NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} on this step. That
+      # fallback has an expiry date: npm is restricting tokens that bypass
+      # two-factor authentication, for direct publishing from January 2027.
+      # Built explicitly rather than relying on a publish lifecycle script: the
+      # package ships `build/`, and an empty one would be found by whoever
+      # installs it, not by this job.
+      - name: Build the package
+        run: npm run build
+
+      # Staged, not direct: this hands the registry a candidate that a maintainer
+      # then approves with two-factor authentication, on npmjs.com or with
+      # `npm stage approve`. The trusted publisher is configured to allow only
+      # this, which is npm's own recommendation — a compromised workflow cannot
+      # put a version in front of users on its own.
+      - name: Stage the release with provenance
+        run: npm stage publish --provenance --access public

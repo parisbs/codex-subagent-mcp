@@ -90,3 +90,47 @@ they were verified against, because the flag set differs between CLI versions.
 How a change affects the version number is defined in `docs/VERSIONING.md`.
 
 Code, comments, documentation and commit messages are written in English.
+
+## Publishing a release
+
+The maintainer still prepares `CHANGELOG.md`, updates the version in both `package.json` and
+`src/server.ts`, and runs the smoke test against the real Codex CLI. After those changes are merged,
+create and push a matching version tag such as `v0.2.0`. The `Publish to npm` workflow runs the full
+CI workflow against that tagged commit, checks that the tag and both version declarations agree, and
+then *stages* the release with npm provenance. A maintainer can also run the workflow manually and
+enter an existing version tag.
+
+Staging is not publishing. The version reaches users only when a maintainer approves it, which
+requires two-factor authentication:
+
+```bash
+npm stage list                 # what is waiting
+npm stage view <stage-id>      # what it contains
+npm stage download <stage-id>  # the tarball itself, to inspect
+npm stage approve <stage-id>   # publish it (asks for 2FA)
+npm stage reject <stage-id>    # discard it
+```
+
+The same approval can be done on npmjs.com. Creating the GitHub release, publishing security
+advisories, and closing the milestone remain manual steps after the approval.
+
+Trusted publishing requires one npm-side setup. On npmjs.com, open the `codex-subagent-mcp` package,
+then **Settings → Trusted Publisher**, select **GitHub Actions**, and enter:
+
+- Organization or user: `parisbs`
+- Repository: `codex-subagent-mcp`
+- Workflow filename: `publish.yml` (the filename only, not `.github/workflows/publish.yml`)
+- Environment name: leave blank
+- **Leave "Allow npm publish" unchecked.** Staging is always permitted; ticking that box would also
+  let the workflow put a version in front of users without anyone approving it, and npm marks it as
+  not recommended for that reason.
+
+No `NPM_TOKEN` GitHub secret is needed. The workflow uses GitHub OIDC for a short-lived npm
+credential and requests provenance explicitly. This is also the direction npm is moving in: tokens
+that bypass two-factor authentication are being restricted for account changes from August 2026 and
+for direct publishing from January 2027, which is what the token fallback in the workflow would
+depend on.
+
+The npm registry can take a minute to serve a version that was just published. Verify it is really
+there (`npm view codex-subagent-mcp version --prefer-online`) before creating the GitHub release or
+publishing advisories.
