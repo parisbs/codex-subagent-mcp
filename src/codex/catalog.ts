@@ -196,14 +196,30 @@ export function classifyCatalogFailure(error: unknown): "configuration" | "unusa
   return /^Error(?: loading configuration)?:/m.test(stderr) ? "configuration" : "unusable";
 }
 
-let cached: CodexCatalog | null = null;
-let cachedAtMs = 0;
+/**
+ * Cached catalogs, keyed by the executable *and* the directory it was read in.
+ *
+ * Codex resolves its configuration against the working directory: a project
+ * this user has trusted in Codex can set `model_catalog_json`, so the catalog
+ * of one directory is not the catalog of another. One global entry meant a
+ * delegation could be validated against the models of whatever directory
+ * happened to be probed first. Bounded, because a caller chooses the directory.
+ */
+const cached = new Map<string, { catalog: CodexCatalog; atMs: number }>();
+
+const CACHE_ENTRY_LIMIT = 32;
+
+function cacheKey(codexPath: string, cwd: string | undefined): string {
+  return `${codexPath}\u0000${cwd ?? ""}`;
+}
 
 export interface CatalogOptions {
   /** Ignore the cache and query the CLI again. */
   refresh?: boolean;
   /** Path or name of the Codex executable. */
   codexPath?: string;
+  /** Directory to read the catalog in. Defaults to this process's own. */
+  cwd?: string;
 }
 
 /**
@@ -214,11 +230,13 @@ export interface CatalogOptions {
 export async function getCatalog(
   options: CatalogOptions = {},
 ): Promise<CodexCatalog> {
-  const { refresh = false, codexPath = process.env.CODEX_BIN ?? "codex" } =
+  const { refresh = false, codexPath = process.env.CODEX_BIN ?? "codex", cwd } =
     options;
 
-  if (!refresh && cached && Date.now() - cachedAtMs < CACHE_TTL_MS) {
-    return cached;
+  const key = cacheKey(codexPath, cwd);
+  const hit = cached.get(key);
+  if (!refresh && hit && Date.now() - hit.atMs < CACHE_TTL_MS) {
+    return hit.catalog;
   }
 
   try {
@@ -229,14 +247,19 @@ export async function getCatalog(
     const { stdout } = await execFileAsync(target, ["debug", "models"], {
       maxBuffer: CATALOG_MAX_BUFFER,
       timeout: CATALOG_TIMEOUT_MS,
+      ...(cwd ? { cwd } : {}),
     });
     const models = parseCatalog(stdout);
     if (models.length === 0) {
       throw new Error("catalog contained no listable models");
     }
-    cached = { models, stale: false, fetchedAt: new Date().toISOString() };
-    cachedAtMs = Date.now();
-    return cached;
+    const catalog: CodexCatalog = { models, stale: false, fetchedAt: new Date().toISOString() };
+    if (cached.size >= CACHE_ENTRY_LIMIT && !cached.has(key)) {
+      const oldest = cached.keys().next().value;
+      if (oldest !== undefined) cached.delete(oldest);
+    }
+    cached.set(key, { catalog, atMs: Date.now() });
+    return catalog;
   } catch (error) {
     if (classifyCatalogFailure(error) === "configuration") {
       const stderr = (error as { stderr: string }).stderr.trim();
@@ -270,8 +293,7 @@ export async function getCatalog(
 
 /** Clears the in-process cache. Intended for tests. */
 export function resetCatalogCache(): void {
-  cached = null;
-  cachedAtMs = 0;
+  cached.clear();
 }
 
 export function findModel(
