@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref or commit to check out; defaults to the triggering commit
+        required: false
+        type: string
   pull_request:
     branches: [main]
   push:
@@ -11,13 +17,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   verify:
     name: Build and test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +52,8 @@ jobs:
             node: "24"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: actions/setup-node@v7
         with:
@@ -82,8 +89,12 @@ jobs:
   package:
     name: Verify the published package contents
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: actions/setup-node@v7
         with:
