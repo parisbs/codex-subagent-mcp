@@ -110,8 +110,14 @@ then **Settings → Trusted Publisher**, select **GitHub Actions**, and enter:
 - Environment name: leave blank
 - Allowed actions: enable direct publishing with `npm publish`
 
+Leave the box that allows direct `npm publish` from this publisher ticked: that is the command the
+workflow runs.
+
 No `NPM_TOKEN` GitHub secret is needed. The workflow uses GitHub OIDC for a short-lived npm
-credential and requests provenance explicitly.
+credential and requests provenance explicitly. This is also the direction npm is moving in: tokens
+that bypass two-factor authentication are being restricted for account changes from August 2026 and
+for direct publishing from January 2027, which is what the token fallback in the workflow would
+depend on.
 
 The npm registry can take a minute to serve a version that was just published. Verify it is really
 there (`npm view codex-subagent-mcp version --prefer-online`) before creating the GitHub release or

@@ -95,7 +95,9 @@ jobs:
 
       # Trusted publishing exchanges GitHub's OIDC token for a short-lived npm
       # credential. Token fallback (not the default): create an NPM_TOKEN secret
-      # and set NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} on this step.
+      # and set NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} on this step. That
+      # fallback has an expiry date: npm is restricting tokens that bypass
+      # two-factor authentication, for direct publishing from January 2027.
       # `prepublishOnly` cleans, builds and runs the tests again here, so what
       # is published is built from the tagged commit in this job.
       - name: Publish with provenance
