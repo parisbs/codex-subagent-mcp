@@ -96,10 +96,23 @@ Code, comments, documentation and commit messages are written in English.
 The maintainer still prepares `CHANGELOG.md`, updates the version in both `package.json` and
 `src/server.ts`, and runs the smoke test against the real Codex CLI. After those changes are merged,
 create and push a matching version tag such as `v0.2.0`. The `Publish to npm` workflow runs the full
-CI workflow against that tagged commit, checks that the tag and both version declarations agree,
-then publishes the package with npm provenance. A maintainer can also run the workflow manually and
-enter an existing version tag. Creating the GitHub release, publishing security advisories, and
-closing the milestone remain manual steps after npm publishing succeeds.
+CI workflow against that tagged commit, checks that the tag and both version declarations agree, and
+then *stages* the release with npm provenance. A maintainer can also run the workflow manually and
+enter an existing version tag.
+
+Staging is not publishing. The version reaches users only when a maintainer approves it, which
+requires two-factor authentication:
+
+```bash
+npm stage list                 # what is waiting
+npm stage view <stage-id>      # what it contains
+npm stage download <stage-id>  # the tarball itself, to inspect
+npm stage approve <stage-id>   # publish it (asks for 2FA)
+npm stage reject <stage-id>    # discard it
+```
+
+The same approval can be done on npmjs.com. Creating the GitHub release, publishing security
+advisories, and closing the milestone remain manual steps after the approval.
 
 Trusted publishing requires one npm-side setup. On npmjs.com, open the `codex-subagent-mcp` package,
 then **Settings → Trusted Publisher**, select **GitHub Actions**, and enter:
@@ -108,10 +121,9 @@ then **Settings → Trusted Publisher**, select **GitHub Actions**, and enter:
 - Repository: `codex-subagent-mcp`
 - Workflow filename: `publish.yml` (the filename only, not `.github/workflows/publish.yml`)
 - Environment name: leave blank
-- Allowed actions: enable direct publishing with `npm publish`
-
-Leave the box that allows direct `npm publish` from this publisher ticked: that is the command the
-workflow runs.
+- **Leave "Allow npm publish" unchecked.** Staging is always permitted; ticking that box would also
+  let the workflow put a version in front of users without anyone approving it, and npm marks it as
+  not recommended for that reason.
 
 No `NPM_TOKEN` GitHub secret is needed. The workflow uses GitHub OIDC for a short-lived npm
 credential and requests provenance explicitly. This is also the direction npm is moving in: tokens
