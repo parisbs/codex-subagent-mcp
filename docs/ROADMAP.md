@@ -235,9 +235,12 @@ The configuration work behind 0.2.0 left two follow-ups here. The first is done:
 reports what Codex recorded as applied, not only what this server requested, so an override — by
 managed requirements, say — is visible instead of silent, and a sandbox recorded as wider than the
 one requested fails the delegation ([#55](https://github.com/parisbs/codex-subagent-mcp/issues/55),
-[ADR 13](adr/0013-confirm-applied-settings.md)). The preflight and catalog still
-run in the server's own directory rather than the delegation's, so a trusted project's config is not
-part of what they check ([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)).
+[ADR 13](adr/0013-confirm-applied-settings.md)). The second is done too: the preflight and the
+catalog now run in the delegation's working directory and are cached per directory, so a trusted
+project's configuration is part of what they check
+([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)). What is left from that issue is
+summarising `codex doctor --json`, which is tracked separately: the command takes about ten seconds
+and performs network reachability probes, so it cannot sit on a preflight path.
 
 ## 0.4.0 — Structured results
 

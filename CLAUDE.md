@@ -53,6 +53,10 @@ subcommands and between versions. Two traps already found the hard way, both cov
   from the config of the directory it runs in, even when the thread was recorded on another one, and
   an effort missing from the argv comes from config even if the model does not support it. That is
   why follow-ups always restate model, effort and directory (`src/threads.ts`).
+- Configuration is resolved against the working directory, so a probe's answer is a property of the
+  directory, not of the machine. `codex doctor --json` reports the `cwd` its `config.load` check
+  resolved for. That is why `runDoctor` and `getCatalog` take a `cwd` and cache per directory, and
+  why the delegation tools pass their `working_dir` to both.
 - What a run *applied* is not what it was *asked for*. The session file under
   `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
   turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and
@@ -158,3 +162,9 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
 Code, comments and documentation are written in English. Commit messages are a single English
 sentence with an infinitive verb. See `docs/adr/` for why the design is the way it is, and
 `docs/ROADMAP.md` for what is planned.
+
+**Release branches are deleted once the release is published.** A `release/X.Y.Z` branch exists only
+to prepare a release: the documentation pass, the changelog and the version bump. It is squash-merged
+into `main` like any other branch, and the annotated tag `vX.Y.Z` is what records the published
+state — the branch keeps nothing the tag does not, and a stale copy of a released tree invites
+someone to commit onto it. This overrides the general gitflow habit of keeping release branches.

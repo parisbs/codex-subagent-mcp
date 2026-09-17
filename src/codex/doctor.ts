@@ -289,11 +289,23 @@ export function formatDiagnosis(diagnosis: Diagnosis): string {
   return lines.join("\n");
 }
 
-let cached: Diagnosis | null = null;
+/**
+ * Cached diagnoses, keyed by the executable *and* the directory probed.
+ *
+ * `codex login status` loads the configuration of the directory it runs in, so
+ * a project whose `.codex/config.toml` Codex cannot parse is only visible when
+ * the probe runs there. Caching one answer for every directory reported a
+ * working installation for a delegation that was about to fail.
+ */
+const cached = new Map<string, Diagnosis>();
+
+const CACHE_ENTRY_LIMIT = 32;
 
 export interface DoctorOptions {
   refresh?: boolean;
   codexPath?: string;
+  /** Directory to probe in. Defaults to this process's own. */
+  cwd?: string;
 }
 
 /**
@@ -304,10 +316,12 @@ export interface DoctorOptions {
  * cached, so installing Codex and retrying works without a restart.
  */
 export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis> {
-  const { refresh = false, codexPath = process.env.CODEX_BIN ?? "codex" } = options;
+  const { refresh = false, codexPath = process.env.CODEX_BIN ?? "codex", cwd } = options;
 
-  if (!refresh && cached && cached.status === "ok" && cached.codexPath === codexPath) {
-    return cached;
+  const key = `${codexPath}\u0000${cwd ?? ""}`;
+  const hit = cached.get(key);
+  if (!refresh && hit) {
+    return hit;
   }
 
   const resolved = resolveCodexExecutable(codexPath);
@@ -329,6 +343,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
   try {
     const { stdout } = await execFileAsync(target, ["--version"], {
       timeout: PROBE_TIMEOUT_MS,
+      ...(cwd ? { cwd } : {}),
     });
     version = parseVersion(stdout);
   } catch {
@@ -343,7 +358,10 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
   // exits 1, which is why the failure is classified rather than read as signed out.
   let probe: LoginProbe;
   try {
-    await execFileAsync(target, ["login", "status"], { timeout: PROBE_TIMEOUT_MS });
+    await execFileAsync(target, ["login", "status"], {
+      timeout: PROBE_TIMEOUT_MS,
+      ...(cwd ? { cwd } : {}),
+    });
     probe = { authenticated: true };
   } catch (error) {
     probe = classifyLoginFailure(error);
@@ -358,11 +376,19 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<Diagnosis>
     }),
     resolvedPath: target,
   };
-  if (diagnosis.status === "ok") cached = diagnosis;
+  if (diagnosis.status === "ok") {
+    // Only a clean diagnosis is cached: installing Codex, signing in or fixing a
+    // config error must take effect without restarting the server.
+    if (cached.size >= CACHE_ENTRY_LIMIT && !cached.has(key)) {
+      const oldest = cached.keys().next().value;
+      if (oldest !== undefined) cached.delete(oldest);
+    }
+    cached.set(key, diagnosis);
+  }
   return diagnosis;
 }
 
 /** Clears the cached diagnosis. Intended for tests. */
 export function resetDoctorCache(): void {
-  cached = null;
+  cached.clear();
 }

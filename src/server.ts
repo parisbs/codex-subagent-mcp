@@ -73,9 +73,13 @@ class CodexUnavailableError extends Error {
  * Every tool goes through this, so a missing or signed-out Codex is reported
  * once, clearly, with the steps to fix it — rather than surfacing as a
  * different cryptic failure per tool.
+ *
+ * It runs in the directory the delegation will run in, because that is where
+ * Codex resolves its configuration: a trusted project's `.codex/config.toml`
+ * applies only inside it, and a file Codex cannot parse is only visible there.
  */
-async function requireUsableCodex(): Promise<Diagnosis> {
-  const diagnosis = await runDoctor();
+async function requireUsableCodex(cwd?: string): Promise<Diagnosis> {
+  const diagnosis = await runDoctor(cwd ? { cwd } : {});
   if (!isUsable(diagnosis)) {
     throw new CodexUnavailableError(diagnosis);
   }
@@ -120,6 +124,9 @@ function validateAddDirs(dirs: string[] | undefined): void {
     validateDirectory("add_dirs entry", dir);
   }
 }
+
+/** An optional absolute directory parameter, described per tool. */
+const workingDirSchema = (description: string) => z.string().optional().describe(description);
 
 /** See `src/outcome.ts` for what counts as a failed delegation. */
 function isFailure(result: DelegationResult): boolean {
@@ -365,9 +372,10 @@ async function resolveModelAndEffort(
   requestedEffort: ReasoningEffort | undefined,
   taskDescription: string,
   config: ServerConfig,
+  cwd?: string,
 ): Promise<{ model: string; effort: ReasoningEffort; notes: string[] }> {
-  const diagnosis = await requireUsableCodex();
-  const catalog = await getCatalog();
+  const diagnosis = await requireUsableCodex(cwd);
+  const catalog = await getCatalog(cwd ? { cwd } : {});
   const notes: string[] = [];
   if (diagnosis.status === "unverified-version" || diagnosis.status === "unknown") {
     notes.push(diagnosis.summary);
@@ -531,14 +539,23 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           .boolean()
           .optional()
           .describe("Re-probe the CLI instead of reusing the cached diagnosis."),
+        working_dir: workingDirSchema(
+          "Absolute directory to run the check in. Codex loads the configuration of the directory it " +
+            "runs in, so pass the one a delegation would use. Defaults to this server's own.",
+        ),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ refresh }) => {
+    async ({ refresh, working_dir }) => {
       try {
-        const diagnosis = await runDoctor({ refresh: refresh ?? false });
+        validateWorkingDir(working_dir);
+        const diagnosis = await runDoctor({
+          refresh: refresh ?? false,
+          ...(working_dir ? { cwd: working_dir } : {}),
+        });
         const lines = [
           `status: ${diagnosis.status}`,
+          `checked in: ${working_dir ?? process.cwd()}`,
           `codex binary: ${diagnosis.codexPath}`,
           `version: ${diagnosis.version ?? "not detected"}`,
           `signed in: ${diagnosis.authenticated === null ? "unknown" : diagnosis.authenticated ? "yes" : "no"}`,
@@ -564,14 +581,22 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           .boolean()
           .optional()
           .describe("Bypass the cache and re-read the catalog from the CLI."),
+        working_dir: workingDirSchema(
+          "Absolute directory to read the catalog in. A project you have trusted in Codex can set its " +
+            "own catalog, so pass the directory a delegation would use. Defaults to this server's own.",
+        ),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ refresh }) => {
+    async ({ refresh, working_dir }) => {
       try {
         requireValidConfig();
-        const diagnosis = await requireUsableCodex();
-        const catalog = await getCatalog({ refresh: refresh ?? false });
+        validateWorkingDir(working_dir);
+        const diagnosis = await requireUsableCodex(working_dir);
+        const catalog = await getCatalog({
+          refresh: refresh ?? false,
+          ...(working_dir ? { cwd: working_dir } : {}),
+        });
 
         // Every model is listed, including ones the allow-list blocks, and the
         // blocked ones are marked. This is an informational tool; the allow-list
@@ -704,6 +729,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           args.reasoning_effort as ReasoningEffort | undefined,
           `${args.prompt}\n${args.context ?? ""}`,
           config,
+          args.working_dir,
         );
 
         if (args.auto_approve && sandbox === "read-only") {
@@ -868,9 +894,20 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           (args.reasoning_effort as ReasoningEffort | undefined) ??
           (keepsModel ? recorded.reasoningEffort : undefined);
 
+        // The directory is settled before the catalog is read, not after: the
+        // thread resumes there, and that is the configuration Codex will apply.
+        const workingDir = args.working_dir ?? recorded?.workingDir;
+        validateWorkingDir(workingDir);
+
         let resolved: Awaited<ReturnType<typeof resolveModelAndEffort>>;
         try {
-          resolved = await resolveModelAndEffort(requestedModel, requestedEffort, args.prompt, config);
+          resolved = await resolveModelAndEffort(
+            requestedModel,
+            requestedEffort,
+            args.prompt,
+            config,
+            workingDir,
+          );
         } catch (error) {
           if (error instanceof ModelRequiredError) {
             throw new ModelRequiredError(
@@ -885,8 +922,6 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         }
         const { model, effort, notes } = resolved;
 
-        const workingDir = args.working_dir ?? recorded?.workingDir;
-        validateWorkingDir(workingDir);
         if (!args.working_dir && workingDir) {
           notes.push(`Resuming in the directory the thread last ran in (${workingDir}).`);
         }
