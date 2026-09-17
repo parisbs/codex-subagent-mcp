@@ -129,6 +129,7 @@ async function withServer<T>(
     "CODEX_SUBAGENT_MAX_EFFORT",
     "CODEX_SUBAGENT_DEFAULT_MODEL",
     "CODEX_SUBAGENT_DEFAULT_EFFORT",
+    "CODEX_SUBAGENT_DEFAULT_SANDBOX",
     "CODEX_SUBAGENT_MAX_SANDBOX",
     "CODEX_BIN",
     // The applied settings are read from Codex's session files, so a test must
@@ -197,6 +198,95 @@ test("applies the configured ceiling to a follow-up that passes no overrides", a
         args.includes('model_reasoning_effort="low"'),
         `effort ceiling missing from ${JSON.stringify(args)}`,
       );
+    },
+  );
+});
+
+test("uses the configured default sandbox for delegations and follow-ups", async () => {
+  await withServer(
+    {
+      CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model",
+      CODEX_SUBAGENT_DEFAULT_SANDBOX: "workspace-write",
+    },
+    async (call) => {
+      await call("codex_delegate", { prompt: "anything" });
+      await call("codex_follow_up", { thread_id: "some-thread", prompt: "continue" });
+
+      assert.equal(spawnedArgs[0]?.[spawnedArgs[0].indexOf("--sandbox") + 1], "workspace-write");
+      assert.ok(
+        spawnedArgs[1]?.includes('sandbox_mode="workspace-write"'),
+        JSON.stringify(spawnedArgs[1]),
+      );
+    },
+  );
+});
+
+test("an explicit sandbox overrides the configured default", async () => {
+  await withServer(
+    { CODEX_SUBAGENT_DEFAULT_SANDBOX: "workspace-write" },
+    async (call) => {
+      await call("codex_delegate", {
+        prompt: "anything",
+        model: "cheap-model",
+        sandbox: "read-only",
+      });
+
+      assert.equal(spawnedArgs[0]?.[spawnedArgs[0].indexOf("--sandbox") + 1], "read-only");
+    },
+  );
+});
+
+test("refuses danger-full-access unless the ceiling explicitly opts in", async () => {
+  await withServer({}, async (call) => {
+    const result = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+      sandbox: "danger-full-access",
+    })) as ToolResult;
+
+    assert.equal(result.isError, true);
+    // The refusal must not claim the user configured a ceiling they never set.
+    assert.match(result.content[0]?.text ?? "", /built-in ceiling of "workspace-write"/);
+    assert.doesNotMatch(result.content[0]?.text ?? "", /configured with CODEX_SUBAGENT_MAX_SANDBOX/);
+    assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+  });
+});
+
+test("allows a danger-full-access default after an explicit ceiling opt-in", async () => {
+  await withServer(
+    {
+      CODEX_SUBAGENT_DEFAULT_SANDBOX: "danger-full-access",
+      CODEX_SUBAGENT_MAX_SANDBOX: "danger-full-access",
+    },
+    async (call) => {
+      const result = (await call("codex_delegate", {
+        prompt: "anything",
+        model: "cheap-model",
+      })) as ToolResult;
+
+      assert.notEqual(result.isError, true);
+      assert.equal(
+        spawnedArgs[0]?.[spawnedArgs[0].indexOf("--sandbox") + 1],
+        "danger-full-access",
+      );
+    },
+  );
+});
+
+test("reports a default sandbox above the ceiling on the first tool call", async () => {
+  await withServer(
+    {
+      CODEX_SUBAGENT_DEFAULT_SANDBOX: "danger-full-access",
+    },
+    async (call) => {
+      const result = (await call("codex_delegate", {
+        prompt: "anything",
+        model: "cheap-model",
+      })) as ToolResult;
+
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /DEFAULT_SANDBOX.*higher than.*MAX_SANDBOX/);
+      assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
     },
   );
 });
@@ -838,5 +928,18 @@ test("still treats an omitted working_dir as the default", async () => {
     const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
     assert.equal(result.isError, undefined);
     assert.equal(spawnedCwds[0], undefined);
+  });
+});
+
+test("names the configured ceiling when the user did set one", async () => {
+  await withServer({ CODEX_SUBAGENT_MAX_SANDBOX: "read-only" }, async (call) => {
+    const result = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+      sandbox: "workspace-write",
+    })) as ToolResult;
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /configured with CODEX_SUBAGENT_MAX_SANDBOX="read-only"/);
   });
 });

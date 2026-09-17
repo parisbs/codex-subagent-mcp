@@ -59,13 +59,16 @@ The prefix is `mcp__` followed by the name you registered the server under. Allo
 delegations too. In Claude Desktop, prefer allowing `codex_delegate` once rather than always, and turn
 the server off in conversations where you do not want it available, if your client offers that.
 
-## 2. Ceilings on the server
+## 2. Defaults and ceilings on the server
 
-Environment variables on the MCP server set limits no argument can get past. They are covered in full
-in [TOOLS.md](TOOLS.md#configuration); the ones that matter most for control:
+Environment variables on the MCP server set defaults and limits no argument can get past. They are
+covered in full in [TOOLS.md](TOOLS.md#configuration); the ones that matter most for control:
 
-- `CODEX_SUBAGENT_MAX_SANDBOX` — `workspace-write` rules out unsandboxed runs; `read-only` rules out
-  writing at all.
+- `CODEX_SUBAGENT_DEFAULT_SANDBOX` — chooses the sandbox when a call omits it. It defaults to
+  `read-only` and cannot exceed the ceiling.
+- `CODEX_SUBAGENT_MAX_SANDBOX` — defaults to `workspace-write`, which rules out unsandboxed runs;
+  `read-only` rules out writing at all. `danger-full-access` is reachable only when you set this to
+  that value explicitly.
 - `CODEX_SUBAGENT_MAX_EFFORT` — keeps the expensive reasoning levels off the table.
 - `CODEX_SUBAGENT_ALLOWED_MODELS` — keeps delegations on the models you choose. A single entry also
   acts as the default model.
@@ -73,12 +76,13 @@ in [TOOLS.md](TOOLS.md#configuration); the ones that matter most for control:
 A reasonable starting point for everyday use:
 
 ```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_MAX_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.2.0
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.2.0
 ```
 
-Register ceilings outside the repository — Claude Code's default `local` scope or `--scope user`, or
-Claude Desktop's config file — not in a project `.mcp.json`, which a write-enabled delegation could
-edit.
+Register defaults and ceilings outside the repository — Claude Code's default `local` scope or
+`--scope user`, or Claude Desktop's config file — not in a project `.mcp.json`, which a write-enabled
+delegation could edit. A changed ceiling could widen what later calls may request, and a changed
+default sandbox could make later calls write without requesting a sandbox at all.
 
 ## 3. The version you run
 
@@ -112,7 +116,8 @@ place.
 
 ## What the server does on its own
 
-- Delegations are read-only unless a write-enabled sandbox is requested.
+- Delegations are read-only unless a write-enabled sandbox is requested or configured as the user's
+  default.
 - No model is chosen for you; without one the call is refused with a suggestion.
 - Follow-ups restate the thread's model, effort and directory instead of letting configuration pick.
 - Every result starts by saying that Codex's report is information, not instructions — Codex may have

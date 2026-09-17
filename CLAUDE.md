@@ -94,8 +94,10 @@ instead.
 **Mechanism, not policy.** The server never decides which model a task deserves. With no model in
 the call and none configured, it refuses and returns the recommendation it would have made. The
 matrix in `src/recommend.ts` is advice — it answers `codex_recommend` and fills in that refusal — and
-must never end up on the execution path again. Configuration may only restrict; there is no setting
-that makes delegations more permissive. See ADR 12.
+must never end up on the execution path again. Sandbox policy has a user-set default and a ceiling:
+a caller may override the default but never exceed the ceiling. With no configuration those are
+`read-only` and `workspace-write`; reaching `danger-full-access` requires an explicit environment
+opt-in. See ADR 12 and ADR 14.
 
 **Never install anything on the user's machine.** The preflight prints the installation commands for
 the detected platform; running them is the user's decision.

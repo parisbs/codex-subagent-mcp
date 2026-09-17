@@ -11,16 +11,15 @@ import {
 const P = "CODEX_SUBAGENT_";
 const empty = loadConfig({}).config;
 
-test("defaults to no policy of its own", () => {
+test("uses safe sandbox defaults without inventing model or effort policy", () => {
   const { config, errors } = loadConfig({});
   assert.deepEqual(errors, []);
   assert.equal(config.defaultModel, null);
   assert.equal(config.defaultEffort, null);
   assert.deepEqual(config.allowedModels, []);
   assert.equal(config.maxEffort, null);
-  // No ceiling configured means no ceiling applied; read-only is still the
-  // per-call default, which is a separate thing.
-  assert.equal(config.maxSandbox, "danger-full-access");
+  assert.equal(config.defaultSandbox, "read-only");
+  assert.equal(config.maxSandbox, "workspace-write");
 });
 
 test("reads every setting", () => {
@@ -28,13 +27,15 @@ test("reads every setting", () => {
     [`${P}DEFAULT_MODEL`]: "gpt-5.6-luna",
     [`${P}DEFAULT_EFFORT`]: "low",
     [`${P}ALLOWED_MODELS`]: "gpt-5.6-luna, gpt-5.6-terra",
-    [`${P}MAX_SANDBOX`]: "read-only",
+    [`${P}DEFAULT_SANDBOX`]: "workspace-write",
+    [`${P}MAX_SANDBOX`]: "danger-full-access",
     [`${P}MAX_EFFORT`]: "high",
   });
   assert.deepEqual(errors, []);
   assert.equal(config.defaultModel, "gpt-5.6-luna");
   assert.deepEqual(config.allowedModels, ["gpt-5.6-luna", "gpt-5.6-terra"]);
-  assert.equal(config.maxSandbox, "read-only");
+  assert.equal(config.defaultSandbox, "workspace-write");
+  assert.equal(config.maxSandbox, "danger-full-access");
   assert.equal(config.maxEffort, "high");
 });
 
@@ -43,10 +44,12 @@ test("collects invalid values instead of throwing", () => {
   // a tool that is not there.
   const { errors } = loadConfig({
     [`${P}MAX_SANDBOX`]: "yolo",
+    [`${P}DEFAULT_SANDBOX`]: "unconfined",
     [`${P}MAX_EFFORT`]: "turbo",
   });
-  assert.equal(errors.length, 2);
+  assert.equal(errors.length, 3);
   assert.match(errors.join("\n"), /MAX_SANDBOX is "yolo"/);
+  assert.match(errors.join("\n"), /DEFAULT_SANDBOX is "unconfined"/);
   assert.match(errors.join("\n"), /MAX_EFFORT is "turbo"/);
 });
 
@@ -64,6 +67,32 @@ test("rejects a default effort above its own ceiling", () => {
     [`${P}MAX_EFFORT`]: "medium",
   });
   assert.match(errors.join("\n"), /higher than CODEX_SUBAGENT_MAX_EFFORT/);
+});
+
+test("rejects a default sandbox above its own ceiling", () => {
+  const { errors } = loadConfig({
+    [`${P}DEFAULT_SANDBOX`]: "danger-full-access",
+    [`${P}MAX_SANDBOX`]: "workspace-write",
+  });
+  assert.match(errors.join("\n"), /DEFAULT_SANDBOX \("danger-full-access"\) is higher than CODEX_SUBAGENT_MAX_SANDBOX \("workspace-write"\)/);
+});
+
+test("rejects a danger-full-access default without an explicit ceiling opt-in", () => {
+  const { errors } = loadConfig({
+    [`${P}DEFAULT_SANDBOX`]: "danger-full-access",
+  });
+  assert.match(errors.join("\n"), /MAX_SANDBOX \("workspace-write"\)/);
+});
+
+test("requires an explicit ceiling to make danger-full-access reachable", () => {
+  assert.equal(checkSandbox("danger-full-access", loadConfig({}).config).ok, false);
+  assert.equal(
+    checkSandbox(
+      "danger-full-access",
+      loadConfig({ [`${P}MAX_SANDBOX`]: "danger-full-access" }).config,
+    ).ok,
+    true,
+  );
 });
 
 test("refuses a sandbox above the ceiling rather than lowering it", () => {
