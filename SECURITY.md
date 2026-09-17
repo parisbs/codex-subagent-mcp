@@ -74,6 +74,13 @@ servers, hooks and rules. Verified against codex-cli 0.154.0:
   leave the model out, and the project's config then chose it.
 - Hooks from a project still need Codex's own hook trust; this server never bypasses it.
 
+Since 0.3.0 the server also reads back what Codex recorded for the run and compares it with what it
+asked for. A sandbox recorded as wider than the one requested fails the delegation and says so; a
+different model or effort is reported without failing. This is an observation made after the run, not
+a control: it tells you a boundary moved, it does not hold the boundary. The control that does is
+the managed `requirements.toml` described below. See
+[ADR 13](docs/adr/0013-confirm-applied-settings.md).
+
 Two consequences worth acting on. Only mark repositories you control as trusted in Codex. And keep
 this server's ceilings (`CODEX_SUBAGENT_*`) outside the working tree — in Claude Code's `local` or
 `user` scope, or Claude Desktop's config — because a `workspace-write` delegation can edit a project

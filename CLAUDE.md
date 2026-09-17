@@ -53,6 +53,12 @@ subcommands and between versions. Two traps already found the hard way, both cov
   from the config of the directory it runs in, even when the thread was recorded on another one, and
   an effort missing from the argv comes from config even if the model does not support it. That is
   why follow-ups always restate model, effort and directory (`src/threads.ts`).
+- What a run *applied* is not what it was *asked for*. The session file under
+  `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
+  turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and
+  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins a real 0.154.0 line), and
+  keep every failure path reporting "unconfirmed" rather than guessing. Never let a read of it change
+  anything but the report.
 - Codex starts its MCP servers with almost no environment (`HOME`, `LOGNAME`, `PATH`, `SHELL`,
   `TMPDIR`, `USER`) unless an entry lists `env_vars`, so an environment marker cannot tell this
   server it is running inside a delegation. The recursion guard instead finds this server in
@@ -107,6 +113,8 @@ diagnosis. `scripts/check-startup.mjs` asserts this in CI.
 - `src/codex/args.ts` — builds the argv. Separate paths for `exec` and `exec resume`.
 - `src/codex/events.ts` — incremental JSONL parser for `codex exec --json`, plus the progress
   descriptions.
+- `src/codex/rollout.ts` — reads the session file Codex writes for a thread, to confirm what it
+  actually applied. The only place that touches an internal Codex format; see ADR 13.
 - `src/codex/runner.ts` — spawns the child, streams events, enforces the timeout.
 - `src/prompt.ts` — `QUALITY_CONTRACT` plus the layered prompt sections.
 - `src/config.ts` — user policy read from the environment: defaults and ceilings.

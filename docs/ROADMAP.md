@@ -231,11 +231,11 @@ prose summary is enough for the orchestrator to act on. That may depend on 0.4.0
 
 [#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)
 
-The configuration work behind 0.2.0 left two follow-ups here. Results report the model, effort and
-sandbox this server *requested*; Codex writes what it actually applied to each session's rollout, and
-comparing the two would turn a silent override — by managed requirements, say — into a visible one,
-without this server re-implementing Codex's configuration merge
-([#55](https://github.com/parisbs/codex-subagent-mcp/issues/55)). And the preflight and catalog still
+The configuration work behind 0.2.0 left two follow-ups here. The first is done: a result now
+reports what Codex recorded as applied, not only what this server requested, so an override — by
+managed requirements, say — is visible instead of silent, and a sandbox recorded as wider than the
+one requested fails the delegation ([#55](https://github.com/parisbs/codex-subagent-mcp/issues/55),
+[ADR 13](adr/0013-confirm-applied-settings.md)). The preflight and catalog still
 run in the server's own directory rather than the delegation's, so a trusted project's config is not
 part of what they check ([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)).
 

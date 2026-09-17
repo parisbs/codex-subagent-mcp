@@ -15,10 +15,13 @@ Verify the server works against the real Codex CLI. Delegations cost quota, so u
 4. `codex_recommend` on a mechanical task and on a hard debugging task — the tiers must differ.
 5. `codex_delegate` with `sandbox: "read-only"` against this repository, asking Codex to read one
    file and report a fact. Confirm progress notifications arrive, and that the result reports a
-   `thread_id`, the token usage and the commands run.
+   `thread_id`, the token usage and the commands run. The metadata line must end with
+   `applied=confirmed`: that is the check that Codex's session file is still where and what
+   `src/codex/rollout.ts` expects on this CLI version.
 6. `codex_follow_up` with that `thread_id` and no `model` — confirm Codex still has the earlier
-   context, that the argv restated the original model and effort, and that no "recorded with model"
-   notice appears.
+   context, that the argv restated the original model and effort, that no "recorded with model"
+   notice appears, and that this run also reports `applied=confirmed` (a resumed thread appends to
+   the session file of the day it started, so this exercises the multi-day search).
 7. Error paths: an unknown model slug, `ultra` on `gpt-5.6-luna` (must clamp to `max` with a note),
    a relative `working_dir`, and a `timeout_seconds` of 10 on a long task (must report the timeout
    and be flagged as an error).

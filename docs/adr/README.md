@@ -23,3 +23,4 @@ the reasoning behind a past choice stays readable even after the choice changes.
 | [0010](0010-distribution-strategy.md) | Distribute through npm, with the registry and bundles layered on top | Accepted |
 | [0011](0011-resolve-the-executable-without-a-shell.md) | Resolve the Codex executable without a shell | Accepted |
 | [0012](0012-mechanism-not-policy.md) | Provide mechanism, not policy | Accepted |
+| [0013](0013-confirm-applied-settings.md) | Confirm what Codex applied instead of re-implementing its configuration | Accepted |
