@@ -108,8 +108,20 @@ function validateDirectory(label: string, dir: string): void {
   }
 }
 
+/**
+ * Validates a working directory, telling "not given" from "given as nothing".
+ *
+ * `undefined` means the caller did not pass one, which every tool handles by
+ * falling back to a documented default. An empty or blank string is a value the
+ * caller did pass, and falling back for it silently runs somewhere the caller
+ * never asked for — which is exactly the wrong direction for a parameter that
+ * decides where Codex reads, writes and resolves its configuration.
+ */
 function validateWorkingDir(dir: string | undefined): void {
-  if (!dir) return;
+  if (dir === undefined) return;
+  if (dir.trim().length === 0) {
+    throw new Error("working_dir was given as an empty string; omit it to use the default directory.");
+  }
   validateDirectory("working_dir", dir);
 }
 

@@ -814,3 +814,29 @@ test("refuses a working_dir that is not an absolute existing directory", async (
     }
   });
 });
+
+test("refuses an explicitly empty working_dir instead of silently using the default", async () => {
+  // Found by a Codex review of #70: an empty string is a value the caller
+  // passed, and falling back for it runs somewhere nobody asked for.
+  await withServer({}, async (call) => {
+    for (const [tool, args] of [
+      ["codex_doctor", { working_dir: "" }],
+      ["list_codex_models", { working_dir: "" }],
+      ["codex_delegate", { prompt: "anything", model: "cheap-model", working_dir: "" }],
+      ["codex_follow_up", { thread_id: "t", prompt: "go", model: "cheap-model", working_dir: "" }],
+    ] as const) {
+      const result = (await call(tool, args)) as ToolResult;
+      assert.equal(result.isError, true, tool);
+      assert.match(result.content[0]?.text ?? "", /empty string/, tool);
+    }
+    assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+  });
+});
+
+test("still treats an omitted working_dir as the default", async () => {
+  await withServer({}, async (call) => {
+    const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
+    assert.equal(result.isError, undefined);
+    assert.equal(spawnedCwds[0], undefined);
+  });
+});
