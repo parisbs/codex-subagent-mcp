@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
+import { compareApplied, readTurnContext } from "./rollout.js";
 import {
   JsonLinesParser,
   describeEvent,
@@ -61,6 +62,8 @@ export interface RunOptions {
   onEvent?: (event: CodexEvent, description: string | null) => void;
   /** Aborts the run; used by background job cancellation. */
   signal?: AbortSignal;
+  /** Where Codex keeps its session files. Defaults to CODEX_HOME, else ~/.codex. */
+  codexHome?: string;
 }
 
 export interface RunHandle {
@@ -82,6 +85,7 @@ export function runCodex(options: RunOptions): RunHandle {
     codexPath = process.env.CODEX_BIN ?? "codex",
     onEvent,
     signal,
+    codexHome,
   } = options;
 
   if (signal?.aborted) {
@@ -338,7 +342,7 @@ export function runCodex(options: RunOptions): RunHandle {
       ];
       cleanup();
 
-      resolve({
+      const base = {
         finalMessage: agentMessages.at(-1) ?? "",
         threadId,
         model: invocation.model ?? null,
@@ -355,7 +359,36 @@ export function runCodex(options: RunOptions): RunHandle {
         exitCode: code,
         timedOut,
         stderr: stderr.trim(),
-      });
+      };
+
+      // What Codex applied is read from its own session file, after the child
+      // has written it. The delegation never depends on that read succeeding:
+      // every failure comes back as "unconfirmed" and the result is unchanged.
+      void confirmApplied(base);
+    };
+
+    const confirmApplied = async (
+      base: Omit<DelegationResult, "applied">,
+    ): Promise<void> => {
+      const requested = {
+        model: base.model,
+        reasoningEffort: base.reasoningEffort,
+        sandbox: base.sandbox,
+        workingDir: invocation.workingDir ?? process.cwd(),
+      };
+      try {
+        const lookup = await readTurnContext({ threadId: base.threadId, codexHome });
+        resolve({ ...base, applied: await compareApplied(requested, lookup) });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        resolve({
+          ...base,
+          applied: await compareApplied(requested, {
+            context: null,
+            reason: `the applied settings could not be checked: ${message}`,
+          }),
+        });
+      }
     };
 
     child.on("close", (code) => {
