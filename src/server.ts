@@ -495,7 +495,7 @@ const delegateShape = {
   web_search: z
     .boolean()
     .optional()
-    .describe("Enable live web search for this run, through Codex's web_search = \"live\" setting. When omitted, Codex's own configured web_search mode applies."),
+    .describe("Enable Codex's API-backed live web-search tool for this run. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. When omitted, Codex's own configured web_search mode applies."),
   skip_git_repo_check: z
     .boolean()
     .optional()
@@ -759,6 +759,14 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           readOnly: sandbox === "read-only",
         });
 
+        const recursionGuard = await selfRegisteredServers({ cwd: args.working_dir });
+        if (recursionGuard.error) {
+          notes.push(
+            `The recursion guard could not be applied for this run because Codex's MCP ` +
+              `configuration could not be listed: ${recursionGuard.error}`,
+          );
+        }
+
         const invocation: CodexInvocation = {
           kind: "exec",
           model,
@@ -770,7 +778,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           useWorktree: args.use_worktree ?? false,
           webSearch: args.web_search ?? false,
           skipGitRepoCheck: args.skip_git_repo_check ?? false,
-          disabledMcpServers: await selfRegisteredServers(),
+          disabledMcpServers: recursionGuard.names,
         };
 
         const timeoutSeconds = args.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS;
@@ -939,6 +947,14 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         }
         const skipGitRepoCheck = recorded?.skipGitRepoCheck ?? false;
 
+        const recursionGuard = await selfRegisteredServers({ cwd: workingDir });
+        if (recursionGuard.error) {
+          notes.push(
+            `The recursion guard could not be applied for this run because Codex's MCP ` +
+              `configuration could not be listed: ${recursionGuard.error}`,
+          );
+        }
+
         const invocation: CodexInvocation = {
           kind: "resume",
           threadId: args.thread_id,
@@ -947,7 +963,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           sandbox,
           ...(workingDir ? { workingDir } : {}),
           skipGitRepoCheck,
-          disabledMcpServers: await selfRegisteredServers(),
+          disabledMcpServers: recursionGuard.names,
         };
 
         const progressToken = extra._meta?.progressToken;

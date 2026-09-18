@@ -141,7 +141,7 @@ Runs a task on the local Codex CLI.
 | `auto_approve` | boolean | `false` | Codex approves its own commands. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | Writes land in a managed git worktree under `~/.codex/worktrees/`, never your working tree. Uses an experimental Codex feature, enabled for that invocation only. |
-| `web_search` | boolean | — | `true` enables live web search for this run, passed to Codex as `-c web_search="live"`. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
+| `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
 | `mode` | `blocking` \| `background` | `blocking` | `background` returns a `job_id` immediately. |
@@ -197,6 +197,24 @@ explicitly so it does not waste the run discovering the restriction. Writing req
 `sandbox: "workspace-write"` in the call or a user-set `CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write`.
 `use_worktree` confines those writes to a managed git worktree, which the server does not clean up —
 a worktree may hold changes you have not applied yet.
+
+The prompt also explains two limits of read-only verification. Commands that need to create
+temporary, cache or build files can be denied by the sandbox; when that specific denial prevents a
+check, the result should say the verification could not be completed rather than call it a code
+defect. Permission failures that are themselves the behaviour under investigation still must be
+reported as defects. Shell commands have no network access under read-only; current external
+information must use Codex's web-search tool, when enabled for the run.
+
+Before every new delegation and follow-up, the server runs `codex mcp list --json` in the directory
+that run will use. It disables entries that point back to this server with
+`mcp_servers.<name>.enabled=false`. If the listing fails, execution remains fail-open, but the result
+says the recursion guard could not be applied. The injected prompt separately instructs the
+delegated agent not to delegate further. That prompt layer is an instruction, not a control, and
+covers configurations the server could not enumerate.
+
+Self-reference recognition is by shape: the string `codex-subagent-mcp`, a `codex-subagent`
+executable basename, or this server's exact entry script path. A registration pointing at a copy of
+the server under a different path and name is not recognised; this is a known limitation.
 
 ---
 
