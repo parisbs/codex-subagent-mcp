@@ -120,6 +120,7 @@ and reconciles it against the live catalog.
 | --- | --- | --- | --- |
 | `task_description` | string | required | What the task involves, in a sentence or two. |
 | `priority` | `quality` \| `balanced` \| `latency` \| `cost` | `balanced` | Biases the effort up or down. |
+| `working_dir` | string | the server's working directory | Absolute directory whose Codex configuration and model catalog are used. A trusted project can define its own catalog, so pass the directory the delegation would use. |
 
 ---
 
@@ -209,7 +210,7 @@ this is far cheaper than re-sending it.
 | --- | --- | --- | --- |
 | `thread_id` | string | required | Reported by a previous `codex_delegate`. |
 | `prompt` | string | required | The follow-up instruction. |
-| `model` | string | the thread's model | Override for this turn. Required for a thread this server has no record of, unless a default model is configured. |
+| `model` | string | the thread's model | Override for this turn. On an in-memory registry miss, the server tries to recover it from Codex's session file before requiring an explicit or configured model. |
 | `reasoning_effort` | `low` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
 | `sandbox` | see above | configured default, else `read-only` | Applied as a config override; `resume` has no sandbox flag. |
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
@@ -219,10 +220,12 @@ this is far cheaper than re-sending it.
 A resumed Codex session does not keep its model or effort: without them, Codex takes both from the
 configuration of the directory it resumes in, switches model mid-thread and compacts the history.
 So every follow-up states the model, effort and directory explicitly. The server remembers what each
-thread it ran used — for up to 500 threads, in memory — and restates it; overrides go through the
-same allow-list, effort ceiling and clamping as a new delegation. For a thread started by another
-server process, or before a restart, there is no record: pass the `model` the original delegation
-used, or the call is refused (unless `CODEX_SUBAGENT_DEFAULT_MODEL` is set).
+thread it ran used — for up to 500 threads, in memory — and restates it. After a restart, or for a
+thread started by another server process, it opportunistically reads those three values from Codex's
+session file and says when it did. Recovery is all-or-nothing: a missing, unreadable, partial or
+unrecognised record falls back to the existing explicit/configured-model behaviour. Recovered values
+go through the same directory validation, model catalog and allow-list, effort ceiling and clamping
+as caller-supplied values. If no usable record and no model are available, the call is refused.
 
 ---
 

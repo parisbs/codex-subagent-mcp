@@ -23,6 +23,7 @@ import {
 } from "./codex/doctor.js";
 import type { CodexEvent } from "./codex/events.js";
 import { selfRegisteredServers } from "./codex/mcp.js";
+import { readTurnContext, recoverThreadSettings } from "./codex/rollout.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach } from "./outcome.js";
@@ -681,13 +682,18 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         priority: prioritySchema
           .optional()
           .describe("Bias the reasoning effort: quality raises it, latency and cost lower it. Default balanced."),
+        working_dir: workingDirSchema(
+          "Absolute directory whose Codex configuration and model catalog should be used. Defaults " +
+            "to this server's own.",
+        ),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ task_description, priority }) => {
+    async ({ task_description, priority, working_dir }) => {
       try {
-        await requireUsableCodex();
-        const catalog = await getCatalog();
+        validateWorkingDir(working_dir);
+        await requireUsableCodex(working_dir);
+        const catalog = await getCatalog(working_dir ? { cwd: working_dir } : {});
         const suggestion = recommend(
           catalog,
           task_description,
@@ -856,7 +862,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         model: z
           .string()
           .optional()
-          .describe("Override the model for this turn. Defaults to the model the thread last ran with on this server; for a thread this server has no record of, the configured default, else the call is refused."),
+          .describe("Override the model for this turn. Defaults to the thread's last model from memory or, on a registry miss, Codex's session file; if neither has it, the configured default, else the call is refused."),
         reasoning_effort: effortSchema
           .optional()
           .describe("Override the reasoning effort for this turn. Defaults to the thread's last effort when the model is unchanged, otherwise to the configured or model default."),
@@ -896,19 +902,42 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         // A resumed session does not keep its model or effort: without them on
         // the argv, Codex takes both from the configuration of the directory it
         // resumes in (see `src/threads.ts`). So they are always stated — the
-        // caller's override, else what the thread last ran with here, else the
-        // configured default — and resolved through the same policy as a new
-        // delegation, which also keeps ALLOWED_MODELS and MAX_EFFORT in force.
+        // caller's override, else what the thread last ran with in memory or a
+        // complete session record, else the configured default — and resolved
+        // through the same policy as a new delegation, which also keeps
+        // ALLOWED_MODELS and MAX_EFFORT in force.
         const recorded = threads.get(args.thread_id);
-        const requestedModel = args.model ?? recorded?.model;
-        const keepsModel = recorded !== undefined && requestedModel === recorded.model;
+        let recovered: ThreadSettings | undefined;
+        // Only worth a file lookup when something is actually missing: a caller
+        // that states its own model and directory needs nothing recovered.
+        const needsRecovery = !recorded && (!args.model || !args.working_dir);
+        if (needsRecovery) {
+          const candidate = recoverThreadSettings(
+            await readTurnContext({ threadId: args.thread_id }),
+          );
+          if (candidate) {
+            try {
+              // A recorded cwd is still untrusted input. Only use recovery when
+              // all three values survive the same directory validation as a
+              // caller-supplied working_dir; otherwise preserve today's path.
+              validateWorkingDir(candidate.workingDir);
+              recovered = { ...candidate, skipGitRepoCheck: false };
+            } catch {
+              // Recovery is opportunistic. An obsolete or malformed cwd must
+              // degrade to the pre-existing unknown-thread behaviour.
+            }
+          }
+        }
+        const previous = recorded ?? recovered;
+        const requestedModel = args.model ?? previous?.model;
+        const keepsModel = previous !== undefined && requestedModel === previous.model;
         const requestedEffort =
           (args.reasoning_effort as ReasoningEffort | undefined) ??
-          (keepsModel ? recorded.reasoningEffort : undefined);
+          (keepsModel ? previous.reasoningEffort : undefined);
 
         // The directory is settled before the catalog is read, not after: the
         // thread resumes there, and that is the configuration Codex will apply.
-        const workingDir = args.working_dir ?? recorded?.workingDir;
+        const workingDir = args.working_dir ?? previous?.workingDir;
         validateWorkingDir(workingDir);
 
         let resolved: Awaited<ReturnType<typeof resolveModelAndEffort>>;
@@ -934,10 +963,15 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         }
         const { model, effort, notes } = resolved;
 
+        if (recovered) {
+          notes.push(
+            "Recovered the thread's model, reasoning effort and directory from Codex's session file.",
+          );
+        }
         if (!args.working_dir && workingDir) {
           notes.push(`Resuming in the directory the thread last ran in (${workingDir}).`);
         }
-        const skipGitRepoCheck = recorded?.skipGitRepoCheck ?? false;
+        const skipGitRepoCheck = previous?.skipGitRepoCheck ?? false;
 
         const invocation: CodexInvocation = {
           kind: "resume",

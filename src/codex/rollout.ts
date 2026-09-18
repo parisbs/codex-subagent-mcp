@@ -3,8 +3,8 @@ import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { AppliedSetting, AppliedSettings, SandboxMode } from "../types.js";
-import { SANDBOX_MODES } from "../types.js";
+import type { AppliedSetting, AppliedSettings, ReasoningEffort, SandboxMode } from "../types.js";
+import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
 
 /**
  * Reads what Codex actually applied to a run, from the session file it writes.
@@ -23,8 +23,9 @@ import { SANDBOX_MODES } from "../types.js";
  * turn later fails, and is not written at all for `--ephemeral`.
  *
  * The format is internal and undocumented, so every failure here is reported as
- * "unconfirmed" rather than guessed at, and nothing in the delegation depends on
- * it succeeding. See ADR 13.
+ * "unconfirmed" rather than guessed at. A registry-miss follow-up may use a
+ * complete context to recover its required settings; any incomplete or invalid
+ * context preserves the existing refusal instead. See ADR 13.
  */
 
 /** Stop reading a session file after this much: a long run's file is unbounded. */
@@ -50,6 +51,13 @@ export interface TurnContextLookup {
   context: TurnContext | null;
   /** Why nothing could be read. Null when `context` is set. */
   reason: string | null;
+}
+
+/** The complete subset of a turn context that can safely seed a resume. */
+export interface RecoveredThreadSettings {
+  model: string;
+  reasoningEffort: ReasoningEffort;
+  workingDir: string;
 }
 
 /** What the invocation asked Codex for, as the comparison sees it. */
@@ -217,8 +225,8 @@ async function lookup(threadId: string | null, codexHome: string): Promise<TurnC
 /**
  * Reads the turn context of a finished run, or explains why it could not.
  *
- * Never rejects and never runs long: a delegation's result must not depend on
- * an internal file format being where and what this server expects.
+ * Never rejects and never runs long: confirmation must not fail a delegation,
+ * and opportunistic follow-up recovery must degrade to its existing refusal.
  */
 export async function readTurnContext(options: {
   threadId: string | null;
@@ -248,6 +256,28 @@ export async function readTurnContext(options: {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Returns settings only when the session recorded every value a resume needs.
+ *
+ * This validates the internal format's vocabulary, not server policy or the
+ * filesystem. The caller still has to send the values through the same catalog,
+ * allow-list, effort-ceiling and directory checks as caller-supplied values.
+ * A partial or unfamiliar record is deliberately unusable: nothing is guessed.
+ */
+export function recoverThreadSettings(
+  lookupResult: TurnContextLookup,
+): RecoveredThreadSettings | null {
+  const { context } = lookupResult;
+  if (!context?.model || !context.effort || !context.cwd) return null;
+  if (!(REASONING_EFFORTS as readonly string[]).includes(context.effort)) return null;
+
+  return {
+    model: context.model,
+    reasoningEffort: context.effort as ReasoningEffort,
+    workingDir: context.cwd,
+  };
 }
 
 /** Compares two directories the way the filesystem would, symlinks and case included. */

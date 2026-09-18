@@ -317,6 +317,82 @@ test("refuses a follow-up on an unknown thread when no model can be stated", asy
   });
 });
 
+test("recovers an unknown thread's model, effort and directory from its session file", async () => {
+  await withServer({}, async (call, codexHome) => {
+    codexHome.write({
+      threadId: "recovered-thread",
+      day: "2026-09-17",
+      lines: [
+        SESSION_META_LINE,
+        turnContextLine({ cwd: tmpdir(), model: "expensive-model", effort: "low" }),
+      ],
+    });
+
+    const result = (await call("codex_follow_up", {
+      thread_id: "recovered-thread",
+      prompt: "continue",
+    })) as ToolResult;
+    const args = spawnedArgs[0] ?? [];
+    const text = result.content[0]?.text ?? "";
+
+    assert.notEqual(result.isError, true, text);
+    assert.equal(args[args.indexOf("--model") + 1], "expensive-model");
+    assert.ok(args.includes('model_reasoning_effort="low"'), JSON.stringify(args));
+    assert.equal(spawnedCwds[0], tmpdir());
+    assert.match(text, /Recovered .* from Codex's session file/);
+  });
+});
+
+test("refuses a recovered model outside the allow-list", async () => {
+  await withServer(
+    { CODEX_SUBAGENT_ALLOWED_MODELS: "cheap-model" },
+    async (call, codexHome) => {
+      codexHome.write({
+        threadId: "blocked-recovered-thread",
+        day: "2026-09-17",
+        lines: [
+          SESSION_META_LINE,
+          turnContextLine({ cwd: tmpdir(), model: "expensive-model", effort: "low" }),
+        ],
+      });
+
+      const result = (await call("codex_follow_up", {
+        thread_id: "blocked-recovered-thread",
+        prompt: "continue",
+      })) as ToolResult;
+
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /ALLOWED_MODELS/);
+      assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+    },
+  );
+});
+
+test("clamps a recovered effort through the configured ceiling", async () => {
+  await withServer(
+    { CODEX_SUBAGENT_MAX_EFFORT: "low" },
+    async (call, codexHome) => {
+      codexHome.write({
+        threadId: "clamped-recovered-thread",
+        day: "2026-09-17",
+        lines: [
+          SESSION_META_LINE,
+          turnContextLine({ cwd: tmpdir(), model: "expensive-model", effort: "high" }),
+        ],
+      });
+
+      const result = (await call("codex_follow_up", {
+        thread_id: "clamped-recovered-thread",
+        prompt: "continue",
+      })) as ToolResult;
+
+      assert.notEqual(result.isError, true, result.content[0]?.text);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="low"'));
+      assert.match(result.content[0]?.text ?? "", /Notes:.*cannot use.*using "low"/);
+    },
+  );
+});
+
 const threadStarted = (threadId: string) => ({ type: "thread.started", thread_id: threadId });
 const answered = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
 
@@ -895,10 +971,40 @@ test("lists the models of the directory list_codex_models was given", async () =
   });
 });
 
+test("recommends from the catalog of the directory codex_recommend was given", async () => {
+  await withServer({}, async (call) => {
+    catalogByCwd.set(tmpdir(), {
+      models: [
+        {
+          slug: "project-model",
+          visibility: "list",
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }],
+        },
+      ],
+    });
+
+    const result = (await call("codex_recommend", {
+      task_description: "Implement a small isolated change",
+      working_dir: tmpdir(),
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.notEqual(result.isError, true, text);
+    assert.match(text, /model: project-model/);
+    assert.doesNotMatch(text, /cheap-model/);
+    assert.ok(probedCwds.includes(tmpdir()));
+  });
+});
+
 test("refuses a working_dir that is not an absolute existing directory", async () => {
   await withServer({}, async (call) => {
-    for (const tool of ["codex_doctor", "list_codex_models"]) {
-      const result = (await call(tool, { working_dir: "relative/path" })) as ToolResult;
+    for (const [tool, args] of [
+      ["codex_doctor", { working_dir: "relative/path" }],
+      ["list_codex_models", { working_dir: "relative/path" }],
+      ["codex_recommend", { task_description: "anything", working_dir: "relative/path" }],
+    ] as const) {
+      const result = (await call(tool, args)) as ToolResult;
       assert.equal(result.isError, true, tool);
       assert.match(result.content[0]?.text ?? "", /absolute/);
     }
@@ -912,6 +1018,7 @@ test("refuses an explicitly empty working_dir instead of silently using the defa
     for (const [tool, args] of [
       ["codex_doctor", { working_dir: "" }],
       ["list_codex_models", { working_dir: "" }],
+      ["codex_recommend", { task_description: "anything", working_dir: "" }],
       ["codex_delegate", { prompt: "anything", model: "cheap-model", working_dir: "" }],
       ["codex_follow_up", { thread_id: "t", prompt: "go", model: "cheap-model", working_dir: "" }],
     ] as const) {
