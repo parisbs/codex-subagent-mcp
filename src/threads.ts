@@ -22,10 +22,9 @@ const MAX_THREADS = 500;
  * So a follow-up has to restate model, effort and directory, and this is where
  * they come from.
  *
- * In memory only: after a restart, or for a thread started elsewhere, there is no
- * record and the caller has to say which model to use. Reading the rollout Codex
- * writes per session would cover that case, and is left to the work on reporting
- * applied settings (#55) so the format is parsed in one place.
+ * The registry is in memory only. On a miss, the follow-up handler opportunistically
+ * recovers the same settings from Codex's session file through `src/codex/rollout.ts`;
+ * a partial or invalid record is never inserted here or guessed from.
  */
 export class ThreadRegistry {
   private readonly threads = new Map<

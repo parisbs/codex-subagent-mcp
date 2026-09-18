@@ -8,6 +8,7 @@ import {
   codexHomeDir,
   compareApplied,
   parseTurnContextLine,
+  recoverThreadSettings,
   readTurnContext,
   type RequestedSettings,
 } from "../src/codex/rollout.ts";
@@ -139,6 +140,40 @@ test("survives a truncated line, an unknown shape and unrelated noise", async ()
   } finally {
     home.dispose();
   }
+});
+
+test("recovers resume settings only from a complete recognised turn context", () => {
+  const complete = recoverThreadSettings({
+    context: {
+      cwd: "/workspace/project",
+      model: "gpt-5.6-luna",
+      effort: "low",
+      sandbox: "read-only",
+      approvalPolicy: "never",
+    },
+    reason: null,
+  });
+  assert.deepEqual(complete, {
+    model: "gpt-5.6-luna",
+    reasoningEffort: "low",
+    workingDir: "/workspace/project",
+  });
+
+  for (const context of [
+    { cwd: null, model: "gpt-5.6-luna", effort: "low" },
+    { cwd: "/workspace/project", model: null, effort: "low" },
+    { cwd: "/workspace/project", model: "gpt-5.6-luna", effort: null },
+    { cwd: "/workspace/project", model: "gpt-5.6-luna", effort: "turbo" },
+  ]) {
+    assert.equal(
+      recoverThreadSettings({
+        context: { ...context, sandbox: "read-only", approvalPolicy: "never" },
+        reason: null,
+      }),
+      null,
+    );
+  }
+  assert.equal(recoverThreadSettings({ context: null, reason: "missing" }), null);
 });
 
 test("ignores a line that only mentions a turn context in its text", () => {
