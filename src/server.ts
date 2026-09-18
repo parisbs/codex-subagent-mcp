@@ -35,6 +35,7 @@ import {
   SANDBOX_MODES,
   type AppliedSetting,
   type DelegationResult,
+  type TokenUsage,
   type ReasoningEffort,
   type SandboxMode,
 } from "./types.js";
@@ -149,6 +150,24 @@ function formatDuration(ms: number): string {
   const seconds = Math.round(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function subtractUsage(current: TokenUsage, previous: TokenUsage): TokenUsage | null {
+  const difference: TokenUsage = {
+    inputTokens: current.inputTokens - previous.inputTokens,
+    cachedInputTokens: current.cachedInputTokens - previous.cachedInputTokens,
+    outputTokens: current.outputTokens - previous.outputTokens,
+    reasoningOutputTokens: current.reasoningOutputTokens - previous.reasoningOutputTokens,
+  };
+  return Object.values(difference).every((count) => count >= 0) ? difference : null;
+}
+
+function formatUsage(usage: TokenUsage): string {
+  const uncachedInput = usage.inputTokens - usage.cachedInputTokens;
+  return (
+    `in ${usage.inputTokens} (cached ${usage.cachedInputTokens}, uncached ${uncachedInput}) / ` +
+    `out ${usage.outputTokens} (reasoning ${usage.reasoningOutputTokens})`
+  );
 }
 
 /** Printed to stderr by `codex exec` on every run that reads its prompt from stdin. */
@@ -328,8 +347,11 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
     }
   }
 
-  if (result.commands.length > 0) {
-    lines.push("", `Commands run (${result.commands.length}):`);
+  if (result.commandCount > 0) {
+    const retained = result.commands.length < result.commandCount
+      ? `; newest ${result.commands.length} shown`
+      : "";
+    lines.push("", `Commands run (${result.commandCount} total${retained}):`);
     for (const command of result.commands) {
       lines.push(`- [exit ${command.exitCode ?? "?"}] ${command.command}`);
     }
@@ -339,13 +361,26 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
     `model=${result.model ?? "default"}`,
     `effort=${result.reasoningEffort ?? "default"}`,
     `sandbox=${result.sandbox}`,
+    `working_dir=${result.workingDir}`,
     `applied=${appliedSummary(result)}`,
     `duration=${formatDuration(result.durationMs)}`,
   ];
-  if (result.usage) {
-    meta.push(
-      `tokens=in ${result.usage.inputTokens} (cached ${result.usage.cachedInputTokens}) / out ${result.usage.outputTokens} (reasoning ${result.usage.reasoningOutputTokens})`,
-    );
+  if (result.threadUsage) {
+    // On the first turn of a thread the two are the same number, and printing it
+    // twice teaches the reader to skim the line that matters on a follow-up.
+    const sameAsThread =
+      result.turnUsage !== null &&
+      formatUsage(result.turnUsage) === formatUsage(result.threadUsage);
+    if (sameAsThread) {
+      meta.push(`tokens=${formatUsage(result.threadUsage)}`);
+    } else {
+      meta.push(
+        result.turnUsage
+          ? `tokens this turn=${formatUsage(result.turnUsage)}`
+          : "tokens this turn=unknown (no usable previous thread total was recorded by this server)",
+        `tokens thread so far=${formatUsage(result.threadUsage)}`,
+      );
+    }
   }
   if (result.threadId) {
     meta.push(`thread_id=${result.threadId}`);
@@ -522,10 +557,23 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
   const threads = new ThreadRegistry();
   const { config, errors: configErrors } = loadConfig();
 
-  /** Records what a finished run used, so a follow-up on its thread can state it again. */
+  /**
+   * Records settings and cumulative counters for the next follow-up.
+   *
+   * Codex 0.154.0 reports a session total in `turn.completed` on resume, not a
+   * per-turn value. Subtracting the prior total here avoids another read of the
+   * internal rollout format; if this process lacks that baseline, the report
+   * says the turn is unknown instead of presenting the cumulative value as it.
+   */
   const rememberThread = (result: DelegationResult, settings: ThreadSettings): DelegationResult => {
-    if (result.threadId) threads.record(result.threadId, settings);
-    return result;
+    if (!result.threadId) return result;
+    const previousTotal = threads.getTotalUsage(result.threadId);
+    const withTurnUsage =
+      result.turnUsage === null && result.threadUsage && previousTotal
+        ? { ...result, turnUsage: subtractUsage(result.threadUsage, previousTotal) }
+        : result;
+    threads.record(result.threadId, settings, result.threadUsage);
+    return withTurnUsage;
   };
 
   /** Refuses every call while the environment is misconfigured. */

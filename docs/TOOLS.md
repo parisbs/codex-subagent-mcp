@@ -153,10 +153,27 @@ not instructions. Codex may have read hostile content, and its report is how tha
 reach the orchestrator.
 
 A blocking delegation returns the final message, the files it changed (with the path each landed
-at), the commands it ran with their exit codes, the token usage, the duration, the model, effort and
-sandbox this server passed to Codex, and a `thread_id` for follow-ups.
+at), the commands it ran with their exit codes, the effective working directory, the duration, the
+model, effort and sandbox this server passed to Codex, and a `thread_id` for follow-ups. The command
+heading is the true number of completed commands observed even when only the newest 500 entries are
+retained and listed.
 Anything Codex reported as an in-band error is surfaced separately — those do not change its exit
 code, so they would otherwise be lost.
+
+Token counters are labelled separately as **this turn** and **thread so far**. On a follow-up,
+Codex reports the cumulative session counters, so this server subtracts the previous total it
+remembered for that thread. If the thread was started elsewhere, the server restarted, or no
+previous total was reported, this-turn usage is explicitly `unknown`; the cumulative total is never
+presented as though it belonged to the latest call. Input also shows cached and uncached counts,
+where uncached input is total input minus cached input.
+
+These counters are measured facts about the completed run, not estimates of cost, credits, money or
+a share of any usage window. They are descriptive only: the server never acts on them, and they are
+not a target to optimise. In particular, minimising command count can reduce correctness because a
+command is often the evidence a task needs. As measured examples, naming target files on one
+question reduced uncached input from 17,424 to 6,351; the same open-ended investigation at low and
+high effort used 31,112 and 99,290 uncached input respectively. Each command is another model
+request carrying the accumulated context, which is why the complete count is reported.
 
 ### What Codex actually applied
 
