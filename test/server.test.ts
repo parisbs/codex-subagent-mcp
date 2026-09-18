@@ -57,6 +57,8 @@ let nextRun: { events: unknown[]; exitCode: number } = { events: [], exitCode: 0
 
 /** What `codex mcp list --json` reports. */
 let mcpList = "[]";
+let mcpListError: Error | undefined;
+let mcpListCwds: (string | undefined)[] = [];
 
 /** Directories where the CLI reports a catalog of its own, as a trusted project can. */
 let catalogByCwd = new Map<string, unknown>();
@@ -70,7 +72,11 @@ const fakeExecFile = async (
 ): Promise<{ stdout: string; stderr: string }> => {
   probedCwds.push(options?.cwd);
   if (args[0] === "--version") return { stdout: "codex-cli 0.154.0", stderr: "" };
-  if (args[0] === "mcp") return { stdout: mcpList, stderr: "" };
+  if (args[0] === "mcp") {
+    mcpListCwds.push(options?.cwd);
+    if (mcpListError) throw mcpListError;
+    return { stdout: mcpList, stderr: "" };
+  }
   if (args[0] === "debug") {
     const local = options?.cwd === undefined ? undefined : catalogByCwd.get(options.cwd);
     return { stdout: JSON.stringify(local ?? CATALOG), stderr: "" };
@@ -151,6 +157,8 @@ async function withServer<T>(
   probedCwds = [];
   catalogByCwd = new Map();
   mcpList = "[]";
+  mcpListError = undefined;
+  mcpListCwds = [];
   // The catalog and the preflight are cached per directory; a test must not
   // inherit the entries another test's directory left behind.
   resetCatalogCache();
@@ -560,7 +568,7 @@ const DESCRIPTION_CASES = [
     name: "advertises web search as live retrieval for the run",
     tool: "codex_delegate",
     parameter: "web_search",
-    description: "Enable live web search for this run, through Codex's web_search = \"live\" setting. When omitted, Codex's own configured web_search mode applies.",
+    description: "Enable Codex's API-backed live web-search tool for this run. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. When omitted, Codex's own configured web_search mode applies.",
   },
   {
     name: "advertises effort defaults and the supported ceiling constraint",
@@ -735,6 +743,37 @@ test("keeps a delegation from calling this server again through Codex's own MCP 
       assert.ok(args.includes("mcp_servers.codex-subagent.enabled=false"), JSON.stringify(args));
       assert.ok(!args.some((arg) => arg.startsWith("mcp_servers.docs")), JSON.stringify(args));
     }
+  });
+});
+
+test("lists MCP servers in the run directory for delegations and follow-ups", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [threadStarted("cwd-thread"), answered], exitCode: 0 };
+    await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+      working_dir: tmpdir(),
+    });
+    await call("codex_follow_up", { thread_id: "cwd-thread", prompt: "continue" });
+
+    assert.deepEqual(mcpListCwds, [tmpdir(), tmpdir()]);
+  });
+});
+
+test("runs when the MCP listing fails and reports that the recursion guard was not applied", async () => {
+  await withServer({}, async (call) => {
+    mcpListError = new Error("listing unavailable");
+    const result = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+    })) as ToolResult;
+
+    assert.notEqual(result.isError, true);
+    assert.equal(spawnedArgs.length, 1);
+    assert.match(
+      result.content[0]?.text ?? "",
+      /recursion guard could not be applied for this run.*listing unavailable/,
+    );
   });
 });
 
