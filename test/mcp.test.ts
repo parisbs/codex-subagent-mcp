@@ -1,7 +1,28 @@
 import assert from "node:assert/strict";
+import cp from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
+import { promisify } from "node:util";
 
-import { findSelfReferences } from "../src/codex/mcp.ts";
+let listedCwd: string | undefined;
+let listFailure: Error | undefined;
+
+const fakeExecFile = async (
+  _file: string,
+  _args: string[],
+  options?: { cwd?: string },
+): Promise<{ stdout: string; stderr: string }> => {
+  listedCwd = options?.cwd;
+  if (listFailure) throw listFailure;
+  return { stdout: "[]", stderr: "" };
+};
+
+cp.execFile = (() => {}) as unknown as typeof cp.execFile;
+(cp.execFile as unknown as Record<symbol, unknown>)[promisify.custom] = fakeExecFile;
+syncBuiltinESMExports();
+
+const { findSelfReferences, selfRegisteredServers } = await import("../src/codex/mcp.ts");
 
 // Shaped after `codex mcp list --json` on codex-cli 0.154.0.
 const entry = (name: string, command: string, args: string[] = []) => ({
@@ -36,4 +57,33 @@ test("returns nothing for output it cannot read", () => {
   assert.deepEqual(findSelfReferences("not json", undefined), []);
   assert.deepEqual(findSelfReferences('{"name":"x"}', undefined), []);
   assert.deepEqual(findSelfReferences(JSON.stringify([null, { name: 3 }, { name: "no-transport" }]), undefined), []);
+});
+
+test("does not mistake a differently named copy for this server", () => {
+  const list = JSON.stringify([
+    entry("renamed-copy", "node", ["/opt/renamed-copy/build/index.js"]),
+  ]);
+
+  assert.deepEqual(findSelfReferences(list, "/opt/original/build/index.js"), []);
+});
+
+test("lists Codex MCP servers in the requested directory", async () => {
+  listedCwd = undefined;
+  listFailure = undefined;
+
+  const result = await selfRegisteredServers({ codexPath: process.execPath, cwd: tmpdir() });
+
+  assert.equal(listedCwd, tmpdir());
+  assert.deepEqual(result, { names: [], error: null });
+});
+
+test("returns a reportable failure without throwing when the listing fails", async () => {
+  listedCwd = undefined;
+  listFailure = new Error("listing unavailable");
+
+  const result = await selfRegisteredServers({ codexPath: process.execPath, cwd: tmpdir() });
+
+  assert.equal(listedCwd, tmpdir());
+  assert.deepEqual(result, { names: [], error: "listing unavailable" });
+  listFailure = undefined;
 });

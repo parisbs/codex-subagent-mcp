@@ -66,7 +66,13 @@ subcommands and between versions. Two traps already found the hard way, both cov
 - Codex starts its MCP servers with almost no environment (`HOME`, `LOGNAME`, `PATH`, `SHELL`,
   `TMPDIR`, `USER`) unless an entry lists `env_vars`, so an environment marker cannot tell this
   server it is running inside a delegation. The recursion guard instead finds this server in
-  `codex mcp list --json` and passes `-c mcp_servers.<name>.enabled=false` (`src/codex/mcp.ts`).
+  `codex mcp list --json`, run in the delegation's working directory, and passes
+  `-c mcp_servers.<name>.enabled=false` (`src/codex/mcp.ts`). Listing failure must remain fail-open
+  but be reported as a run whose recursion guard could not be applied. The prompt also instructs a
+  delegated run not to delegate further; that is an instruction, not a control, and covers
+  configurations the listing could not enumerate. Recognition is deliberately by shape: the
+  `codex-subagent-mcp` string, a `codex-subagent` executable basename, or this process's exact entry
+  script path. A copy registered under a different path and name is not recognised.
 
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
