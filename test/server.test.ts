@@ -1200,3 +1200,25 @@ test("names the configured ceiling when the user did set one", async () => {
     assert.match(result.content[0]?.text ?? "", /configured with CODEX_SUBAGENT_MAX_SANDBOX="read-only"/);
   });
 });
+
+test("codex_doctor reports a misconfigured environment instead of a clean bill of health", async () => {
+  // It can be the first call anyone makes, and it is the tool people run to ask
+  // whether this is working.
+  await withServer({ CODEX_SUBAGENT_MAX_EFFORT: "not-an-effort" }, async (call) => {
+    const result = (await call("codex_doctor", {})) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(text, /misconfigured/);
+    assert.match(text, /MAX_EFFORT/);
+    assert.match(text, /status: /, "the installation diagnosis is still reported");
+  });
+});
+
+test("codex_recommend refuses while the environment is misconfigured", async () => {
+  await withServer({ CODEX_SUBAGENT_ALLOWED_MODELS: "cheap-model", CODEX_SUBAGENT_DEFAULT_MODEL: "other" }, async (call) => {
+    const result = (await call("codex_recommend", { task_description: "anything" })) as ToolResult;
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]?.text ?? "", /misconfigured/);
+  });
+});

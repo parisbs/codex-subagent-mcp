@@ -41,8 +41,8 @@ holds no credentials of its own.
 - **The [Codex CLI](https://developers.openai.com/codex/cli)**, installed, on `PATH`, and signed in.
 
 You do not have to check this by hand. Run the `codex_doctor` tool — or just ask Claude to — and it
-reports what is missing and the exact commands for your platform. Every other tool runs the same
-check first, so you never get a bare `spawn ENOENT`. Nothing is ever installed on your behalf.
+reports what is missing and the exact commands for your platform. Every tool that reaches the CLI
+runs the same check first, so you never get a bare `spawn ENOENT`. Nothing is ever installed on your behalf.
 
 If you do not have the Codex CLI yet, install it without npm:
 
@@ -260,9 +260,11 @@ keep those when a session resumes, so the server restates them for every thread 
 > Have Codex apply its first two suggestions. Let it edit files, but keep it inside a git worktree
 > so my working tree stays clean.
 
-That last clause matters: `use_worktree` confines every change to a managed git worktree under
-`~/.codex/worktrees/` instead of your checkout, and the result lists every file it touched with the
-path where it landed. Worktrees rely on an experimental Codex feature, which the server turns on for
+That last clause matters: `use_worktree` sends the run's own edits to a managed git worktree under
+`~/.codex/worktrees/` instead of your checkout, and the result lists the files it touched with the
+path where each landed — up to a thousand distinct files, after which it says how many it left out.
+It is not a second sandbox: what a run may write outside that worktree is still decided by the
+sandbox and by `add_dirs`. Worktrees rely on an experimental Codex feature, which the server turns on for
 that invocation only — it never changes your Codex configuration.
 
 Whatever the sandbox, a delegation that writes reports what it wrote:
@@ -283,8 +285,9 @@ writes.
 ### What protects you
 
 Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`
-or a user-set default, and `use_worktree` confines those writes to a managed git worktree instead of
-your checkout. Unsandboxed runs are unavailable unless you explicitly opt into that ceiling.
+or a user-set default, and `use_worktree` sends the run's edits to a managed git worktree instead of
+your checkout — while the sandbox and `add_dirs`, not the worktree, are what bound where it can
+write at all. Unsandboxed runs are unavailable unless you explicitly opt into that ceiling.
 
 The confinement is not a promise from the model — it is the operating system's own sandbox: Seatbelt
 on macOS, `bubblewrap` on Linux and WSL2, and a native sandbox on Windows. The table was measured on
@@ -348,7 +351,7 @@ defaults are safe, and you can tighten them in layers:
   `codex_delegate` and `codex_follow_up`, the two that spend usage.
 - **Ceilings on the server**, such as `CODEX_SUBAGENT_MAX_SANDBOX` and `CODEX_SUBAGENT_MAX_EFFORT`,
   which no argument can get past.
-- **A version range** such as `codex-subagent-mcp@^0.2.0`, so new behaviour arrives when you choose.
+- **A version range** such as `codex-subagent-mcp@^0.3.0`, so new behaviour arrives when you choose.
 - **Your own rules in `CLAUDE.md`**, for when Claude should delegate at all.
 
 **[docs/CONTROL.md](docs/CONTROL.md)** shows how to set each one, what the server already does on its
@@ -465,8 +468,8 @@ Yes, in every sandbox mode — the sandbox restricts writes and network access, 
 [Safety](#safety) for what that means in practice and what to do about it.
 
 **Where do worktree changes end up?**
-Under `~/.codex/worktrees/`, and the delegation result gives you the full path of every file it
-touched. The server does not clean those worktrees up: they may hold work you have not applied yet.
+Under `~/.codex/worktrees/`, and the delegation result gives you the full path of each file it
+touched, up to a thousand distinct files. The server does not clean those worktrees up: they may hold work you have not applied yet.
 
 ## Documentation
 

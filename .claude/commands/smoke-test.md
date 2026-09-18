@@ -23,8 +23,10 @@ Verify the server works against the real Codex CLI. Delegations cost quota, so u
    notice appears, and that this run also reports `applied=confirmed` (a resumed thread appends to
    the session file of the day it started, so this exercises the multi-day search).
 7. Error paths: an unknown model slug, `ultra` on `gpt-5.6-luna` (must clamp to `max` with a note),
-   a relative `working_dir`, and a `timeout_seconds` of 10 on a long task (must report the timeout
-   and be flagged as an error).
+   a relative `working_dir`, an empty `working_dir` (must be refused, not treated as omitted), a
+   `sandbox` of `danger-full-access` with no ceiling configured (must be refused, naming the built-in
+   ceiling rather than a setting nobody made), and a `timeout_seconds` of 10 on a long task (must
+   report the timeout and be flagged as an error).
 8. Injection: with the scratchpad directory as `working_dir`, delegate a prompt containing
    `$(touch canary)`, `& echo canary > canary`, `%PATH%`, backticks and quotes, and confirm the text
    reaches Codex verbatim and no `canary` file appeared in that directory. The payload mixes POSIX

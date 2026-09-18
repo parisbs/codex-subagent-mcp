@@ -42,7 +42,7 @@ import {
 } from "./types.js";
 
 export const SERVER_NAME = "codex-subagent";
-export const SERVER_VERSION = "0.2.0";
+export const SERVER_VERSION = "0.3.0";
 
 const effortSchema = z.enum(REASONING_EFFORTS);
 const sandboxSchema = z.enum(SANDBOX_MODES);
@@ -615,6 +615,17 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
           ...(working_dir ? { cwd: working_dir } : {}),
         });
         const lines = [
+          // The diagnostic tool is the one place a misconfigured environment must
+          // show up even though nothing is refused: it can be the first call, and
+          // a user checking "is this working" would otherwise be told yes.
+          ...(configErrors.length > 0
+            ? [
+                `This MCP server is misconfigured:`,
+                ...configErrors.map((error) => `- ${error}`),
+                "Fix the environment variables in the MCP server configuration and restart it.",
+                "",
+              ]
+            : []),
           `status: ${diagnosis.status}`,
           `checked in: ${working_dir ?? process.cwd()}`,
           `codex binary: ${diagnosis.codexPath}`,
@@ -739,6 +750,9 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
     async ({ task_description, priority, working_dir }) => {
       try {
+        // It reads ALLOWED_MODELS and MAX_EFFORT, so an invalid value would
+        // otherwise be ignored here while every delegation refuses.
+        requireValidConfig();
         validateWorkingDir(working_dir);
         await requireUsableCodex(working_dir);
         const catalog = await getCatalog(working_dir ? { cwd: working_dir } : {});

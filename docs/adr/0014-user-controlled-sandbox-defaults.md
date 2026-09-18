@@ -3,7 +3,10 @@
 Status: Accepted
 
 Supersedes only the **configuration may only restrict** clause of
-[ADR 12](0012-mechanism-not-policy.md). Its other decisions remain accepted.
+[ADR 12](0012-mechanism-not-policy.md), and the clause of [ADR 5](0005-read-only-by-default.md) that
+writing requires an explicit `sandbox: "workspace-write"` argument — it may now also come from a
+user-set default. Everything else in both records remains accepted, `read-only` included as the
+built-in default.
 
 ## Context
 

@@ -84,8 +84,10 @@ Reported states:
 | `unknown` | Installed, but the sign-in check did not finish in time. | yes, with a warning |
 | `unsupported-shim` | Found only as a Windows `.cmd`/`.bat` shim, which cannot be spawned safely. | no |
 
-Every other tool runs this check first, so a broken installation is reported the same way whichever
-tool you happen to call. The check — and the catalog read that follows it — runs in the directory
+Every tool that reaches the Codex CLI runs this check first, so a broken installation is reported
+the same way whichever one you call. The three job tools (`codex_job_status`, `codex_job_result`,
+`codex_job_cancel`) do not: they read a registry in this server's memory and stay usable even when
+the CLI is not. The check — and the catalog read that follows it — runs in the directory
 the delegation will run in, because that is where Codex resolves its configuration: a
 `.codex/config.toml` Codex cannot parse, or a project catalog, is only visible from inside that
 project. Diagnoses and catalogs are cached per directory, and only a clean diagnosis is cached, so
@@ -133,16 +135,16 @@ and measured cost trade-offs; this section remains the parameter reference.
 | --- | --- | --- | --- |
 | `prompt` | string | required | The task. Self-contained. |
 | `model` | string | required unless configured | A slug from `list_codex_models`. Omitted with no `CODEX_SUBAGENT_DEFAULT_MODEL` set means the call is refused with a suggestion. |
-| `reasoning_effort` | `low` … `ultra` | configured default, else the model's | Adjusted to the closest level the model supports within `CODEX_SUBAGENT_MAX_EFFORT`, with a note. |
+| `reasoning_effort` | `none` … `ultra` | configured default, else the model's | Adjusted to the closest level the model supports within `CODEX_SUBAGENT_MAX_EFFORT`, with a note. |
 | `system_instructions` | string | — | Persona or extra rules, layered on the built-in quality contract. |
 | `context` | string | — | Background: prior findings, constraints, relevant excerpts. |
 | `target_files` | string[] | — | Paths to focus on, relative to `working_dir`. |
 | `acceptance_criteria` | string[] | — | Conditions that must hold for the task to be done. |
-| `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Codex also reads a trusted project's `.codex/config.toml` from here. |
+| `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Passing an empty string is an error rather than the same as omitting it, since a directory nobody chose is not a safe fallback. Codex also reads a trusted project's `.codex/config.toml` from here. |
 | `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
 | `auto_approve` | boolean | `false` | Codex approves its own commands. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
-| `use_worktree` | boolean | `false` | Writes land in a managed git worktree under `~/.codex/worktrees/`, never your working tree. Uses an experimental Codex feature, enabled for that invocation only. |
+| `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. |
 | `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
@@ -214,7 +216,7 @@ keeps a long delegation from being cut off by the client's tool timeout.
 `read-only` is the built-in default: Codex investigates and reports, and the prompt tells it so
 explicitly so it does not waste the run discovering the restriction. Writing requires either
 `sandbox: "workspace-write"` in the call or a user-set `CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write`.
-`use_worktree` confines those writes to a managed git worktree, which the server does not clean up —
+`use_worktree` sends those writes to a managed git worktree, which the server does not clean up —
 a worktree may hold changes you have not applied yet.
 
 The prompt also explains two limits of read-only verification. Commands that need to create
@@ -247,7 +249,7 @@ this is far cheaper than re-sending it.
 | `thread_id` | string | required | Reported by a previous `codex_delegate`. |
 | `prompt` | string | required | The follow-up instruction. |
 | `model` | string | the thread's model | Override for this turn. On an in-memory registry miss, the server tries to recover it from Codex's session file before requiring an explicit or configured model. |
-| `reasoning_effort` | `low` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
+| `reasoning_effort` | `none` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
 | `sandbox` | see above | configured default, else `read-only` | Applied as a config override; `resume` has no sandbox flag. |
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
 | `working_dir` | string | the thread's directory | Absolute directory to resume in. |

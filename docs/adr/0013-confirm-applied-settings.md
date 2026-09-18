@@ -37,8 +37,11 @@ The line is written before the turn runs and survives a turn that later fails. I
 
 ## Decision
 
-Read the last `turn_context` of the thread after the child exits, compare it field by field against
-what was requested, and report the comparison. `src/codex/rollout.ts` does the reading;
+Read the thread's `turn_context` after the child exits, compare it field by field against what was
+requested, and report the comparison. The file is read forward from its start and the last context
+found is used, with the read bounded at 16 MiB — on a thread long enough to pass that bound, the
+comparison describes an earlier turn than the one just run. That is a known limit of reading a
+format nobody promised, not a silent one: it is stated here and in `src/codex/rollout.ts`. `src/codex/rollout.ts` does the reading;
 `src/outcome.ts` decides what a difference means.
 
 Three rules give the comparison teeth without making it a new source of failures:

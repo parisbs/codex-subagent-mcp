@@ -77,8 +77,9 @@ subcommands and between versions. Two traps already found the hard way, both cov
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
 
-**Never degrade to a plausible-looking answer when the CLI is unavailable.** Every tool runs the
-preflight first and fails with installation steps. Returning `FALLBACK_MODELS` as if the catalog had
+**Never degrade to a plausible-looking answer when the CLI is unavailable.** Every tool that reaches
+the CLI runs the preflight first and fails with installation steps (the job tools read this server's
+own memory and do not). Returning `FALLBACK_MODELS` as if the catalog had
 been read turns a clear, fixable problem into a confusing one — that was the bug ADR 9 fixes. The
 fallback now covers only a CLI that runs but whose `debug models` output was unusable, and it is
 never used to validate a delegation. A config Codex cannot load is its own failure: `login status`
