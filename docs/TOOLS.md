@@ -120,6 +120,7 @@ and reconciles it against the live catalog.
 | --- | --- | --- | --- |
 | `task_description` | string | required | What the task involves, in a sentence or two. |
 | `priority` | `quality` \| `balanced` \| `latency` \| `cost` | `balanced` | Biases the effort up or down. |
+| `working_dir` | string | the server's working directory | Absolute directory whose Codex configuration and model catalog are used. A trusted project can define its own catalog, so pass the directory the delegation would use. |
 
 ---
 
@@ -142,7 +143,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `auto_approve` | boolean | `false` | Codex approves its own commands. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | Writes land in a managed git worktree under `~/.codex/worktrees/`, never your working tree. Uses an experimental Codex feature, enabled for that invocation only. |
-| `web_search` | boolean | — | `true` enables live web search for this run, passed to Codex as `-c web_search="live"`. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
+| `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
 | `mode` | `blocking` \| `background` | `blocking` | `background` returns a `job_id` immediately. |
@@ -154,10 +155,27 @@ not instructions. Codex may have read hostile content, and its report is how tha
 reach the orchestrator.
 
 A blocking delegation returns the final message, the files it changed (with the path each landed
-at), the commands it ran with their exit codes, the token usage, the duration, the model, effort and
-sandbox this server passed to Codex, and a `thread_id` for follow-ups.
+at), the commands it ran with their exit codes, the effective working directory, the duration, the
+model, effort and sandbox this server passed to Codex, and a `thread_id` for follow-ups. The command
+heading is the true number of completed commands observed even when only the newest 500 entries are
+retained and listed.
 Anything Codex reported as an in-band error is surfaced separately — those do not change its exit
 code, so they would otherwise be lost.
+
+Token counters are labelled separately as **this turn** and **thread so far**. On a follow-up,
+Codex reports the cumulative session counters, so this server subtracts the previous total it
+remembered for that thread. If the thread was started elsewhere, the server restarted, or no
+previous total was reported, this-turn usage is explicitly `unknown`; the cumulative total is never
+presented as though it belonged to the latest call. Input also shows cached and uncached counts,
+where uncached input is total input minus cached input.
+
+These counters are measured facts about the completed run, not estimates of cost, credits, money or
+a share of any usage window. They are descriptive only: the server never acts on them, and they are
+not a target to optimise. In particular, minimising command count can reduce correctness because a
+command is often the evidence a task needs. As measured examples, naming target files on one
+question reduced uncached input from 17,424 to 6,351; the same open-ended investigation at low and
+high effort used 31,112 and 99,290 uncached input respectively. Each command is another model
+request carrying the accumulated context, which is why the complete count is reported.
 
 ### What Codex actually applied
 
@@ -199,6 +217,24 @@ explicitly so it does not waste the run discovering the restriction. Writing req
 `use_worktree` confines those writes to a managed git worktree, which the server does not clean up —
 a worktree may hold changes you have not applied yet.
 
+The prompt also explains two limits of read-only verification. Commands that need to create
+temporary, cache or build files can be denied by the sandbox; when that specific denial prevents a
+check, the result should say the verification could not be completed rather than call it a code
+defect. Permission failures that are themselves the behaviour under investigation still must be
+reported as defects. Shell commands have no network access under read-only; current external
+information must use Codex's web-search tool, when enabled for the run.
+
+Before every new delegation and follow-up, the server runs `codex mcp list --json` in the directory
+that run will use. It disables entries that point back to this server with
+`mcp_servers.<name>.enabled=false`. If the listing fails, execution remains fail-open, but the result
+says the recursion guard could not be applied. The injected prompt separately instructs the
+delegated agent not to delegate further. That prompt layer is an instruction, not a control, and
+covers configurations the server could not enumerate.
+
+Self-reference recognition is by shape: the string `codex-subagent-mcp`, a `codex-subagent`
+executable basename, or this server's exact entry script path. A registration pointing at a copy of
+the server under a different path and name is not recognised; this is a known limitation.
+
 ---
 
 ## `codex_follow_up`
@@ -210,7 +246,7 @@ this is far cheaper than re-sending it.
 | --- | --- | --- | --- |
 | `thread_id` | string | required | Reported by a previous `codex_delegate`. |
 | `prompt` | string | required | The follow-up instruction. |
-| `model` | string | the thread's model | Override for this turn. Required for a thread this server has no record of, unless a default model is configured. |
+| `model` | string | the thread's model | Override for this turn. On an in-memory registry miss, the server tries to recover it from Codex's session file before requiring an explicit or configured model. |
 | `reasoning_effort` | `low` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
 | `sandbox` | see above | configured default, else `read-only` | Applied as a config override; `resume` has no sandbox flag. |
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
@@ -220,10 +256,12 @@ this is far cheaper than re-sending it.
 A resumed Codex session does not keep its model or effort: without them, Codex takes both from the
 configuration of the directory it resumes in, switches model mid-thread and compacts the history.
 So every follow-up states the model, effort and directory explicitly. The server remembers what each
-thread it ran used — for up to 500 threads, in memory — and restates it; overrides go through the
-same allow-list, effort ceiling and clamping as a new delegation. For a thread started by another
-server process, or before a restart, there is no record: pass the `model` the original delegation
-used, or the call is refused (unless `CODEX_SUBAGENT_DEFAULT_MODEL` is set).
+thread it ran used — for up to 500 threads, in memory — and restates it. After a restart, or for a
+thread started by another server process, it opportunistically reads those three values from Codex's
+session file and says when it did. Recovery is all-or-nothing: a missing, unreadable, partial or
+unrecognised record falls back to the existing explicit/configured-model behaviour. Recovered values
+go through the same directory validation, model catalog and allow-list, effort ceiling and clamping
+as caller-supplied values. If no usable record and no model are available, the call is refused.
 
 ---
 

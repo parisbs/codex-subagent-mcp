@@ -57,23 +57,46 @@ export function findSelfReferences(listJson: string, entryScript: string | undef
   return names;
 }
 
+export interface SelfRegistrationCheck {
+  names: string[];
+  /** Why the Codex MCP configuration could not be listed or read. */
+  error: string | null;
+}
+
+export interface SelfRegistrationOptions {
+  /** Path or name of the Codex executable. */
+  codexPath?: string;
+  /** Directory whose Codex configuration should be listed. */
+  cwd?: string;
+}
+
 /**
  * Names of the Codex MCP entries that point back at this server, read from `codex mcp list --json`.
  *
  * Not cached: it is one short local process next to a delegation that runs for seconds, and a
- * stale answer would miss an entry added mid-session. Any failure yields no names — this is
- * defence in depth, and must never stop a delegation on its own.
+ * stale answer would miss an entry added mid-session. Any failure yields no names and an error for
+ * the caller to report — this is defence in depth, and must never stop a delegation on its own.
  */
 export async function selfRegisteredServers(
-  codexPath: string = process.env.CODEX_BIN ?? "codex",
-): Promise<string[]> {
+  options: SelfRegistrationOptions = {},
+): Promise<SelfRegistrationCheck> {
+  const { codexPath = process.env.CODEX_BIN ?? "codex", cwd } = options;
   try {
     const resolved = resolveCodexExecutable(codexPath);
     const { stdout } = await execFileAsync(resolved.path ?? codexPath, ["mcp", "list", "--json"], {
       timeout: LIST_TIMEOUT_MS,
+      ...(cwd ? { cwd } : {}),
     });
-    return findSelfReferences(stdout, process.argv[1]);
-  } catch {
-    return [];
+    const parsed: unknown = JSON.parse(stdout);
+    if (!Array.isArray(parsed)) {
+      throw new Error("codex mcp list --json did not return a JSON array");
+    }
+    return { names: findSelfReferences(stdout, process.argv[1]), error: null };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    // The message can carry the whole stderr of a failed CLI call, and it ends
+    // up in a result an orchestrator reads. One line of cause is the useful part.
+    const bounded = reason.length > 300 ? `${reason.slice(0, 300)}… [truncated]` : reason;
+    return { names: [], error: bounded.replace(/\s+/g, " ").trim() };
   }
 }

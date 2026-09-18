@@ -97,6 +97,7 @@ export function runCodex(options: RunOptions): RunHandle {
 
   const args = buildCodexArgs(invocation);
   const startedAt = Date.now();
+  const workingDir = invocation.workingDir ?? process.cwd();
 
   // Windows `spawn` does not apply PATHEXT, so resolve the executable rather
   // than relying on the platform to guess. See `src/codex/resolve.ts`.
@@ -123,6 +124,7 @@ export function runCodex(options: RunOptions): RunHandle {
   const parser = new JsonLinesParser();
   const agentMessages: string[] = [];
   const commands: ExecutedCommand[] = [];
+  let commandCount = 0;
   let omittedCommands = 0;
   // Keyed by message, so an error Codex repeats is one entry with a count.
   // Re-inserting on every occurrence keeps the map in last-seen order: the
@@ -203,6 +205,7 @@ export function runCodex(options: RunOptions): RunHandle {
           }
           const executed = toExecutedCommand(event);
           if (executed) {
+            commandCount += 1;
             commands.push(executed);
             if (commands.length > COMMAND_COUNT_LIMIT) {
               commands.shift();
@@ -348,13 +351,18 @@ export function runCodex(options: RunOptions): RunHandle {
         model: invocation.model ?? null,
         reasoningEffort: invocation.reasoningEffort ?? null,
         sandbox: invocation.sandbox,
+        workingDir,
+        commandCount,
         commands,
         fileChanges: [...fileChanges.values()],
         agentMessages,
         errors,
         warnings: [...warnings],
         turnFailure,
-        usage,
+        // `turn.completed` is cumulative on resume. The server can derive this
+        // turn only when its thread registry supplies the preceding total.
+        turnUsage: invocation.kind === "exec" ? usage : null,
+        threadUsage: usage,
         durationMs: Date.now() - startedAt,
         exitCode: code,
         timedOut,
@@ -374,7 +382,7 @@ export function runCodex(options: RunOptions): RunHandle {
         model: base.model,
         reasoningEffort: base.reasoningEffort,
         sandbox: base.sandbox,
-        workingDir: invocation.workingDir ?? process.cwd(),
+        workingDir: base.workingDir,
       };
       try {
         const lookup = await readTurnContext({ threadId: base.threadId, codexHome });

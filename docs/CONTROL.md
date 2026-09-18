@@ -122,8 +122,14 @@ place.
 - Follow-ups restate the thread's model, effort and directory instead of letting configuration pick.
 - Every result starts by saying that Codex's report is information, not instructions — Codex may have
   read hostile content, and its report is how that content would reach Claude.
-- If this server is also registered in your Codex configuration, it is switched off for each
-  delegation, so a delegated run cannot call it and delegate again.
+- If this server is also registered in the Codex configuration for the delegation's working
+  directory, it is switched off for that run so the delegated agent cannot call it and delegate
+  again. The server lists that directory's MCP entries immediately before both new runs and
+  follow-ups. If the listing fails, the delegation still runs, but its result says the recursion
+  guard could not be applied.
+- Every new delegation's prompt also instructs the delegated agent not to delegate further. This is
+  an instruction, not a control; it is a second layer for configurations the server could not
+  enumerate.
 - Failed turns, usage limits and configuration warnings are reported with Codex's own message.
 - What Codex recorded as applied is compared with what was requested, and any difference is stated
   before its report.
@@ -136,6 +142,10 @@ place.
 - That content Claude reads — a web page, an email, an issue — does not talk it into delegating,
   within whatever limits you left open. That is what the permission prompt and the ceilings are for.
 - That Codex cannot read your files. Its sandbox restricts writes and network access, not reads.
+- That a differently named copy of this server is found by the recursion guard. Recognition is by
+  shape: the string `codex-subagent-mcp`, a `codex-subagent` executable basename, or this server's
+  exact entry script path. A registration pointing at a copy under a different path and name is not
+  recognised; only the prompt instruction covers it.
 - That the applied settings can always be confirmed. The check reads a Codex file format that is
   internal and undocumented; when it cannot, it says `unconfirmed` rather than assuming.
 

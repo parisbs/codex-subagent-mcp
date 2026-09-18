@@ -57,6 +57,8 @@ let nextRun: { events: unknown[]; exitCode: number } = { events: [], exitCode: 0
 
 /** What `codex mcp list --json` reports. */
 let mcpList = "[]";
+let mcpListError: Error | undefined;
+let mcpListCwds: (string | undefined)[] = [];
 
 /** Directories where the CLI reports a catalog of its own, as a trusted project can. */
 let catalogByCwd = new Map<string, unknown>();
@@ -70,7 +72,11 @@ const fakeExecFile = async (
 ): Promise<{ stdout: string; stderr: string }> => {
   probedCwds.push(options?.cwd);
   if (args[0] === "--version") return { stdout: "codex-cli 0.154.0", stderr: "" };
-  if (args[0] === "mcp") return { stdout: mcpList, stderr: "" };
+  if (args[0] === "mcp") {
+    mcpListCwds.push(options?.cwd);
+    if (mcpListError) throw mcpListError;
+    return { stdout: mcpList, stderr: "" };
+  }
   if (args[0] === "debug") {
     const local = options?.cwd === undefined ? undefined : catalogByCwd.get(options.cwd);
     return { stdout: JSON.stringify(local ?? CATALOG), stderr: "" };
@@ -151,6 +157,8 @@ async function withServer<T>(
   probedCwds = [];
   catalogByCwd = new Map();
   mcpList = "[]";
+  mcpListError = undefined;
+  mcpListCwds = [];
   // The catalog and the preflight are cached per directory; a test must not
   // inherit the entries another test's directory left behind.
   resetCatalogCache();
@@ -317,8 +325,156 @@ test("refuses a follow-up on an unknown thread when no model can be stated", asy
   });
 });
 
+test("recovers an unknown thread's model, effort and directory from its session file", async () => {
+  await withServer({}, async (call, codexHome) => {
+    codexHome.write({
+      threadId: "recovered-thread",
+      day: "2026-09-17",
+      lines: [
+        SESSION_META_LINE,
+        turnContextLine({ cwd: tmpdir(), model: "expensive-model", effort: "low" }),
+      ],
+    });
+
+    const result = (await call("codex_follow_up", {
+      thread_id: "recovered-thread",
+      prompt: "continue",
+    })) as ToolResult;
+    const args = spawnedArgs[0] ?? [];
+    const text = result.content[0]?.text ?? "";
+
+    assert.notEqual(result.isError, true, text);
+    assert.equal(args[args.indexOf("--model") + 1], "expensive-model");
+    assert.ok(args.includes('model_reasoning_effort="low"'), JSON.stringify(args));
+    assert.equal(spawnedCwds[0], tmpdir());
+    assert.match(text, /Recovered .* from Codex's session file/);
+  });
+});
+
+test("refuses a recovered model outside the allow-list", async () => {
+  await withServer(
+    { CODEX_SUBAGENT_ALLOWED_MODELS: "cheap-model" },
+    async (call, codexHome) => {
+      codexHome.write({
+        threadId: "blocked-recovered-thread",
+        day: "2026-09-17",
+        lines: [
+          SESSION_META_LINE,
+          turnContextLine({ cwd: tmpdir(), model: "expensive-model", effort: "low" }),
+        ],
+      });
+
+      const result = (await call("codex_follow_up", {
+        thread_id: "blocked-recovered-thread",
+        prompt: "continue",
+      })) as ToolResult;
+
+      assert.equal(result.isError, true);
+      assert.match(result.content[0]?.text ?? "", /ALLOWED_MODELS/);
+      assert.equal(spawnedArgs.length, 0, "nothing should have been spawned");
+    },
+  );
+});
+
+test("clamps a recovered effort through the configured ceiling", async () => {
+  await withServer(
+    { CODEX_SUBAGENT_MAX_EFFORT: "low" },
+    async (call, codexHome) => {
+      codexHome.write({
+        threadId: "clamped-recovered-thread",
+        day: "2026-09-17",
+        lines: [
+          SESSION_META_LINE,
+          turnContextLine({ cwd: tmpdir(), model: "expensive-model", effort: "high" }),
+        ],
+      });
+
+      const result = (await call("codex_follow_up", {
+        thread_id: "clamped-recovered-thread",
+        prompt: "continue",
+      })) as ToolResult;
+
+      assert.notEqual(result.isError, true, result.content[0]?.text);
+      assert.ok(spawnedArgs[0]?.includes('model_reasoning_effort="low"'));
+      assert.match(result.content[0]?.text ?? "", /Notes:.*cannot use.*using "low"/);
+    },
+  );
+});
+
 const threadStarted = (threadId: string) => ({ type: "thread.started", thread_id: threadId });
 const answered = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
+const completedWithUsage = (
+  inputTokens: number,
+  cachedInputTokens: number,
+  outputTokens: number,
+  reasoningOutputTokens: number,
+) => ({
+  type: "turn.completed",
+  usage: {
+    input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
+    output_tokens: outputTokens,
+    reasoning_output_tokens: reasoningOutputTokens,
+  },
+});
+
+test("reports this turn separately from the cumulative thread usage on a follow-up", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [threadStarted("usage-thread"), answered, completedWithUsage(67_171, 51_200, 309, 100)],
+      exitCode: 0,
+    };
+    const first = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+    })) as ToolResult;
+    const firstText = first.content[0]?.text ?? "";
+    // On the first turn the two figures are the same, and are reported once.
+    assert.match(firstText, /tokens=in 67171 \(cached 51200, uncached 15971\)/);
+    assert.doesNotMatch(firstText, /thread so far/);
+
+    nextRun = {
+      events: [threadStarted("usage-thread"), answered, completedWithUsage(123_432, 96_512, 601, 180)],
+      exitCode: 0,
+    };
+    const result = (await call("codex_follow_up", {
+      thread_id: "usage-thread",
+      prompt: "continue",
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(
+      text,
+      /tokens this turn=in 56261 \(cached 45312, uncached 10949\) \/ out 292 \(reasoning 80\)/,
+    );
+    assert.match(
+      text,
+      /tokens thread so far=in 123432 \(cached 96512, uncached 26920\) \/ out 601 \(reasoning 180\)/,
+    );
+  });
+});
+
+test("does not present a thread total as turn usage when the previous total is unknown", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [threadStarted("external-thread"), answered, completedWithUsage(123_432, 96_512, 601, 180)],
+      exitCode: 0,
+    };
+    const result = (await call("codex_follow_up", {
+      thread_id: "external-thread",
+      prompt: "continue",
+      model: "cheap-model",
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(
+      text,
+      /tokens this turn=unknown \(no usable previous thread total was recorded by this server\)/,
+    );
+    assert.match(text, /tokens thread so far=in 123432/);
+    assert.doesNotMatch(text, /tokens this turn=in 123432/);
+  });
+});
 
 test("restates a thread's model, effort and directory on a follow-up", async () => {
   await withServer({}, async (call) => {
@@ -494,7 +650,7 @@ const DESCRIPTION_CASES = [
     name: "advertises web search as live retrieval for the run",
     tool: "codex_delegate",
     parameter: "web_search",
-    description: "Enable live web search for this run, through Codex's web_search = \"live\" setting. When omitted, Codex's own configured web_search mode applies.",
+    description: "Enable Codex's API-backed live web-search tool for this run. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. When omitted, Codex's own configured web_search mode applies.",
   },
   {
     name: "advertises effort defaults and the supported ceiling constraint",
@@ -669,6 +825,37 @@ test("keeps a delegation from calling this server again through Codex's own MCP 
       assert.ok(args.includes("mcp_servers.codex-subagent.enabled=false"), JSON.stringify(args));
       assert.ok(!args.some((arg) => arg.startsWith("mcp_servers.docs")), JSON.stringify(args));
     }
+  });
+});
+
+test("lists MCP servers in the run directory for delegations and follow-ups", async () => {
+  await withServer({}, async (call) => {
+    nextRun = { events: [threadStarted("cwd-thread"), answered], exitCode: 0 };
+    await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+      working_dir: tmpdir(),
+    });
+    await call("codex_follow_up", { thread_id: "cwd-thread", prompt: "continue" });
+
+    assert.deepEqual(mcpListCwds, [tmpdir(), tmpdir()]);
+  });
+});
+
+test("runs when the MCP listing fails and reports that the recursion guard was not applied", async () => {
+  await withServer({}, async (call) => {
+    mcpListError = new Error("listing unavailable");
+    const result = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+    })) as ToolResult;
+
+    assert.notEqual(result.isError, true);
+    assert.equal(spawnedArgs.length, 1);
+    assert.match(
+      result.content[0]?.text ?? "",
+      /recursion guard could not be applied for this run.*listing unavailable/,
+    );
   });
 });
 
@@ -901,10 +1088,40 @@ test("lists the models of the directory list_codex_models was given", async () =
   });
 });
 
+test("recommends from the catalog of the directory codex_recommend was given", async () => {
+  await withServer({}, async (call) => {
+    catalogByCwd.set(tmpdir(), {
+      models: [
+        {
+          slug: "project-model",
+          visibility: "list",
+          default_reasoning_level: "medium",
+          supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }],
+        },
+      ],
+    });
+
+    const result = (await call("codex_recommend", {
+      task_description: "Implement a small isolated change",
+      working_dir: tmpdir(),
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.notEqual(result.isError, true, text);
+    assert.match(text, /model: project-model/);
+    assert.doesNotMatch(text, /cheap-model/);
+    assert.ok(probedCwds.includes(tmpdir()));
+  });
+});
+
 test("refuses a working_dir that is not an absolute existing directory", async () => {
   await withServer({}, async (call) => {
-    for (const tool of ["codex_doctor", "list_codex_models"]) {
-      const result = (await call(tool, { working_dir: "relative/path" })) as ToolResult;
+    for (const [tool, args] of [
+      ["codex_doctor", { working_dir: "relative/path" }],
+      ["list_codex_models", { working_dir: "relative/path" }],
+      ["codex_recommend", { task_description: "anything", working_dir: "relative/path" }],
+    ] as const) {
+      const result = (await call(tool, args)) as ToolResult;
       assert.equal(result.isError, true, tool);
       assert.match(result.content[0]?.text ?? "", /absolute/);
     }
@@ -918,6 +1135,7 @@ test("refuses an explicitly empty working_dir instead of silently using the defa
     for (const [tool, args] of [
       ["codex_doctor", { working_dir: "" }],
       ["list_codex_models", { working_dir: "" }],
+      ["codex_recommend", { task_description: "anything", working_dir: "" }],
       ["codex_delegate", { prompt: "anything", model: "cheap-model", working_dir: "" }],
       ["codex_follow_up", { thread_id: "t", prompt: "go", model: "cheap-model", working_dir: "" }],
     ] as const) {
@@ -934,6 +1152,39 @@ test("still treats an omitted working_dir as the default", async () => {
     const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
     assert.equal(result.isError, undefined);
     assert.equal(spawnedCwds[0], undefined);
+    const escapedCwd = process.cwd().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(result.content[0]?.text ?? "", new RegExp(`working_dir=${escapedCwd}`));
+  });
+});
+
+test("reports the true command total when only the newest commands are retained", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [
+        threadStarted("many-commands"),
+        ...Array.from({ length: 600 }, (_, index) => ({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: `cmd ${index}`,
+            exit_code: 0,
+            status: "completed",
+            aggregated_output: "",
+          },
+        })),
+        answered,
+      ],
+      exitCode: 0,
+    };
+
+    const result = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(text, /Commands run \(600 total; newest 500 shown\):/);
+    assert.doesNotMatch(text, /Commands run \(500 total/);
   });
 });
 

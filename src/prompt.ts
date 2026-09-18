@@ -42,6 +42,16 @@ Reporting
 - Be concise. No preamble, no restating the task back.
 </delegation_contract>`;
 
+/**
+ * A second layer against recursive delegation for configurations the server
+ * could not enumerate. This is an instruction to the model, not a technical
+ * control; the MCP configuration override in `src/codex/mcp.ts` is the control.
+ */
+export const NO_FURTHER_DELEGATION_INSTRUCTION = `<delegation_instruction>
+Instruction: you are a delegated subagent. Do not delegate work to other agents
+and do not call tools that delegate work further.
+</delegation_instruction>`;
+
 export interface PromptParts {
   task: string;
   systemInstructions?: string;
@@ -60,11 +70,12 @@ function section(tag: string, body: string): string {
  * Assembles the full prompt handed to Codex over stdin.
  *
  * Order matters: the contract first (it constrains everything that follows),
- * then orchestrator instructions, then context, then the task last so it stays
- * closest to the model's generation point.
+ * then the no-further-delegation instruction and execution mode, then
+ * orchestrator instructions and context, and the task last so it stays closest
+ * to the model's generation point.
  */
 export function assemblePrompt(parts: PromptParts): string {
-  const blocks: string[] = [QUALITY_CONTRACT];
+  const blocks: string[] = [QUALITY_CONTRACT, NO_FURTHER_DELEGATION_INSTRUCTION];
 
   if (parts.readOnly) {
     blocks.push(
@@ -72,7 +83,14 @@ export function assemblePrompt(parts: PromptParts): string {
         "execution_mode",
         "You are running in a read-only sandbox. You cannot modify files. " +
           "Investigate and report; when a change is needed, describe it precisely " +
-          "(file, location, and the exact code) instead of attempting to apply it.",
+          "(file, location, and the exact code) instead of attempting to apply it. " +
+          "Commands that need to write temporary, cache, or build files may fail because the " +
+          "sandbox denies those writes. When a command fails specifically for that reason, report " +
+          "that the verification could not be completed; do not report the sandbox-caused failure " +
+          "as a defect in the code. Do not dismiss permission failures that are themselves the " +
+          "behaviour under investigation. Shell commands have no network access in this mode. " +
+          "When the task needs current external information, use the web-search tool if it is " +
+          "enabled for this run.",
       ),
     );
   }
