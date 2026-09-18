@@ -319,6 +319,78 @@ test("refuses a follow-up on an unknown thread when no model can be stated", asy
 
 const threadStarted = (threadId: string) => ({ type: "thread.started", thread_id: threadId });
 const answered = { type: "item.completed", item: { type: "agent_message", text: "Done." } };
+const completedWithUsage = (
+  inputTokens: number,
+  cachedInputTokens: number,
+  outputTokens: number,
+  reasoningOutputTokens: number,
+) => ({
+  type: "turn.completed",
+  usage: {
+    input_tokens: inputTokens,
+    cached_input_tokens: cachedInputTokens,
+    output_tokens: outputTokens,
+    reasoning_output_tokens: reasoningOutputTokens,
+  },
+});
+
+test("reports this turn separately from the cumulative thread usage on a follow-up", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [threadStarted("usage-thread"), answered, completedWithUsage(67_171, 51_200, 309, 100)],
+      exitCode: 0,
+    };
+    const first = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+    })) as ToolResult;
+    const firstText = first.content[0]?.text ?? "";
+    // On the first turn the two figures are the same, and are reported once.
+    assert.match(firstText, /tokens=in 67171 \(cached 51200, uncached 15971\)/);
+    assert.doesNotMatch(firstText, /thread so far/);
+
+    nextRun = {
+      events: [threadStarted("usage-thread"), answered, completedWithUsage(123_432, 96_512, 601, 180)],
+      exitCode: 0,
+    };
+    const result = (await call("codex_follow_up", {
+      thread_id: "usage-thread",
+      prompt: "continue",
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(
+      text,
+      /tokens this turn=in 56261 \(cached 45312, uncached 10949\) \/ out 292 \(reasoning 80\)/,
+    );
+    assert.match(
+      text,
+      /tokens thread so far=in 123432 \(cached 96512, uncached 26920\) \/ out 601 \(reasoning 180\)/,
+    );
+  });
+});
+
+test("does not present a thread total as turn usage when the previous total is unknown", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [threadStarted("external-thread"), answered, completedWithUsage(123_432, 96_512, 601, 180)],
+      exitCode: 0,
+    };
+    const result = (await call("codex_follow_up", {
+      thread_id: "external-thread",
+      prompt: "continue",
+      model: "cheap-model",
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(
+      text,
+      /tokens this turn=unknown \(no usable previous thread total was recorded by this server\)/,
+    );
+    assert.match(text, /tokens thread so far=in 123432/);
+    assert.doesNotMatch(text, /tokens this turn=in 123432/);
+  });
+});
 
 test("restates a thread's model, effort and directory on a follow-up", async () => {
   await withServer({}, async (call) => {
@@ -928,6 +1000,39 @@ test("still treats an omitted working_dir as the default", async () => {
     const result = (await call("codex_delegate", { prompt: "anything", model: "cheap-model" })) as ToolResult;
     assert.equal(result.isError, undefined);
     assert.equal(spawnedCwds[0], undefined);
+    const escapedCwd = process.cwd().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(result.content[0]?.text ?? "", new RegExp(`working_dir=${escapedCwd}`));
+  });
+});
+
+test("reports the true command total when only the newest commands are retained", async () => {
+  await withServer({}, async (call) => {
+    nextRun = {
+      events: [
+        threadStarted("many-commands"),
+        ...Array.from({ length: 600 }, (_, index) => ({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            command: `cmd ${index}`,
+            exit_code: 0,
+            status: "completed",
+            aggregated_output: "",
+          },
+        })),
+        answered,
+      ],
+      exitCode: 0,
+    };
+
+    const result = (await call("codex_delegate", {
+      prompt: "anything",
+      model: "cheap-model",
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.match(text, /Commands run \(600 total; newest 500 shown\):/);
+    assert.doesNotMatch(text, /Commands run \(500 total/);
   });
 });
 

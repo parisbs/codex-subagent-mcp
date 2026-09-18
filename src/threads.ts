@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from "./types.js";
+import type { ReasoningEffort, TokenUsage } from "./types.js";
 
 /** What a thread last ran with, as this server passed it to Codex. */
 export interface ThreadSettings {
@@ -28,15 +28,18 @@ const MAX_THREADS = 500;
  * applied settings (#55) so the format is parsed in one place.
  */
 export class ThreadRegistry {
-  private readonly threads = new Map<string, ThreadSettings>();
+  private readonly threads = new Map<
+    string,
+    { settings: ThreadSettings; totalUsage: TokenUsage | null }
+  >();
 
   constructor(private readonly maxThreads = MAX_THREADS) {}
 
-  record(threadId: string, settings: ThreadSettings): void {
+  record(threadId: string, settings: ThreadSettings, totalUsage: TokenUsage | null = null): void {
     // Re-inserting keeps the map in last-used order, so eviction drops the
     // thread nobody has touched for longest.
     this.threads.delete(threadId);
-    this.threads.set(threadId, settings);
+    this.threads.set(threadId, { settings, totalUsage });
     while (this.threads.size > this.maxThreads) {
       const oldest = this.threads.keys().next().value;
       if (oldest === undefined) break;
@@ -45,6 +48,11 @@ export class ThreadRegistry {
   }
 
   get(threadId: string): ThreadSettings | undefined {
-    return this.threads.get(threadId);
+    return this.threads.get(threadId)?.settings;
+  }
+
+  /** The cumulative total from the last turn, or undefined for an unknown thread. */
+  getTotalUsage(threadId: string): TokenUsage | null | undefined {
+    return this.threads.get(threadId)?.totalUsage;
   }
 }
