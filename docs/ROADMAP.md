@@ -218,18 +218,35 @@ end-of-life on 2026-04-30, and dropping a Node line is breaking under
 [VERSIONING.md](VERSIONING.md). Several of the fixes above change behaviour a caller could see, which
 a minor bump also covers.
 
-## 0.3.0 — Delegated code review
+## 0.3.0 — Defaults that survive a fresh install, and results that tell the truth
 
-`codex exec review` is a separate subcommand with its own flags (`--uncommitted`, `--base`,
-`--commit`, `--title`) and its own output shape. Wrapping it as `codex_review` gives the
-orchestrator a second opinion on a diff from a different model family, which is the most obviously
-valuable thing a cross-model setup can offer — and the review behind 0.2.0 is the evidence that it
-works.
+The theme is what happens to someone who installs this and configures nothing, and what the results
+they read actually mean. Measuring a day of real delegations turned up more of both than expected.
 
-Open question: whether review findings are worth parsing into a structured list, or whether the
-prose summary is enough for the orchestrator to act on. That may depend on 0.4.0.
+Sandbox policy gains a user-set default and a ceiling that starts at `workspace-write`, so an
+unconfigured server can no longer be asked for an unsandboxed run
+([#77](https://github.com/parisbs/codex-subagent-mcp/issues/77),
+[ADR 14](adr/0014-user-controlled-sandbox-defaults.md)). The recursion guard stops asking its
+question in the wrong directory and says when it could not be applied
+([#75](https://github.com/parisbs/codex-subagent-mcp/issues/75)); `codex_recommend` reads the
+catalog of the directory the delegation will use
+([#80](https://github.com/parisbs/codex-subagent-mcp/issues/80)); a thread survives a restart by
+recovering its settings from Codex's own session file
+([#81](https://github.com/parisbs/codex-subagent-mcp/issues/81)); a read-only run is told what it
+cannot verify and where the network is
+([#79](https://github.com/parisbs/codex-subagent-mcp/issues/79)); and a result reports this turn's
+tokens rather than the thread's running total, along with the true command count and the directory
+the run used ([#76](https://github.com/parisbs/codex-subagent-mcp/issues/76),
+[#82](https://github.com/parisbs/codex-subagent-mcp/issues/82)).
 
-[#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)
+`docs/DELEGATING.md` is the other half: what a delegation costs and how to shape one, from
+measurements rather than intuition ([#83](https://github.com/parisbs/codex-subagent-mcp/issues/83)).
+
+**`codex_review` is no longer scheduled here.** Wrapping `codex exec review` looked like the
+headline feature of this release until it was measured against a plain delegation on the same
+commit: the dedicated subcommand cost more, found less, hides its usage in a subagent thread the
+event stream does not expose, and has no `--sandbox` flag. The issue stays open as an evaluation
+with the numbers attached ([#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)).
 
 The configuration work behind 0.2.0 left two follow-ups here. The first is done: a result now
 reports what Codex recorded as applied, not only what this server requested, so an override — by

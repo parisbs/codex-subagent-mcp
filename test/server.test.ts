@@ -641,6 +641,12 @@ test("advertises the configured default and refusal behaviour for the delegate m
 
 const DESCRIPTION_CASES = [
   {
+    name: "routes an unnamed model through advice before delegation",
+    tool: "codex_delegate",
+    parameter: undefined,
+    description: "Delegate a task to the local Codex CLI (OpenAI's coding agent), choosing model and reasoning effort. Use it when the user asks for Codex, or when handing work off clearly serves their request: a second opinion from a different model family, or an investigation that would otherwise flood this conversation. When the user has not named a model, call codex_recommend first and present its suggested model and effort to the user in the same message in which you say you are going to delegate, then pass both explicitly here. That recommendation is advice for an already-authorised delegation, not a replacement for the user's own preference. Everything passed in prompt, context and target_files is sent to OpenAI, and every run spends the user's own Codex usage, so do not delegate what you can answer directly, and tell the user when you delegate. Codex runs read-only unless a different default sandbox is configured. Set sandbox to workspace-write to let it edit files. Codex cannot see this conversation, so pass everything it needs in prompt, context, and target_files.",
+  },
+  {
     name: "advertises web search as live retrieval for the run",
     tool: "codex_delegate",
     parameter: "web_search",
