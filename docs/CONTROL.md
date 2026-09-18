@@ -76,7 +76,7 @@ covered in full in [TOOLS.md](TOOLS.md#configuration); the ones that matter most
 A reasonable starting point for everyday use:
 
 ```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.2.0
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.3.0
 ```
 
 Register defaults and ceilings outside the repository — Claude Code's default `local` scope or
@@ -88,7 +88,7 @@ default sandbox could make later calls write without requesting a sandbox at all
 
 `npx -y codex-subagent-mcp` always runs the newest published version, so a new release — including
 changes to what the tools tell Claude — reaches you without a decision on your part. A range such as
-`codex-subagent-mcp@^0.2.0` accepts fixes but not new or changed behaviour, which on 0.x arrives in a
+`codex-subagent-mcp@^0.3.0` accepts fixes but not new or changed behaviour, which on 0.x arrives in a
 new minor (see [VERSIONING.md](VERSIONING.md)).
 
 ## 4. Your own rules for Claude
@@ -142,6 +142,11 @@ place.
 - That content Claude reads — a web page, an email, an issue — does not talk it into delegating,
   within whatever limits you left open. That is what the permission prompt and the ceilings are for.
 - That Codex cannot read your files. Its sandbox restricts writes and network access, not reads.
+- That a `workspace-write` delegation can finish the job end to end. It cannot commit — Codex keeps
+  `.git` read-only — and its shell has no network. Codex has settings that lift both; this server
+  does not expose them, because write access to `.git` is code execution through hooks on your next
+  git command, and network access is what currently keeps a run from sending out what it read.
+  [SECURITY.md](../SECURITY.md) has the measurements.
 - That a differently named copy of this server is found by the recursion guard. Recognition is by
   shape: the string `codex-subagent-mcp`, a `codex-subagent` executable basename, or this server's
   exact entry script path. A registration pointing at a copy under a different path and name is not

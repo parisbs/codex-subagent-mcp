@@ -41,6 +41,36 @@ for every platform.
 | Network access | no | **no** | yes |
 | **Read outside the working directory** | **yes** | **yes** | yes |
 
+Two limits inside `workspace-write` are worth stating, because they are not obvious and they shape
+what a write-enabled delegation can actually do. Measured on codex-cli 0.154.0, macOS:
+
+- **It cannot commit.** `git commit` fails with `Unable to create '<repo>/.git/index.lock':
+  Operation not permitted`. Codex keeps `.git` read-only, so a delegation edits the working tree and
+  someone else commits.
+- **It has no network in the shell.** `curl https://example.com` returns `000` and exits 6, a DNS
+  failure. Codex's own web-search tool is unaffected, because it goes through the API rather than the
+  sandbox: a `read-only` delegation with `web_search: true` can check an external fact even though
+  `curl` in the same run cannot.
+- `/tmp` is writable, which is why a test suite that needs temporary files runs under
+  `workspace-write` and fails under `read-only`.
+
+Codex has two configuration keys that lift the first two limits — `sandbox_workspace_write.writable_roots`
+and `sandbox_workspace_write.network_access` — and both were verified to work: adding the repository's
+`.git` to the writable roots makes `git commit` succeed, and enabling network access makes `curl`
+return 200. **This server deliberately exposes neither**, and that is a decision rather than an
+omission:
+
+- **Write access to `.git` is arbitrary code execution outside the sandbox.** `.git/hooks/*` runs on
+  the next git command anyone types in that repository, unsandboxed and later. In a git worktree it
+  is worse: the real `.git` belongs to the main repository, so the grant would cover every branch's
+  refs and hooks.
+- **Network access is the only thing keeping a read-everything run from sending what it read.** The
+  sandbox never restricted reads. A delegated run also inherits the environment it was started with,
+  which on a developer machine can include an `SSH_AUTH_SOCK` with a loaded key and a `gh` token.
+
+If a delegation needs the network or needs to commit, that is what `danger-full-access` is for, and
+it requires the ceiling to be raised deliberately.
+
 The last row is the one that surprises people, so it is stated plainly: **the sandbox restricts
 writes and network access, not reads.** Under `workspace-write`, reading `~/.codex/auth.json`
 succeeds. Codex can read files anywhere your user account can.
@@ -61,7 +91,9 @@ Defaults are chosen accordingly:
   follow-ups rather than silently dropped.
 - **`danger-full-access` is never combined with auto-approval.** An unsandboxed run that also
   approves its own commands has no check left.
-- **`use_worktree`** confines writes to a managed git worktree rather than your working tree.
+- **`use_worktree`** sends a run's edits to a managed git worktree rather than your working tree. It
+  is a convenience, not a boundary: what a run may write at all is decided by the sandbox and
+  `add_dirs`.
 
 ### Codex configuration in the working directory
 

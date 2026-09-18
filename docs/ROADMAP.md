@@ -127,10 +127,12 @@ Published as [`codex-subagent-mcp@0.1.0`](https://www.npmjs.com/package/codex-su
 claude mcp add codex-subagent -- npx -y codex-subagent-mcp
 ```
 
-Not done, deliberately: a release workflow. Automating a publish that has never been run once by
-hand, against a secret that does not exist yet, would be untested machinery guarding the riskiest
-operation in the project. After two manual releases that reasoning has run its course; publishing
-from GitHub Actions with npm provenance is now under consideration
+Deliberately left out at the time: a release workflow. Automating a publish that had never been run
+once by hand, against a secret that did not exist yet, would have been untested machinery guarding
+the riskiest operation in the project. After two manual releases that reasoning had run its course,
+and 0.3.0 ships it: a tag builds and tests the tagged commit, checks that the tag, `package.json` and
+`SERVER_VERSION` agree, and stages the npm release with provenance through trusted publishing. It
+does not publish — a maintainer approves the staged release with two-factor authentication
 ([#66](https://github.com/parisbs/codex-subagent-mcp/issues/66)).
 
 ## v0.6 — Configurable policy (done)

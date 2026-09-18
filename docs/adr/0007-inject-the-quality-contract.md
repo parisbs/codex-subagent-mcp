@@ -26,6 +26,11 @@ the execution mode when read-only, then `system_instructions` from the orchestra
 `target_files` and `acceptance_criteria`, and finally the task — last, so it sits closest to the
 model's generation point.
 
+Addendum, 0.3.0: a short instruction telling a delegated run not to delegate further now sits
+immediately after the contract, before the execution mode. It is a second layer behind the MCP
+configuration override that actually prevents recursion, and is labelled as an instruction rather
+than a control where it is defined.
+
 ## Consequences
 
 The contract travels with every delegation regardless of which repository it targets, and the server

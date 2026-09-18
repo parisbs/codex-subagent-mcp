@@ -1,6 +1,6 @@
 {
   "name": "codex-subagent-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local MCP server that delegates coding tasks to the OpenAI Codex CLI, with explicit model and reasoning-effort selection.",
   "keywords": [
     "mcp",
