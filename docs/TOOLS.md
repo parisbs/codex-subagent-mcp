@@ -125,7 +125,8 @@ and reconciles it against the live catalog.
 
 ## `codex_delegate`
 
-Runs a task on the local Codex CLI.
+Runs a task on the local Codex CLI. See [Writing a delegation](DELEGATING.md) for prompt guidance
+and measured cost trade-offs; this section remains the parameter reference.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |

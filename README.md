@@ -183,10 +183,26 @@ without touching anything:
 
 > Have Codex look at this repository and explain how the build is wired together.
 
+If you have not set a default model, the tool descriptions tell Claude to call `codex_recommend`
+first, to give you the suggested model and effort in the same message in which it says it is going
+to delegate, and then to call `codex_delegate` with both values explicit. Those descriptions are
+guidance to a model rather than a rule it cannot break, and a delegation that reaches this server
+with no model at all is refused rather than guessed at. The recommendation is advice, not a decision
+on your behalf. To skip that step on later delegations, set `CODEX_SUBAGENT_DEFAULT_MODEL` once as shown in
+[Choosing a model](#choosing-a-model).
+
 ## Using it
 
 Delegations run **read-only by default**: Codex investigates and reports, but cannot modify files.
 Letting it write is a deliberate call argument or a default you set in the server environment.
+
+### Write a bounded delegation
+
+A delegation gets expensive when repeated commands keep adding output to the context carried into
+later requests. Name the exact question, likely files, stopping condition and evidence the answer
+must contain; choose higher effort for ambiguity rather than by habit. **[Writing a delegation](docs/DELEGATING.md)**
+gives the measured cost model, ranked rules and weak-versus-strong examples using the real tool
+parameters.
 
 The examples below are the four situations where delegating beats doing it in the main conversation.
 Each one has been run against the real Codex CLI — writing them is how two defects in this server
@@ -454,6 +470,8 @@ touched. The server does not clean those worktrees up: they may hold work you ha
 
 ## Documentation
 
+- **[docs/DELEGATING.md](docs/DELEGATING.md)** — how to scope a delegation, with measured costs and
+  worked prompts.
 - **[docs/TOOLS.md](docs/TOOLS.md)** — every tool and parameter.
 - **[docs/adr/](docs/adr/)** — why the design is what it is, decision by decision.
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what is planned, and what is deliberately out of scope.
