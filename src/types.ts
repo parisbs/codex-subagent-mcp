@@ -119,8 +119,12 @@ export interface DelegationResult {
   model: string | null;
   reasoningEffort: ReasoningEffort | null;
   sandbox: SandboxMode;
-  /** What Codex recorded as applied, compared against the three fields above. */
+  /** Effective directory inherited or explicitly passed to the Codex process. */
+  workingDir: string;
+  /** What Codex recorded as applied, compared against the requested fields. */
   applied: AppliedSettings;
+  /** Every completed command observed, including commands omitted from `commands`. */
+  commandCount: number;
   commands: ExecutedCommand[];
   fileChanges: FileChange[];
   agentMessages: string[];
@@ -133,7 +137,10 @@ export interface DelegationResult {
   warnings: string[];
   /** Why Codex reported the turn as failed, when it did. */
   turnFailure: string | null;
-  usage: TokenUsage | null;
+  /** Tokens for this invocation alone; null when unavailable or a resume baseline is unknown. */
+  turnUsage: TokenUsage | null;
+  /** Cumulative tokens Codex reported for the thread after this invocation. */
+  threadUsage: TokenUsage | null;
   durationMs: number;
   exitCode: number | null;
   timedOut: boolean;

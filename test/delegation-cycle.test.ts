@@ -44,14 +44,14 @@ async function runAgainst(
       // must report unconfirmed rather than read the developer's real one.
       codexHome: overrides.codexHome ?? fake.workingDir,
     });
-    return { outcome: await result, received: fake.received() };
+    return { outcome: await result, received: fake.received(), workingDir: fake.workingDir };
   } finally {
     fake.dispose();
   }
 }
 
 test("completes a delegation and reports every part of the run", async () => {
-  const { outcome } = await runAgainst({
+  const { outcome, workingDir } = await runAgainst({
     chunks: [
       jsonl(
         { type: "thread.started", thread_id: "thread-abc" },
@@ -85,9 +85,12 @@ test("completes a delegation and reports every part of the run", async () => {
   assert.equal(outcome.timedOut, false);
   assert.equal(outcome.threadId, "thread-abc");
   assert.equal(outcome.finalMessage, "Done.");
+  assert.equal(outcome.workingDir, workingDir);
+  assert.equal(outcome.commandCount, 1);
   assert.equal(outcome.commands.length, 1);
   assert.equal(outcome.commands[0]?.command, "npm test");
-  assert.equal(outcome.usage?.inputTokens, 1200);
+  assert.equal(outcome.turnUsage?.inputTokens, 1200);
+  assert.equal(outcome.threadUsage?.inputTokens, 1200);
   assert.ok(outcome.durationMs >= 0);
 });
 
@@ -300,6 +303,7 @@ test("keeps only the newest commands and says how many were omitted", async () =
   });
 
   assert.equal(outcome.commands.length, 500);
+  assert.equal(outcome.commandCount, 600);
   assert.equal(outcome.commands[0]?.command, "cmd 100");
   assert.equal(outcome.commands.at(-1)?.command, "cmd 599");
   assert.ok(outcome.errors.some((message) => /Omitted 100 earlier command/.test(message)));

@@ -1,11 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { QUALITY_CONTRACT, assemblePrompt } from "../src/prompt.ts";
+import {
+  NO_FURTHER_DELEGATION_INSTRUCTION,
+  QUALITY_CONTRACT,
+  assemblePrompt,
+} from "../src/prompt.ts";
 
 test("always leads with the quality contract", () => {
   const prompt = assemblePrompt({ task: "Do the thing" });
   assert.ok(prompt.startsWith(QUALITY_CONTRACT));
+});
+
+test("adds a clearly labelled instruction not to delegate further", () => {
+  const prompt = assemblePrompt({ task: "Do the thing" });
+  assert.ok(prompt.includes(NO_FURTHER_DELEGATION_INSTRUCTION));
+  assert.match(prompt, /<delegation_instruction>\nInstruction:/);
+  assert.match(prompt, /Do not delegate work to other agents/);
+  assert.ok(prompt.indexOf(NO_FURTHER_DELEGATION_INSTRUCTION) > prompt.indexOf(QUALITY_CONTRACT));
 });
 
 test("puts the task last, closest to the generation point", () => {
@@ -27,6 +39,15 @@ test("announces the read-only sandbox so Codex does not try to edit", () => {
   const prompt = assemblePrompt({ task: "Audit the auth module", readOnly: true });
   assert.match(prompt, /<execution_mode>/);
   assert.match(prompt, /read-only sandbox/);
+});
+
+test("explains read-only verification and network limits without hiding real permission defects", () => {
+  const prompt = assemblePrompt({ task: "Audit the auth module", readOnly: true });
+  assert.match(prompt, /temporary, cache, or build files may fail/);
+  assert.match(prompt, /verification could not be completed/);
+  assert.match(prompt, /Do not dismiss permission failures that are themselves the behaviour under investigation/);
+  assert.match(prompt, /Shell commands have no network access/);
+  assert.match(prompt, /web-search tool if it is enabled/);
 });
 
 test("omits the read-only notice when writes are allowed", () => {
