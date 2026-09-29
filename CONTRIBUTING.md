@@ -59,8 +59,10 @@ Security issues do not go in an issue. `SECURITY.md` says how to report one priv
 ## Making a change
 
 1. Branch from `main`. `main` is protected: changes land through a pull request with CI passing.
-2. Group commits the way the work actually happened. Messages are a single English sentence with an
-   infinitive verb, no trailing period: `Resolve the Codex executable explicitly`.
+2. Group commits the way the work actually happened. Messages follow Conventional Commits, in English,
+   one line, imperative mood: `fix(resolve): resolve the Codex executable explicitly`. The pull
+   request title follows the same form, because squash merging makes it the commit on `main`, and
+   CI checks it.
 3. Add tests. The suite runs offline and never invokes the Codex CLI — behaviour that depends on it
    is tested through pure functions (`diagnose`, `buildCodexArgs`, `parseCatalog`) with fixtures
    captured from real CLI output.
