@@ -163,9 +163,9 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
   example `fix(runner): report a timeout as an error`. CI checks the pull request title.
 - Code, comments and documentation are in English. Documentation diagrams use Mermaid and carry a
   short prose description.
-- Significant decisions get an ADR in `docs/adr/`, in Nygard format. An accepted record is not
-  edited; a later one supersedes it and links back. The exception is correcting a statement of fact
-  that has become untrue.
+- Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is immutable once
+  merged to `main`, with no exception: a changed decision or a fact that became untrue goes in a
+  later record that supersedes it and links back (ADR 15).
 - `CHANGELOG.md` changes only when a release is prepared. A pull request describes any user-visible
   change in its own body so the release step can compile it.
 - How a change affects the version number is defined in `docs/VERSIONING.md`.

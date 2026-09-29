@@ -78,9 +78,10 @@ Delegations cost real Codex quota. Keep manual smoke tests on the cheapest model
 
 ## Documentation
 
-Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is not edited once
-accepted; it is superseded by a later one that links back. The exception is correcting a statement
-of fact that has become untrue, such as marking something verified that was previously inferred.
+Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is immutable once merged
+to `main`: a changed decision, or a fact that has become untrue, is recorded in a later record that
+supersedes it and links back, and only the index entry records the new status. A record in an open
+pull request is still a draft. See [ADR 15](docs/adr/0015-agents-md-and-immutable-records.md).
 
 Do not edit `CHANGELOG.md` in a pull request. It is written once, when a release is prepared, from
 the pull requests that release contains. What a pull request must do instead is describe any
