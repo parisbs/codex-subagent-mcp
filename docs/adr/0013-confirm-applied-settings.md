@@ -70,7 +70,7 @@ only fires on values this server recognises. A rename in that format degrades ev
 `unconfirmed`, visibly, rather than silently reporting the request as the outcome.
 
 It has to be re-verified on every Codex CLI version bump, alongside the flag checks already listed in
-`CLAUDE.md`. `test/rollout.test.ts` pins a real 0.154.0 line as a fixture, so a format change shows
+`AGENTS.md`. `test/rollout.test.ts` pins a real 0.154.0 line as a fixture, so a format change shows
 up as a failing assertion rather than as a quiet loss of confirmation.
 
 The read costs one directory walk and one file read per delegation, measured at 1–7 ms against a
