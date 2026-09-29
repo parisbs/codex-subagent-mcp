@@ -96,3 +96,13 @@ body:
         Server stderr, the delegation result, or the CI log. Redact anything private — delegation
         output can contain your source code.
       render: text
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: >
+        Optional for reporters; the maintainer completes it before the fix. The regression test
+        that must fail before the fix and pass after it, as WHEN ... THEN ..., numbered AC-n.
+      placeholder: |
+        - AC-1 (unit): WHEN ... THEN ...

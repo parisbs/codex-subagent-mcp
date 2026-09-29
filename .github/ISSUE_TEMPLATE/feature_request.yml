@@ -33,3 +33,14 @@ body:
       description: >
         Existing tools, a different model or reasoning effort, doing it by hand. This helps judge
         whether the gap is real or a documentation problem.
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: >
+        Optional for contributors; the maintainer completes it before work starts. One per
+        observable behaviour, numbered AC-1, AC-2, each as WHEN <situation> THEN <observable
+        result>, with the lowest test level that proves it.
+      placeholder: |
+        - AC-1 (unit): WHEN ... THEN ...
