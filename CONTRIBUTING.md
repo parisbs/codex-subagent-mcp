@@ -45,8 +45,8 @@ a confusing one.
 **Keep npm scripts shell-agnostic.** npm runs scripts through cmd.exe on Windows: no glob expansion,
 no `rm`. That is why `npm test` goes through `scripts/run-tests.mjs`.
 
-`CLAUDE.md` carries the same rules in the form an AI assistant reads them, and the two should be
-kept in step.
+`AGENTS.md` carries the same rules in the form a coding agent reads them (`CLAUDE.md` imports it),
+and the two should be kept in step.
 
 ## Where the work is tracked
 
@@ -59,8 +59,10 @@ Security issues do not go in an issue. `SECURITY.md` says how to report one priv
 ## Making a change
 
 1. Branch from `main`. `main` is protected: changes land through a pull request with CI passing.
-2. Group commits the way the work actually happened. Messages are a single English sentence with an
-   infinitive verb, no trailing period: `Resolve the Codex executable explicitly`.
+2. Group commits the way the work actually happened. Messages follow Conventional Commits, in English,
+   one line, imperative mood: `fix(resolve): resolve the Codex executable explicitly`. The pull
+   request title follows the same form, because squash merging makes it the commit on `main`, and
+   CI checks it.
 3. Add tests. The suite runs offline and never invokes the Codex CLI — behaviour that depends on it
    is tested through pure functions (`diagnose`, `buildCodexArgs`, `parseCatalog`) with fixtures
    captured from real CLI output.

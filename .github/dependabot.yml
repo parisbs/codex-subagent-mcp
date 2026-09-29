@@ -5,8 +5,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Conventional Commits: "build(deps): bump ...", which the pull request
+    # title check accepts. Squash merging makes that title the commit on main.
     commit-message:
-      prefix: "Update"
+      prefix: "build"
+      include: "scope"
     ignore:
       # @types/node must track the OLDEST Node this package supports, not the
       # newest available. `engines` declares >=22; typing against Node 26 would
@@ -31,4 +34,5 @@ updates:
     schedule:
       interval: monthly
     commit-message:
-      prefix: "Update"
+      prefix: "ci"
+      include: "scope"

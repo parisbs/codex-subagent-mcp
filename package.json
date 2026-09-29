@@ -47,6 +47,7 @@
     "dev": "tsx watch src/index.ts",
     "test": "node scripts/run-tests.mjs",
     "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run build && npm test && node scripts/check-startup.mjs && node scripts/check-codex-resolution.mjs",
     "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
