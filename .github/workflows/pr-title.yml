@@ -1,0 +1,30 @@
+# Squash merging makes the pull request title the commit on main, so the title
+# is what must follow Conventional Commits. No third-party action: the check is
+# a regular expression over a value passed through the environment, never
+# interpolated into the script.
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  title:
+    name: Conventional PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          if printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "Title follows Conventional Commits."
+          else
+            echo "Title must follow Conventional Commits, for example: feat(scope): add something"
+            echo "Got: $TITLE"
+            exit 1
+          fi
