@@ -35,6 +35,8 @@ gets the capable one thinking for as long as it needs.
 Everything stays on your machine. The server drives the Codex CLI you already have installed and
 holds no credentials of its own.
 
+See [How it compares](docs/COMPARISON.md) for a versioned comparison with other Codex MCP servers.
+
 ## Requirements
 
 - **Node.js 22 or newer.**
@@ -121,6 +123,10 @@ claude mcp add codex-subagent -- npx -y codex-subagent-mcp
 ```
 
 That works in both the Claude Code CLI and the desktop app; they share the same configuration.
+
+Clients that browse the [official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.parisbs/codex-subagent-mcp)
+list version 0.4.0 under `io.github.parisbs/codex-subagent-mcp` (verified 2026-09-30).
+That entry installs the same `codex-subagent-mcp` npm package.
 
 <details>
 <summary>Other ways to install</summary>
@@ -479,6 +485,7 @@ touched, up to a thousand distinct files. The server does not clean those worktr
 - **[docs/DELEGATING.md](docs/DELEGATING.md)** — how to scope a delegation, with measured costs and
   worked prompts.
 - **[docs/TOOLS.md](docs/TOOLS.md)** — every tool and parameter.
+- **[docs/COMPARISON.md](docs/COMPARISON.md)** — versioned comparisons with other Codex MCP servers.
 - **[docs/adr/](docs/adr/)** — why the design is what it is, decision by decision.
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what is planned, and what is deliberately out of scope.
 - **[Issues](https://github.com/parisbs/codex-subagent-mcp/issues)** — what is actually open right now.
