@@ -208,7 +208,8 @@ A delegation gets expensive when repeated commands keep adding output to the con
 later requests. Name the exact question, likely files, stopping condition and evidence the answer
 must contain; choose higher effort for ambiguity rather than by habit. **[Writing a delegation](docs/DELEGATING.md)**
 gives the measured cost model, ranked rules and weak-versus-strong examples using the real tool
-parameters.
+parameters. Background goes in `context` and a persona or extra rules in `system_instructions`, both
+layered on the built-in quality contract; see the [tool reference](docs/TOOLS.md#codex_delegate).
 
 The examples below are the four situations where delegating beats doing it in the main conversation.
 Each one has been run against the real Codex CLI — writing them is how two defects in this server
