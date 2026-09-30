@@ -2,21 +2,21 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { SERVER_NAME, SERVER_VERSION, createServer } from "./server.js";
+import { createShutdown, installShutdownTriggers } from "./shutdown.js";
 
 async function main(): Promise<void> {
-  const { server, jobs } = createServer();
+  const { server, jobs, runs } = createServer();
 
-  const shutdown = (signal: NodeJS.Signals): void => {
-    // Background delegations are child processes; leaving them behind would
-    // keep burning quota with nobody reading the result.
-    jobs.cancelAll();
-    void server.close().finally(() => {
-      process.exit(signal === "SIGINT" ? 130 : 143);
-    });
-  };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  // Delegations are child processes; leaving them behind would keep burning
+  // quota with nobody reading the result. See `src/shutdown.ts` for the budget.
+  const shutdown = createShutdown({
+    runs,
+    jobs,
+    close: () => server.close(),
+    exit: (code) => process.exit(code),
+    log: (message) => console.error(message),
+  });
+  installShutdownTriggers(shutdown, { process, stdin: process.stdin });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

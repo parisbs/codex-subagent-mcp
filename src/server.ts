@@ -28,6 +28,7 @@ import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
+import { ActiveRuns } from "./runs.js";
 import { assemblePrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
 import { ThreadRegistry, type ThreadSettings } from "./threads.js";
@@ -551,12 +552,13 @@ const delegateShape = {
     .describe("blocking (default) waits and streams progress; background returns a job_id immediately."),
 };
 
-export function createServer(): { server: McpServer; jobs: JobRegistry } {
+export function createServer(): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {}, logging: {} } },
   );
   const jobs = new JobRegistry();
+  const runs = new ActiveRuns();
   const threads = new ThreadRegistry();
   const { config, errors: configErrors } = loadConfig();
 
@@ -869,13 +871,17 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
             reasoningEffort: effort,
             controller,
             run: (hooks) =>
-              runCodex({
-                invocation,
-                prompt,
-                timeoutSeconds,
-                signal: controller.signal,
-                onEvent: hooks.onEvent,
-              }).result.then((result) => rememberThread(result, threadSettings)),
+              runs
+                .track(
+                  runCodex({
+                    invocation,
+                    prompt,
+                    timeoutSeconds,
+                    signal: controller.signal,
+                    onEvent: hooks.onEvent,
+                  }),
+                )
+                .result.then((result) => rememberThread(result, threadSettings)),
           });
 
           return textResult(
@@ -904,13 +910,16 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
             });
         };
 
-        const handle = runCodex({
-          invocation,
-          prompt,
-          timeoutSeconds,
-          onEvent,
-          signal: extra.signal,
-        });
+        // Tracked so shutdown stops it too, not only background jobs (#40).
+        const handle = runs.track(
+          runCodex({
+            invocation,
+            prompt,
+            timeoutSeconds,
+            onEvent,
+            signal: extra.signal,
+          }),
+        );
         const result = rememberThread(await handle.result, threadSettings);
         return textResult(renderResult(result, notes, config), isFailure(result));
       } catch (error) {
@@ -1070,7 +1079,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
         const progressToken = extra._meta?.progressToken;
         let progress = 0;
 
-        const handle = runCodex({
+        const handle = runs.track(runCodex({
           invocation,
           // The contract is already in the session's history; a follow-up only
           // needs the new instruction.
@@ -1087,7 +1096,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
               })
               .catch(() => {});
           },
-        });
+        }));
 
         const result = rememberThread(await handle.result, {
           model,
@@ -1202,5 +1211,5 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
   );
 
-  return { server, jobs };
+  return { server, jobs, runs };
 }

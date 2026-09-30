@@ -307,8 +307,10 @@ The job's result keeps the output read until then and reports the run as cancell
 ## Limits on background jobs
 
 At most eight run concurrently. Finished jobs are kept for an hour, and at most the 100 most recent,
-then discarded. All running jobs
-are cancelled when the server shuts down, so nothing keeps burning quota with nobody reading the
+then discarded. When the server shuts down — on SIGINT, SIGTERM, or its client closing stdin — every
+running delegation, background or blocking, is stopped with the commands it started, forced after a
+quarter of a second, and the server exits within about a third of a second. Hosts kill a server
+that takes longer, and anything still running then would keep burning quota with nobody reading the
 result.
 
 Jobs live only in the server process: restarting Claude Code loses them. See the

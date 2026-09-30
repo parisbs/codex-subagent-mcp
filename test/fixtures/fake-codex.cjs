@@ -57,6 +57,11 @@ process.stdin.on("end", () => {
     descendant.unref();
   }
 
+  // A CLI that does not stop when asked: only the forced stage can end it.
+  if (scenario.ignoreSigterm) {
+    process.on("SIGTERM", () => {});
+  }
+
   // How the stand-in answers a polite termination request, where the platform
   // has one: it reports once more and exits, as the real CLI may.
   if (scenario.onSigterm) {

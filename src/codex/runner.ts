@@ -76,9 +76,18 @@ export interface RunOptions {
   killGraceMs?: number;
 }
 
+export interface CancelOptions {
+  /** Overrides the run's grace for this request; only ever shortens a pending escalation. */
+  graceMs?: number;
+}
+
 export interface RunHandle {
   result: Promise<DelegationResult>;
-  cancel: () => void;
+  cancel: (options?: CancelOptions) => void;
+  /** The Codex process, when one was started. */
+  pid: number | undefined;
+  /** Resolves once the Codex process has exited and its pipes have closed. */
+  exited: Promise<void>;
 }
 
 /**
@@ -103,6 +112,8 @@ export function runCodex(options: RunOptions): RunHandle {
     return {
       cancel: () => {},
       result: Promise.reject(new Error("Codex delegation was cancelled before it started.")),
+      pid: undefined,
+      exited: Promise.resolve(),
     };
   }
 
@@ -133,6 +144,8 @@ export function runCodex(options: RunOptions): RunHandle {
       result: Promise.reject(
         new Error(`Could not start the Codex CLI ("${codexPath}"): ${message}`),
       ),
+      pid: undefined,
+      exited: Promise.resolve(),
     };
   }
 
@@ -164,7 +177,14 @@ export function runCodex(options: RunOptions): RunHandle {
   let terminating = false;
   let settled = false;
   let killTimer: NodeJS.Timeout | undefined;
+  /** When the pending SIGKILL is due; null when none is pending (never armed, sent or cleared). */
+  let killDueAt: number | null = null;
   let settleTimer: NodeJS.Timeout | undefined;
+  let closed = false;
+  let markExited: () => void = () => {};
+  const exited = new Promise<void>((resolve) => {
+    markExited = resolve;
+  });
 
   // Notices repeat verbatim (Codex prints configuration warnings twice), so a
   // set is enough; they share the error cap because they come from the same
@@ -280,26 +300,58 @@ export function runCodex(options: RunOptions): RunHandle {
     child.stderr.destroy();
   };
 
-  const terminate = (reason: "timeout" | "cancel"): void => {
-    if (settled) return;
+  /**
+   * Schedules the forced stage. A later request can only bring it forward: the
+   * server's shutdown has a fraction of a second where a cancellation has five.
+   */
+  const armKill = (graceMs: number): void => {
+    const dueAt = Date.now() + graceMs;
+    if (killDueAt !== null && killDueAt <= dueAt) return;
+    clearTimeout(killTimer);
+    killDueAt = dueAt;
+    killTimer = setTimeout(() => {
+      killDueAt = null;
+      signalTree("SIGKILL");
+      reportExitedIfDone();
+    }, graceMs);
+    killTimer.unref?.();
+  };
+
+  /**
+   * `exited` means nothing is left to stop: the pipes have closed and no forced
+   * stage is still owed to a group member that ignored SIGTERM. A shutdown that
+   * exits on it must not skip that SIGKILL.
+   */
+  const reportExitedIfDone = (): void => {
+    if (closed && killDueAt === null) markExited();
+  };
+
+  const clearKill = (): void => {
+    clearTimeout(killTimer);
+    killDueAt = null;
+  };
+
+  const terminate = (reason: "timeout" | "cancel", graceMs = killGraceMs): void => {
+    // Once the pipes have closed there is nothing left to stop. A result that
+    // settled earlier, at its timeout, can still have processes to bring down.
+    if (closed) return;
     // The first reason is the one reported: a timeout reached while a
     // cancellation is winding down does not turn it into a timeout.
-    if (reason === "timeout" && !cancelled) timedOut = true;
-    if (reason === "cancel" && !timedOut) cancelled = true;
+    if (!settled && reason === "timeout" && !cancelled) timedOut = true;
+    if (!settled && reason === "cancel" && !timedOut) cancelled = true;
     // Both the timeout and an abort can fire before the child actually exits.
-    // Only the first termination request arms the escalation. The group is
-    // signalled even when Codex itself has already exited: what it started may not have.
+    // Only the first termination request sends SIGTERM. The group is signalled
+    // even when Codex itself has already exited: what it started may not have.
     if (!terminating) {
       terminating = true;
       signalTree("SIGTERM");
-      killTimer = setTimeout(() => signalTree("SIGKILL"), killGraceMs);
-      killTimer.unref?.();
-      if (reason === "cancel") {
+      if (reason === "cancel" && !settled) {
         // A cancelled run waits for the CLI's last words, but not forever.
-        settleTimer = setTimeout(settleNow, killGraceMs + SETTLE_MARGIN_MS);
+        settleTimer = setTimeout(settleNow, graceMs + SETTLE_MARGIN_MS);
         settleTimer.unref?.();
       }
     }
+    armKill(graceMs);
     if (reason === "timeout") settleNow();
   };
 
@@ -335,10 +387,12 @@ export function runCodex(options: RunOptions): RunHandle {
 
   const result = new Promise<DelegationResult>((resolve, reject) => {
     child.on("error", (error) => {
+      closed = true;
+      markExited();
       if (settled) return;
       settled = true;
       cleanup();
-      if (killTimer) clearTimeout(killTimer);
+      clearKill();
       reject(
         new Error(
           `Could not run the Codex CLI ("${codexPath}"): ${error.message}. ` +
@@ -437,10 +491,12 @@ export function runCodex(options: RunOptions): RunHandle {
     };
 
     child.on("close", (code) => {
+      closed = true;
       // A member of the group that ignored SIGTERM still gets SIGKILL when the
       // grace runs out; an empty group's id may be reused and is left alone.
-      if (killTimer && !(terminating && processGroupAlive(child.pid))) clearTimeout(killTimer);
+      if (!(terminating && processGroupAlive(child.pid))) clearKill();
       finish(code);
+      reportExitedIfDone();
     });
   });
 
@@ -451,5 +507,10 @@ export function runCodex(options: RunOptions): RunHandle {
     signal?.removeEventListener("abort", onAbort);
   }
 
-  return { result, cancel: () => terminate("cancel") };
+  return {
+    result,
+    cancel: (options = {}) => terminate("cancel", options.graceMs ?? killGraceMs),
+    pid: child.pid,
+    exited,
+  };
 }
