@@ -81,6 +81,10 @@ export interface RunOptions {
   codexHome?: string;
   /** Grace between the polite termination request and the forced one. */
   killGraceMs?: number;
+  /** A serialised JSON Schema constraining the final message (#28). */
+  outputSchema?: string;
+  /** Where the schema's private directory is created. Defaults to the OS temporary directory. */
+  tempDir?: string;
 }
 
 export interface CancelOptions {
@@ -475,6 +479,7 @@ export function runCodex(options: RunOptions): RunHandle {
         exitCode: code,
         timedOut,
         cancelled,
+        structured: null,
         stderr: stderr.trim(),
       };
 

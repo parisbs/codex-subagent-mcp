@@ -484,6 +484,16 @@ async function resolveModelAndEffort(
   return { model: model.slug, effort: resolved.effort, notes };
 }
 
+/** Shared by codex_delegate and codex_follow_up (#28). */
+const outputSchemaParameter = z
+  .record(z.string(), z.unknown())
+  .optional()
+  .describe(
+    "A JSON Schema object for this turn's final message, which then comes back as JSON in a delimited block. " +
+      "OpenAI's structured outputs apply: every object needs \"additionalProperties\": false and every property " +
+      "listed in \"required\". At most 64 KiB serialised.",
+  );
+
 const delegateShape = {
   prompt: z
     .string()
@@ -550,6 +560,7 @@ const delegateShape = {
     .enum(["blocking", "background"])
     .optional()
     .describe("blocking (default) waits and streams progress; background returns a job_id immediately."),
+  output_schema: outputSchemaParameter,
 };
 
 export function createServer(): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
@@ -962,6 +973,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           .optional()
           .describe("Absolute directory to resume in. Defaults to the directory the thread last ran in."),
         timeout_seconds: z.number().int().positive().max(7200).optional(),
+        output_schema: outputSchemaParameter,
       },
       annotations: { readOnlyHint: false, openWorldHint: true },
     },

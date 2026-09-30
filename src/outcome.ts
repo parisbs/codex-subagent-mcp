@@ -30,6 +30,14 @@ export function describeSandboxBreach(result: DelegationResult): string | null {
 }
 
 /**
+ * The advice added when OpenAI rejected a turn's output schema (#28, AC-6):
+ * null for any other failure and for turns without a schema.
+ */
+export function schemaRejectionHint(_result: DelegationResult): string | null {
+  throw new Error("not implemented");
+}
+
+/**
  * Decides whether a finished delegation failed, and why.
  *
  * Codex signals failure in several independent ways. The obvious one is the

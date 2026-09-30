@@ -113,6 +113,12 @@ export interface AppliedSettings {
   approvalPolicy: string | null;
 }
 
+/**
+ * A schema turn's final message read as JSON (#28). `json` is the text exactly
+ * as Codex returned it, so nothing is lost to re-serialisation.
+ */
+export type StructuredResult = { ok: true; json: string } | { ok: false; error: string };
+
 export interface DelegationResult {
   finalMessage: string;
   threadId: string | null;
@@ -146,6 +152,8 @@ export interface DelegationResult {
   timedOut: boolean;
   /** The run was stopped by a cancellation (a job cancel or the client aborting the call). */
   cancelled: boolean;
+  /** Null when the turn passed no output schema. */
+  structured: StructuredResult | null;
   stderr: string;
 }
 

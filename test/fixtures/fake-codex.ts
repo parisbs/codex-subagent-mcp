@@ -40,7 +40,7 @@ export interface FakeCodex {
   /** Pass as `invocation.workingDir`: it becomes the child's cwd. */
   workingDir: string;
   /** What the child actually received. Only valid after the run finishes. */
-  received: () => { argv: string[]; stdin: string };
+  received: () => { argv: string[]; stdin: string; schema: string | null };
   /** The pid of `scenario.descendant`, once the stand-in has started it. */
   descendantPid: () => number | null;
   /** Signals the stand-in recorded with `recordSignals`, in order. */
@@ -73,6 +73,7 @@ export function createFakeCodex(scenario: Scenario): FakeCodex {
       JSON.parse(readFileSync(join(workingDir, "received.json"), "utf8")) as {
         argv: string[];
         stdin: string;
+        schema: string | null;
       },
     descendantPid: () => {
       const file = join(workingDir, "descendant.pid");

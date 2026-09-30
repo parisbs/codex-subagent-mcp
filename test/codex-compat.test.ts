@@ -144,3 +144,11 @@ test("AC-6 also finds the binary where older platform packages put it", () => {
     rmSync(prefix, { recursive: true, force: true });
   }
 });
+
+test("AC-11 (#28) exercises --output-schema on exec and on resume, each on its own", () => {
+  const shapes = argvShapes("m", tmpdir());
+  const withSchema = (kind: "exec" | "resume") =>
+    shapes.some((shape) => (kind === "resume") === (shape.argv[1] === "resume") && shape.argv.includes("--output-schema"));
+  assert.ok(withSchema("exec"), "no exec shape passes --output-schema");
+  assert.ok(withSchema("resume"), "no resume shape passes --output-schema");
+});

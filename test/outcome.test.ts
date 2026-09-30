@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeFailure, describeSandboxBreach } from "../src/outcome.ts";
+import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "../src/outcome.ts";
 import type { AppliedSettings, DelegationResult } from "../src/types.ts";
 
 /** Everything Codex recorded matching what was requested: the ordinary case. */
@@ -40,6 +40,8 @@ function result(overrides: Partial<DelegationResult>): DelegationResult {
     durationMs: 1,
     exitCode: 0,
     timedOut: false,
+    cancelled: false,
+    structured: null,
     stderr: "",
     ...overrides,
   };
@@ -143,4 +145,42 @@ test("does not treat a different model or effort as a failure", () => {
     ),
     null,
   );
+});
+
+// #28: a schema turn's structured result, on top of the existing failure rules.
+
+const SCHEMA_REJECTION =
+  '{\n  "type": "error",\n  "error": {\n    "type": "invalid_request_error",\n    "code": "invalid_json_schema",\n    "message": "Invalid schema for response_format \'codex_output_schema\': In context=(), \'additionalProperties\' is required to be supplied and to be false.",\n    "param": "text.format.schema"\n  },\n  "status": 400\n}';
+
+test("AC-2 does not fail an otherwise successful run whose final message is valid JSON", () => {
+  assert.equal(describeFailure(result({ finalMessage: '{"a":1}', structured: { ok: true, json: '{"a":1}' } })), null);
+});
+
+test("AC-3 fails an otherwise successful schema turn whose final message is not JSON", () => {
+  const failure = describeFailure(result({ finalMessage: "Done.", structured: { ok: false, error: "not JSON" } }));
+  assert.match(failure ?? "", /structured result/i);
+});
+
+test("AC-4 keeps the original failure when a schema turn also failed otherwise", () => {
+  const structured = { ok: true as const, json: '{"a":1}' };
+  assert.match(describeFailure(result({ timedOut: true, exitCode: null, structured })) ?? "", /timeout/);
+  assert.match(describeFailure(result({ cancelled: true, exitCode: null, structured })) ?? "", /cancelled/);
+  assert.match(describeFailure(result({ exitCode: 1, structured })) ?? "", /exited with code 1/);
+});
+
+test("AC-6 hints at the strict-mode rules when OpenAI rejected a turn's schema", () => {
+  const hint = schemaRejectionHint(
+    result({ exitCode: 1, turnFailure: SCHEMA_REJECTION, structured: { ok: false, error: "no answer" } }),
+  );
+  assert.match(hint ?? "", /additionalProperties/);
+  assert.match(hint ?? "", /required/);
+});
+
+test("AC-6 gives no hint for a run without a schema or for another failure", () => {
+  assert.equal(schemaRejectionHint(result({ exitCode: 1, turnFailure: SCHEMA_REJECTION, structured: null })), null);
+  assert.equal(
+    schemaRejectionHint(result({ exitCode: 1, turnFailure: "usage limit reached", structured: { ok: false, error: "x" } })),
+    null,
+  );
+  assert.equal(schemaRejectionHint(result({ structured: { ok: true, json: "{}" } })), null);
 });

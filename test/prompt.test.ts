@@ -4,7 +4,9 @@ import { test } from "node:test";
 import {
   NO_FURTHER_DELEGATION_INSTRUCTION,
   QUALITY_CONTRACT,
+  STRUCTURED_OUTPUT_INSTRUCTION,
   assemblePrompt,
+  followUpPrompt,
 } from "../src/prompt.ts";
 
 test("always leads with the quality contract", () => {
@@ -82,4 +84,36 @@ test("drops empty optional sections instead of emitting blank tags", () => {
 test("passes shell metacharacters through untouched", () => {
   const hostile = 'echo "$(whoami)" && rm -rf / # `id`';
   assert.ok(assemblePrompt({ task: hostile }).includes(hostile));
+});
+
+const PROSE_SUMMARY = "End with a short, concrete summary";
+
+test("AC-9 tells a schema delegation to end with only the JSON, and stops asking for a prose summary", () => {
+  const prompt = assemblePrompt({ task: "List the findings.", structuredOutput: true });
+  assert.ok(prompt.includes(STRUCTURED_OUTPUT_INSTRUCTION));
+  assert.ok(!prompt.includes(PROSE_SUMMARY), "the contract still asks a schema turn for prose");
+  assert.ok(prompt.includes(NO_FURTHER_DELEGATION_INSTRUCTION));
+  assert.ok(prompt.trimEnd().endsWith("</task>"), "the task stays last");
+});
+
+test("AC-9 leaves a delegation without a schema exactly as before", () => {
+  const prompt = assemblePrompt({ task: "List the findings." });
+  assert.ok(!prompt.includes(STRUCTURED_OUTPUT_INSTRUCTION));
+  assert.ok(prompt.includes(PROSE_SUMMARY));
+  assert.ok(prompt.startsWith(QUALITY_CONTRACT));
+});
+
+test("AC-9 gives a schema follow-up the instruction, since earlier turns asked for prose", () => {
+  const prompt = followUpPrompt("Now as JSON, please.", true);
+  assert.ok(prompt.includes(STRUCTURED_OUTPUT_INSTRUCTION));
+  assert.ok(prompt.includes("Now as JSON, please."));
+});
+
+test("AC-9 sends a follow-up without a schema unchanged", () => {
+  assert.equal(followUpPrompt("And the next file?", false), "And the next file?");
+});
+
+test("AC-9 says the instruction supersedes earlier ones and never carries a schema", () => {
+  assert.match(STRUCTURED_OUTPUT_INSTRUCTION, /supersedes/);
+  assert.doesNotMatch(STRUCTURED_OUTPUT_INSTRUCTION, /"type"|additionalProperties/);
 });
