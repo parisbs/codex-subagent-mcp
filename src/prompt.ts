@@ -52,6 +52,34 @@ Instruction: you are a delegated subagent. Do not delegate work to other agents
 and do not call tools that delegate work further.
 </delegation_instruction>`;
 
+/**
+ * Tells Codex that this turn's final message is parsed as JSON (#28). It never
+ * repeats the schema, which reaches the model through the API instead.
+ */
+export const STRUCTURED_OUTPUT_INSTRUCTION = `<output_format>
+For this turn, your final message is parsed as JSON by the orchestrator. It must be
+only the JSON document the output schema describes: no prose, no code fence, no
+summary around it. This supersedes any earlier instruction about how to end or
+report.
+</output_format>`;
+
+/** The prompt of a follow-up turn, with the output instruction when it carries a schema. */
+export function followUpPrompt(text: string, structured: boolean): string {
+  // The delegation contract, already in the thread's history, asked for a prose
+  // summary; a schema turn has to be told that no longer applies (#28, AC-9).
+  return structured ? `${STRUCTURED_OUTPUT_INSTRUCTION}\n\n${text}` : text;
+}
+
+/** The contract's reporting rule, which a schema turn replaces. */
+const PROSE_REPORTING = `- End with a short, concrete summary: what you changed (file by file), what you
+  verified and how, and anything the orchestrator must decide or double-check.`;
+
+const STRUCTURED_REPORTING = `- Your final message is the JSON document described in <output_format>. Say what
+  you changed and verified in your working messages before it, not in it.`;
+
+/** The contract for a schema delegation: the same rules, minus the prose summary. */
+const STRUCTURED_QUALITY_CONTRACT = QUALITY_CONTRACT.replace(PROSE_REPORTING, STRUCTURED_REPORTING);
+
 export interface PromptParts {
   task: string;
   systemInstructions?: string;
@@ -60,6 +88,8 @@ export interface PromptParts {
   acceptanceCriteria?: string[];
   /** Set when the orchestrator wants Codex to only analyse and report. */
   readOnly?: boolean;
+  /** Set when the turn passes an output schema: the final message must be only JSON. */
+  structuredOutput?: boolean;
 }
 
 function section(tag: string, body: string): string {
@@ -75,7 +105,8 @@ function section(tag: string, body: string): string {
  * to the model's generation point.
  */
 export function assemblePrompt(parts: PromptParts): string {
-  const blocks: string[] = [QUALITY_CONTRACT, NO_FURTHER_DELEGATION_INSTRUCTION];
+  const contract = parts.structuredOutput ? STRUCTURED_QUALITY_CONTRACT : QUALITY_CONTRACT;
+  const blocks: string[] = [contract, NO_FURTHER_DELEGATION_INSTRUCTION];
 
   if (parts.readOnly) {
     blocks.push(
@@ -121,6 +152,10 @@ export function assemblePrompt(parts: PromptParts): string {
           .join("\n")}`,
       ),
     );
+  }
+
+  if (parts.structuredOutput) {
+    blocks.push(STRUCTURED_OUTPUT_INSTRUCTION);
   }
 
   blocks.push(section("task", parts.task));

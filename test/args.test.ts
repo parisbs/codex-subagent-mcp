@@ -239,3 +239,29 @@ test("switches off Codex MCP entries that point back at this server, on exec and
   assert.ok(resume.includes("mcp_servers.codex-subagent.enabled=false"));
   assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).some((arg) => arg.startsWith("mcp_servers.")));
 });
+
+test("AC-1 passes --output-schema and the schema path as two argv elements on exec", () => {
+  const path = "/tmp/codex-subagent-schema-x/schema with space.json";
+  const args = buildCodexArgs({ kind: "exec", sandbox: "read-only", outputSchemaPath: path });
+  const at = args.indexOf("--output-schema");
+  assert.notEqual(at, -1);
+  assert.equal(args[at + 1], path);
+  assert.equal(args.filter((arg) => arg.includes("schema with space")).length, 1);
+});
+
+test("AC-1 passes --output-schema after the thread id on resume", () => {
+  const args = buildCodexArgs({
+    kind: "resume",
+    threadId: "01a0f38d-12a3-7490-982f-c6c85e6ef15d",
+    sandbox: "read-only",
+    outputSchemaPath: "/tmp/s/schema.json",
+  });
+  const at = args.indexOf("--output-schema");
+  assert.ok(at > args.indexOf("01a0f38d-12a3-7490-982f-c6c85e6ef15d"));
+  assert.equal(args[at + 1], "/tmp/s/schema.json");
+});
+
+test("AC-9 adds no --output-schema when the turn has no schema", () => {
+  assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).includes("--output-schema"));
+  assert.ok(!buildCodexArgs({ kind: "resume", threadId: "t", sandbox: "read-only" }).includes("--output-schema"));
+});

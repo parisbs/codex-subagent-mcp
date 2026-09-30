@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import cp from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { syncBuiltinESMExports } from "node:module";
 import { PassThrough } from "node:stream";
@@ -51,6 +52,9 @@ const CATALOG = {
 
 let spawnedArgs: string[][] = [];
 let spawnedCwds: (string | undefined)[] = [];
+/** What each spawned run received on stdin, and the schema file's content at spawn time (#28). */
+let spawnedStdins: string[] = [];
+let spawnedSchemas: (string | null)[] = [];
 
 /** What the next spawned "Codex" writes to stdout and how it exits; `hold` keeps it running. */
 let nextRun: { events: unknown[]; exitCode: number; hold?: boolean } = { events: [], exitCode: 0 };
@@ -93,9 +97,14 @@ cp.execFile = (() => {}) as unknown as typeof cp.execFile;
 cp.spawn = ((_file: string, args: string[], options?: { cwd?: string }) => {
   spawnedArgs.push(args);
   spawnedCwds.push(options?.cwd);
+  const schemaAt = args.indexOf("--output-schema");
+  spawnedSchemas.push(schemaAt === -1 ? null : readFileSync(args[schemaAt + 1]!, "utf8"));
+  const stdinIndex = spawnedStdins.push("") - 1;
   const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
   Object.assign(child, {
-    stdin: new PassThrough(),
+    stdin: new PassThrough().on("data", (chunk: Buffer) => {
+      spawnedStdins[stdinIndex] += chunk.toString("utf8");
+    }),
     stdout: new PassThrough(),
     stderr: new PassThrough(),
     exitCode: null,
@@ -159,6 +168,8 @@ async function withServer<T>(
 
   spawnedArgs = [];
   spawnedCwds = [];
+  spawnedStdins = [];
+  spawnedSchemas = [];
   fakeVersion = "codex-cli 0.154.0";
   probedCwds = [];
   catalogByCwd = new Map();
@@ -1283,5 +1294,178 @@ test("AC-1 (#108) codex_job_status says a cancelled job is stopping and does not
     const status = (await call("codex_job_status", { job_id: jobId })) as { content: { text: string }[] };
     assert.match(status.content[0]!.text, /stopping/);
     assert.doesNotMatch(status.content[0]!.text, /codex_job_result/);
+  });
+});
+
+// #28: output schemas through the tools.
+
+const BEGIN = "-----BEGIN STRUCTURED RESULT-----";
+const END = "-----END STRUCTURED RESULT-----";
+const SCHEMA_A = { type: "object", properties: { n: { type: "integer" } }, required: ["n"], additionalProperties: false };
+const SCHEMA_B = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false };
+const SCHEMA_REJECTION =
+  '{\n  "type": "error",\n  "error": {\n    "type": "invalid_request_error",\n    "code": "invalid_json_schema",\n    "message": "Invalid schema for response_format \'codex_output_schema\': In context=(), \'additionalProperties\' is required to be supplied and to be false.",\n    "param": "text.format.schema"\n  },\n  "status": 400\n}';
+
+type ToolResult = { content: { text: string }[]; isError?: boolean };
+const textOf = (result: unknown) => (result as ToolResult).content[0]!.text;
+const answer = (text: string) => ({ type: "item.completed", item: { type: "agent_message", text } });
+
+/** A refusal is an isError result from the handler or a validation error from the SDK. */
+async function refusal(pending: Promise<unknown>): Promise<string | null> {
+  try {
+    const result = (await pending) as ToolResult;
+    return result.isError ? result.content[0]!.text : null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function schemaOfBytes(bytes: number): Record<string, unknown> {
+  const empty = JSON.stringify({ type: "object", description: "" });
+  const schema = { type: "object", description: "a".repeat(bytes - Buffer.byteLength(empty, "utf8")) };
+  assert.equal(Buffer.byteLength(JSON.stringify(schema), "utf8"), bytes);
+  return schema;
+}
+
+test("AC-1 codex_delegate hands the CLI a file holding exactly the schema", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    nextRun = { events: [answer('{"n":1}')], exitCode: 0 };
+    await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A });
+    assert.ok(spawnedArgs[0]!.includes("--output-schema"));
+    assert.deepEqual(JSON.parse(spawnedSchemas[0]!), SCHEMA_A);
+  });
+});
+
+test("AC-2 presents a JSON final message verbatim, once, in a delimited block, without isError", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    const json = '{"n":12345678901234567890}';
+    nextRun = { events: [answer(json)], exitCode: 0 };
+    const result = (await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A })) as ToolResult;
+    assert.notEqual(result.isError, true);
+    const text = result.content[0]!.text;
+    assert.ok(text.includes(`${BEGIN}\n${json}\n${END}`), text);
+    assert.equal(text.split(json).length - 1, 1, "the JSON is repeated outside its block");
+  });
+});
+
+test("AC-3 fails a schema turn whose final message is not JSON and still shows it", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    nextRun = { events: [answer("The count is one.")], exitCode: 0 };
+    const result = (await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A })) as ToolResult;
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]!.text, /structured result/i);
+    assert.ok(result.content[0]!.text.includes("The count is one."));
+    assert.ok(!result.content[0]!.text.includes(BEGIN));
+  });
+});
+
+test("AC-4 labels parseable output of a failed schema turn as partial, never as the structured result", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    nextRun = { events: [answer('{"n":1}')], exitCode: 1 };
+    const result = (await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A })) as ToolResult;
+    assert.equal(result.isError, true);
+    const text = result.content[0]!.text;
+    assert.ok(!text.includes(BEGIN), "a failed run presented a structured result");
+    assert.match(text, /partial/i);
+    assert.ok(text.includes('{"n":1}'));
+  });
+});
+
+test("AC-6 explains a schema OpenAI rejected, with the API's reason", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    const rejected = [{ type: "error", message: SCHEMA_REJECTION }, { type: "turn.failed", error: { message: SCHEMA_REJECTION } }];
+    nextRun = { events: rejected, exitCode: 1 };
+    const withSchema = textOf(await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A }));
+    assert.match(withSchema, /additionalProperties' is required to be supplied/);
+    assert.match(withSchema, /every object/);
+
+    nextRun = { events: rejected, exitCode: 1 };
+    assert.doesNotMatch(textOf(await call("codex_delegate", { prompt: "Count." })), /every object/);
+
+    nextRun = { events: [{ type: "turn.failed", error: { message: "usage limit reached" } }], exitCode: 1 };
+    assert.doesNotMatch(textOf(await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A })), /every object/);
+  });
+});
+
+test("AC-8 refuses a bad schema on both tools before any CLI process runs", async () => {
+  const bad: [string, unknown][] = [
+    ["an array", [SCHEMA_A]],
+    ["a string", "object"],
+    ["65,537 bytes", schemaOfBytes(65_537)],
+    ["80,000 bytes of multibyte text", { type: "object", description: "é".repeat(40_000) }],
+  ];
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    for (const [label, schema] of bad) {
+      probedCwds = [];
+      spawnedArgs = [];
+      const delegated = await refusal(call("codex_delegate", { prompt: "Count.", output_schema: schema }));
+      const followed = await refusal(
+        call("codex_follow_up", {
+          thread_id: "01a0f38d-12a3-7490-982f-c6c85e6ef15d",
+          prompt: "Again.",
+          model: "cheap-model",
+          working_dir: tmpdir(),
+          output_schema: schema,
+        }),
+      );
+      assert.notEqual(delegated, null, `codex_delegate accepted ${label}`);
+      assert.notEqual(followed, null, `codex_follow_up accepted ${label}`);
+      assert.deepEqual(probedCwds, [], `a CLI probe ran for ${label}`);
+      assert.deepEqual(spawnedArgs, [], `a delegation ran for ${label}`);
+    }
+  });
+});
+
+test("AC-8 accepts a schema of exactly 65,536 bytes", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    nextRun = { events: [answer("{}")], exitCode: 0 };
+    const result = (await call("codex_delegate", { prompt: "Count.", output_schema: schemaOfBytes(65_536) })) as ToolResult;
+    assert.notEqual(result.isError, true, result.content[0]!.text);
+    assert.equal(spawnedArgs.length, 1);
+  });
+});
+
+test("AC-9 applies a schema per turn: schema A, then none, then schema B on one thread", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    const thread = "01a0f38d-12a3-7490-982f-c6c85e6ef15d";
+    nextRun = { events: [{ type: "thread.started", thread_id: thread }, answer('{"n":1}')], exitCode: 0 };
+    await call("codex_delegate", { prompt: "Count.", output_schema: SCHEMA_A });
+    nextRun = { events: [answer("Two files.")], exitCode: 0 };
+    const plain = (await call("codex_follow_up", { thread_id: thread, prompt: "In words?" })) as ToolResult;
+    nextRun = { events: [answer('{"ok":true}')], exitCode: 0 };
+    await call("codex_follow_up", { thread_id: thread, prompt: "Is it fine?", output_schema: SCHEMA_B });
+
+    assert.deepEqual(spawnedArgs.map((args) => args.includes("--output-schema")), [true, false, true]);
+    assert.deepEqual(JSON.parse(spawnedSchemas[0]!), SCHEMA_A);
+    assert.equal(spawnedSchemas[1], null);
+    assert.deepEqual(JSON.parse(spawnedSchemas[2]!), SCHEMA_B);
+    const told = spawnedStdins.map((stdin) => /<output_format>/.test(stdin));
+    assert.deepEqual(told, [true, false, true]);
+    assert.notEqual(plain.isError, true, "a follow-up without a schema parsed its prose");
+    assert.ok(!plain.content[0]!.text.includes(BEGIN));
+  });
+});
+
+test("AC-10 presents a background job's structured result, and fails one whose result is invalid", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    const finish = async (events: unknown[]) => {
+      nextRun = { events, exitCode: 0 };
+      const started = textOf(await call("codex_delegate", { prompt: "Count.", mode: "background", output_schema: SCHEMA_A }));
+      const jobId = /delegation ([0-9a-f-]{36})/.exec(started)![1]!;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (!/state: running/.test(textOf(await call("codex_job_status", { job_id: jobId })))) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return jobId;
+    };
+
+    const good = await finish([answer('{"n":3}')]);
+    const result = (await call("codex_job_result", { job_id: good })) as ToolResult;
+    assert.notEqual(result.isError, true);
+    assert.ok(result.content[0]!.text.includes(`${BEGIN}\n{"n":3}\n${END}`));
+
+    const bad = await finish([answer("three")]);
+    assert.match(textOf(await call("codex_job_status", { job_id: bad })), /state: failed/);
+    assert.equal(((await call("codex_job_result", { job_id: bad })) as ToolResult).isError, true);
   });
 });

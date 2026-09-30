@@ -124,10 +124,15 @@ export class JobRegistry {
     void input
       .run(hooks)
       .then((result) => {
-        job.result = result;
+        // A cancellation that lands after the pipes closed finds nothing left to
+        // stop, so the runner reports the run as not cancelled. The job still
+        // says cancelled, and its result must agree: never a success, and never
+        // a structured result (#28).
+        const aborted = job.controller.signal.aborted;
+        job.result = aborted && !result.cancelled ? { ...result, cancelled: true } : result;
         job.threadId = result.threadId ?? job.threadId;
-        const failure = describeFailure(result);
-        job.state = job.controller.signal.aborted ? "cancelled" : failure ? "failed" : "completed";
+        const failure = describeFailure(job.result);
+        job.state = aborted ? "cancelled" : failure ? "failed" : "completed";
         if (job.state === "failed") job.error = failure;
       })
       .catch((error: unknown) => {

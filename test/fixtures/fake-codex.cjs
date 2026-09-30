@@ -33,9 +33,20 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", () => {
   // Record what actually arrived, so a test can assert on the argv the server
   // built and on the prompt surviving stdin byte for byte.
+  // What `--output-schema` pointed at, read the way the real CLI would (#28).
+  const argv = process.argv.slice(2);
+  const schemaAt = argv.indexOf("--output-schema");
+  let schema = null;
+  if (schemaAt !== -1) {
+    try {
+      schema = readFileSync(argv[schemaAt + 1], "utf8");
+    } catch (error) {
+      schema = `unreadable: ${error.message}`;
+    }
+  }
   writeFileSync(
     join(process.cwd(), "received.json"),
-    JSON.stringify({ argv: process.argv.slice(2), stdin }, null, 2),
+    JSON.stringify({ argv, stdin, schema }, null, 2),
     "utf8",
   );
 

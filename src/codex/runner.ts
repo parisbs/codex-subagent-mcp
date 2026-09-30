@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
+import { parseStructuredResult, writeSchemaFile, type SchemaFile } from "./schema.js";
 import { descendantGroups, processGroupAlive, signalGroups, signalProcessTree } from "./terminate.js";
 import { compareApplied, readTurnContext } from "./rollout.js";
 import {
@@ -81,6 +82,10 @@ export interface RunOptions {
   codexHome?: string;
   /** Grace between the polite termination request and the forced one. */
   killGraceMs?: number;
+  /** A serialised JSON Schema constraining the final message (#28). */
+  outputSchema?: string;
+  /** Where the schema's private directory is created. Defaults to the OS temporary directory. */
+  tempDir?: string;
 }
 
 export interface CancelOptions {
@@ -113,6 +118,8 @@ export function runCodex(options: RunOptions): RunHandle {
     signal,
     codexHome,
     killGraceMs = KILL_GRACE_MS,
+    outputSchema,
+    tempDir,
   } = options;
 
   if (signal?.aborted) {
@@ -124,7 +131,31 @@ export function runCodex(options: RunOptions): RunHandle {
     };
   }
 
-  const args = buildCodexArgs(invocation);
+  // The schema file lives exactly as long as the run's process tree (#28): it is
+  // written after the pre-abort check, removed on every path that fails before
+  // a child exists, and otherwise removed just before `exited` resolves.
+  let schemaFile: SchemaFile | undefined;
+  if (outputSchema !== undefined) {
+    try {
+      schemaFile = writeSchemaFile(outputSchema, tempDir);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        cancel: () => {},
+        result: Promise.reject(new Error(`Could not write the output schema to a temporary file: ${message}`)),
+        pid: undefined,
+        exited: Promise.resolve(),
+      };
+    }
+  }
+
+  let args: string[];
+  try {
+    args = buildCodexArgs(schemaFile ? { ...invocation, outputSchemaPath: schemaFile.path } : invocation);
+  } catch (error) {
+    schemaFile?.remove();
+    throw error;
+  }
   const startedAt = Date.now();
   const workingDir = invocation.workingDir ?? process.cwd();
 
@@ -145,6 +176,7 @@ export function runCodex(options: RunOptions): RunHandle {
       windowsHide: true,
     });
   } catch (error) {
+    schemaFile?.remove();
     const message = error instanceof Error ? error.message : String(error);
     return {
       cancel: () => {},
@@ -337,8 +369,14 @@ export function runCodex(options: RunOptions): RunHandle {
    * stage is still owed to a process that ignored the polite request. A shutdown that
    * exits on it must not skip that SIGKILL.
    */
+  /** Nothing is left that could read the schema, so it goes before `exited` says so. */
+  const completeExit = (): void => {
+    schemaFile?.remove();
+    markExited();
+  };
+
   const reportExitedIfDone = (): void => {
-    if (closed && killDueAt === null) markExited();
+    if (closed && killDueAt === null) completeExit();
   };
 
   const clearKill = (): void => {
@@ -406,7 +444,7 @@ export function runCodex(options: RunOptions): RunHandle {
   const result = new Promise<DelegationResult>((resolve, reject) => {
     child.on("error", (error) => {
       closed = true;
-      markExited();
+      completeExit();
       if (settled) return;
       settled = true;
       cleanup();
@@ -475,6 +513,12 @@ export function runCodex(options: RunOptions): RunHandle {
         exitCode: code,
         timedOut,
         cancelled,
+        // A dropped line or message means the last message kept may not be the
+        // one Codex ended with, so the result cannot be trusted (#28, AC-5).
+        structured:
+          outputSchema === undefined
+            ? null
+            : parseStructuredResult(agentMessages.at(-1) ?? "", parser.truncatedLines > 0 || messagesTruncated),
         stderr: stderr.trim(),
       };
 

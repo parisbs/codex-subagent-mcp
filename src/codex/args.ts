@@ -19,6 +19,8 @@ export interface CodexInvocation {
   ephemeral?: boolean;
   /** Codex MCP entries that point back at this server, switched off for this run. */
   disabledMcpServers?: string[];
+  /** Absolute path of a JSON Schema file for `--output-schema` (#28). */
+  outputSchemaPath?: string;
 }
 
 /**
@@ -33,6 +35,17 @@ function disableMcpServerArgs(names: string[] | undefined): string[] {
     "--config",
     `mcp_servers.${/^[A-Za-z0-9_-]+$/.test(name) ? name : JSON.stringify(name)}.enabled=false`,
   ]);
+}
+
+/**
+ * Constrains the final message to a JSON Schema (#28).
+ *
+ * Verified against codex-cli 0.154.0 and 0.159.2: `--output-schema <FILE>` is
+ * accepted by `exec` and by `exec resume`. The path is one argv element — the
+ * server creates it, absolute, and spawn never goes through a shell.
+ */
+function outputSchemaArgs(path: string | undefined): string[] {
+  return path === undefined ? [] : ["--output-schema", path];
 }
 
 /**
@@ -129,6 +142,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
 }
@@ -162,6 +176,7 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
 }
