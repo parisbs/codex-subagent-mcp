@@ -144,6 +144,8 @@ export interface DelegationResult {
   durationMs: number;
   exitCode: number | null;
   timedOut: boolean;
+  /** The run was stopped by a cancellation (a job cancel or the client aborting the call). */
+  cancelled: boolean;
   stderr: string;
 }
 

@@ -64,6 +64,8 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Where Codex keeps its session files. Defaults to CODEX_HOME, else ~/.codex. */
   codexHome?: string;
+  /** Grace between the polite termination request and the forced one. */
+  killGraceMs?: number;
 }
 
 export interface RunHandle {
@@ -366,6 +368,7 @@ export function runCodex(options: RunOptions): RunHandle {
         durationMs: Date.now() - startedAt,
         exitCode: code,
         timedOut,
+        cancelled: false,
         stderr: stderr.trim(),
       };
 
