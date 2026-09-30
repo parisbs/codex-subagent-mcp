@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { JobRegistry } from "../src/jobs.ts";
@@ -89,6 +91,9 @@ test("an in-band error on a schema turn with no answer reports that error, not o
 
 test("a schema file whose write and cleanup both fail reports the write failure and logs the cleanup", (t) => {
   const original = { writeFileSync: fs.writeFileSync, rmSync: fs.rmSync };
+  // A private parent: the mocked removal fails, so the directory mkdtemp made
+  // really stays behind, and it must not stay in the system's temporary directory.
+  const parent = fs.mkdtempSync(join(tmpdir(), "schema-edges-"));
   const logged: string[] = [];
   t.mock.method(console, "error", (...args: unknown[]) => logged.push(args.join(" ")));
   fs.writeFileSync = () => {
@@ -99,11 +104,12 @@ test("a schema file whose write and cleanup both fail reports the write failure 
   };
   syncBuiltinESMExports();
   try {
-    assert.throws(() => writeSchemaFile("{}"), /disk full while writing/);
+    assert.throws(() => writeSchemaFile("{}", parent), /disk full while writing/);
   } finally {
     fs.writeFileSync = original.writeFileSync;
     fs.rmSync = original.rmSync;
     syncBuiltinESMExports();
+    fs.rmSync(parent, { recursive: true, force: true });
   }
   assert.ok(logged.some((line) => /could not remove/.test(line) && /permission denied/.test(line)), logged.join("\n"));
 });
