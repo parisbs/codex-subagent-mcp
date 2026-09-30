@@ -5,9 +5,10 @@ and running them against **Codex CLI 0.159.2**. Each section names the version c
 other projects apply to those versions and may have changed since.
 
 The differences concern sandbox policy, model discovery, configuration, result formatting and CLI
-compatibility. This server separates model and effort, sets a sandbox default and ceiling, and
-reports what Codex actually applied. The alternatives below make different choices in these areas;
-two entry points did not run with the CLI version checked.
+compatibility. This server separates model and effort per call, sets a sandbox default and ceiling,
+and reports what Codex actually applied. The alternatives below make different choices in these
+areas; sub-agents-mcp also covers other CLIs, and two entry points did not run with the CLI version
+checked.
 
 ## codex-subagent-mcp 0.4.0
 
@@ -37,6 +38,24 @@ See the [tool reference](TOOLS.md) for parameter details.
   Codex CLI 0.159.2 lists.
 - Starts Codex with `--ignore-user-config --strict-config --disable hooks`, so the user's Codex
   configuration does not apply.
+
+## sub-agents-mcp 0.14.2
+
+A different scope rather than a Codex-specific server: it runs named agents defined in Markdown
+through one of several coding CLIs, Codex among them, chosen per server with `AGENT_TYPE`. Checked
+by reading the package and running the Codex argv it builds directly against Codex CLI 0.159.2.
+
+- Takes `agent`, `prompt`, `cwd` and `session_id` per call. Model, reasoning effort and permission
+  are set once for the server (`AGENT_MODEL`, `AGENT_EFFORT`, `AGENT_PERMISSION`).
+- Maps its permission levels to Codex flags: `read-only` to `-s read-only`, the default `safe-edit`
+  to `-s workspace-write -c approval_policy=never`, and `yolo` to
+  `--dangerously-bypass-approvals-and-sandbox`. By default, a Codex run can therefore write in its
+  working directory.
+- Spawns the CLI with `shell: false` and passes the prompt, with the agent definition prepended, as a
+  command-line argument; a prompt over the operating system's argument limit is reported as an
+  error.
+- Always adds `--skip-git-repo-check`.
+- Codex CLI 0.159.2 accepted its `read-only` and `safe-edit` argv, and a minimal run answered.
 
 ## codex-mcp-server 1.4.10
 
