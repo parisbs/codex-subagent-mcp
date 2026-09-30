@@ -16,10 +16,10 @@ export interface Scenario {
   descendantHoldMs?: number;
   /** Keep running after the last chunk until terminated, instead of exiting. */
   stayRunning?: boolean;
-  /** Ignore SIGTERM, so only SIGKILL ends the stand-in. POSIX only. */
+  /** Ignore SIGTERM and SIGINT, so only SIGKILL ends the stand-in. POSIX only. */
   ignoreSigterm?: boolean;
-  /** On SIGTERM, write these chunks and exit with this code. POSIX only. */
-  onSigterm?: { chunks?: string[]; exitCode?: number };
+  /** On SIGINT or SIGTERM, write these chunks and exit with this code. POSIX only. */
+  onStop?: { chunks?: string[]; exitCode?: number };
   /** A descendant started before any output; its pid is readable through `descendantPid`. */
   descendant?: {
     holdMs: number;

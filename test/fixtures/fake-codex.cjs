@@ -74,16 +74,19 @@ process.stdin.on("end", () => {
   // A CLI that does not stop when asked: only the forced stage can end it.
   if (scenario.ignoreSigterm) {
     process.on("SIGTERM", () => {});
+    process.on("SIGINT", () => {});
   }
 
   // How the stand-in answers a polite termination request, where the platform
   // has one: it reports once more and exits, as the real CLI may.
-  if (scenario.onSigterm) {
-    process.on("SIGTERM", () => {
-      process.stdout.write((scenario.onSigterm.chunks ?? []).join(""), () => {
-        process.exit(scenario.onSigterm.exitCode ?? 0);
+  if (scenario.onStop) {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      process.on(signal, () => {
+        process.stdout.write((scenario.onStop.chunks ?? []).join(""), () => {
+          process.exit(scenario.onStop.exitCode ?? 0);
+        });
       });
-    });
+    }
   }
 
   const chunks = scenario.chunks ?? [];

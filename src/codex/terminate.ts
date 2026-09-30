@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { win32 } from "node:path";
 
 /** The process a run started, as termination sees it. */
@@ -117,14 +117,92 @@ export interface DescendantDeps {
   ownPgid?: number;
 }
 
-export function parseProcessTable(_text: string): ProcessEntry[] {
-  throw new Error("not implemented");
+/** Parses `ps -A -o pid=,ppid=,pgid=`; lines that are not three integers are skipped. */
+export function parseProcessTable(text: string): ProcessEntry[] {
+  const entries: ProcessEntry[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length !== 3 || !fields.every((field) => /^\d+$/.test(field))) continue;
+    const [pid, ppid, pgid] = fields.map(Number) as [number, number, number];
+    entries.push({ pid, ppid, pgid });
+  }
+  return entries;
 }
 
-export function descendantGroups(_rootPid: number | undefined, _deps: DescendantDeps = {}): number[] {
-  throw new Error("not implemented");
+function readProcessTable(): ProcessEntry[] {
+  const result = spawnSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
+    shell: false,
+    encoding: "utf8",
+    timeout: 2000,
+  });
+  if (result.status !== 0 || typeof result.stdout !== "string") {
+    throw new Error(result.error?.message ?? `ps exited ${result.status}`);
+  }
+  return parseProcessTable(result.stdout);
 }
 
-export function signalGroups(_pgids: number[], _signal: NodeJS.Signals, _deps: TreeKillDeps = {}): void {
-  throw new Error("not implemented");
+function ownProcessGroup(table: ProcessEntry[]): number | undefined {
+  return table.find((entry) => entry.pid === process.pid)?.pgid;
+}
+
+/**
+ * The process groups of everything Codex started that left its group (#107).
+ *
+ * Verified against codex-cli 0.159.2: each shell command, and each helper
+ * (`codex-code-mode-host`, `node_repl`, plugin launchers), leads a process
+ * group of its own, so a signal to Codex's group never reaches it; on SIGTERM
+ * Codex exits and leaves the command running. The groups are read from the
+ * process table while Codex is alive, because once it exits its children are
+ * reparented and can no longer be told apart from anyone else's.
+ *
+ * Never records Codex's own group (signalled separately), this server's group,
+ * or init's. Returns nothing on Windows, where `taskkill /T` walks the tree, and
+ * nothing when the table cannot be read: termination then does what it did
+ * before, which is the most it could do.
+ */
+export function descendantGroups(rootPid: number | undefined, deps: DescendantDeps = {}): number[] {
+  if (rootPid === undefined || (deps.platform ?? process.platform) === "win32") return [];
+  let table: ProcessEntry[];
+  try {
+    table = (deps.listProcesses ?? readProcessTable)();
+  } catch {
+    return [];
+  }
+
+  const children = new Map<number, ProcessEntry[]>();
+  for (const entry of table) {
+    const siblings = children.get(entry.ppid) ?? [];
+    siblings.push(entry);
+    children.set(entry.ppid, siblings);
+  }
+  const rootGroup = table.find((entry) => entry.pid === rootPid)?.pgid ?? rootPid;
+  const excluded = new Set([rootGroup, deps.ownPgid ?? ownProcessGroup(table), 0, 1]);
+
+  const groups = new Set<number>();
+  const seen = new Set<number>([rootPid]);
+  const queue = [rootPid];
+  while (queue.length > 0) {
+    for (const child of children.get(queue.shift()!) ?? []) {
+      if (seen.has(child.pid)) continue;
+      seen.add(child.pid);
+      queue.push(child.pid);
+      if (!excluded.has(child.pgid)) groups.add(child.pgid);
+    }
+  }
+  return [...groups];
+}
+
+/**
+ * Signals each recorded process group. Only groups: a bare pid is never
+ * signalled here, and a group that has emptied is simply skipped.
+ */
+export function signalGroups(pgids: number[], signal: NodeJS.Signals, deps: TreeKillDeps = {}): void {
+  const kill = deps.kill ?? ((target, sig) => process.kill(target, sig));
+  for (const pgid of pgids) {
+    try {
+      kill(-pgid, signal);
+    } catch {
+      // Already gone.
+    }
+  }
 }

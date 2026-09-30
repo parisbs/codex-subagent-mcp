@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * A fake Codex CLI that ignores SIGTERM.
+ * A fake Codex CLI that ignores SIGTERM and SIGINT.
  *
- * Used to exercise the runner's timeout path: SIGTERM is sent first, and only a
- * process that refuses it proves the SIGKILL escalation actually happens.
+ * Used to exercise the runner's timeout path: a polite signal is sent first, and only
+ * a process that refuses it proves the SIGKILL escalation actually happens.
  */
 process.on("SIGTERM", () => {});
+process.on("SIGINT", () => {});
 
 process.stdout.write(`${JSON.stringify({ type: "thread.started", thread_id: "stub-thread" })}\n`);
 process.stdout.write(`${JSON.stringify({ type: "turn.started" })}\n`);

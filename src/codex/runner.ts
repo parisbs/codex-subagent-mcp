@@ -8,7 +8,7 @@ import type {
 } from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
-import { processGroupAlive, signalProcessTree } from "./terminate.js";
+import { descendantGroups, processGroupAlive, signalGroups, signalProcessTree } from "./terminate.js";
 import { compareApplied, readTurnContext } from "./rollout.js";
 import {
   JsonLinesParser,
@@ -27,8 +27,15 @@ import {
  * high-effort Codex run on a real repository can take many minutes. */
 export const DEFAULT_TIMEOUT_SECONDS = 1800;
 
-/** Grace period between SIGTERM and SIGKILL when a run is cut short. */
+/** Grace period between the polite request and SIGKILL when a run is cut short. */
 const KILL_GRACE_MS = 5000;
+
+/**
+ * The polite request. Verified against codex-cli 0.159.2: SIGINT makes Codex
+ * interrupt the turn and kill the commands it is running; SIGTERM makes it exit
+ * and leave them running (#107).
+ */
+const STOP_SIGNAL: NodeJS.Signals = "SIGINT";
 
 /**
  * How long a cancelled run may wait for the CLI to close its pipes after the
@@ -181,6 +188,8 @@ export function runCodex(options: RunOptions): RunHandle {
   let killDueAt: number | null = null;
   let settleTimer: NodeJS.Timeout | undefined;
   let closed = false;
+  /** Process groups Codex's commands run in, recorded while it was alive (#107). */
+  let commandGroups: number[] = [];
   let markExited: () => void = () => {};
   const exited = new Promise<void>((resolve) => {
     markExited = resolve;
@@ -283,11 +292,14 @@ export function runCodex(options: RunOptions): RunHandle {
     }
   };
 
+  const codexAlive = (): boolean => child.exitCode === null && child.signalCode === null;
+
   const signalTree = (signal: NodeJS.Signals): void =>
-    signalProcessTree(
-      { pid: child.pid, alive: child.exitCode === null && child.signalCode === null },
-      signal,
-    );
+    signalProcessTree({ pid: child.pid, alive: codexAlive() }, signal);
+
+  /** Whether anything this run started may still be running. */
+  const anythingLeft = (): boolean =>
+    processGroupAlive(child.pid) || commandGroups.some((group) => processGroupAlive(group));
 
   /**
    * Settles with what has been read so far. An exited child can leave
@@ -311,7 +323,10 @@ export function runCodex(options: RunOptions): RunHandle {
     killDueAt = dueAt;
     killTimer = setTimeout(() => {
       killDueAt = null;
+      // Commands Codex started during the grace are in the table only while it lives.
+      if (codexAlive()) commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid)])];
       signalTree("SIGKILL");
+      signalGroups(commandGroups, "SIGKILL");
       reportExitedIfDone();
     }, graceMs);
     killTimer.unref?.();
@@ -319,7 +334,7 @@ export function runCodex(options: RunOptions): RunHandle {
 
   /**
    * `exited` means nothing is left to stop: the pipes have closed and no forced
-   * stage is still owed to a group member that ignored SIGTERM. A shutdown that
+   * stage is still owed to a process that ignored the polite request. A shutdown that
    * exits on it must not skip that SIGKILL.
    */
   const reportExitedIfDone = (): void => {
@@ -340,11 +355,14 @@ export function runCodex(options: RunOptions): RunHandle {
     if (!settled && reason === "timeout" && !cancelled) timedOut = true;
     if (!settled && reason === "cancel" && !timedOut) cancelled = true;
     // Both the timeout and an abort can fire before the child actually exits.
-    // Only the first termination request sends SIGTERM. The group is signalled
+    // Only the first termination request sends the polite signal. The group is signalled
     // even when Codex itself has already exited: what it started may not have.
     if (!terminating) {
       terminating = true;
-      signalTree("SIGTERM");
+      // Recorded before the request: once Codex exits, its commands are
+      // reparented and can no longer be found.
+      if (codexAlive()) commandGroups = descendantGroups(child.pid);
+      signalTree(STOP_SIGNAL);
       if (reason === "cancel" && !settled) {
         // A cancelled run waits for the CLI's last words, but not forever.
         settleTimer = setTimeout(settleNow, graceMs + SETTLE_MARGIN_MS);
@@ -492,9 +510,9 @@ export function runCodex(options: RunOptions): RunHandle {
 
     child.on("close", (code) => {
       closed = true;
-      // A member of the group that ignored SIGTERM still gets SIGKILL when the
+      // A process that ignored the polite request still gets SIGKILL when the
       // grace runs out; an empty group's id may be reused and is left alone.
-      if (!(terminating && processGroupAlive(child.pid))) clearKill();
+      if (!(terminating && anythingLeft())) clearKill();
       finish(code);
       reportExitedIfDone();
     });

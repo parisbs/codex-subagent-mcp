@@ -162,8 +162,8 @@ test("AC-5 reports a cancelled run as cancelled and keeps its partial output", a
         jsonl({ type: "item.completed", item: { type: "agent_message", text: "Partial findings." } }),
       ],
       stayRunning: true,
-      // A CLI that answers SIGTERM by finishing cleanly must still not read as a success.
-      onSigterm: {
+      // A CLI that answers the stop request by finishing cleanly must still not read as a success.
+      onStop: {
         chunks: [jsonl({ type: "item.completed", item: { type: "agent_message", text: "Stopping." } })],
         exitCode: 0,
       },
@@ -173,6 +173,11 @@ test("AC-5 reports a cancelled run as cancelled and keeps its partial output", a
       assert.equal(outcome.cancelled, true);
       assert.match(describeFailure(outcome) ?? "", /cancel/i);
       assert.ok(outcome.agentMessages.includes("Partial findings."));
+      if (POSIX) {
+        // The stand-in answered the stop request, so its last words were read too.
+        assert.ok(outcome.agentMessages.includes("Stopping."));
+        assert.equal(outcome.exitCode, 0);
+      }
     },
   );
 });

@@ -154,6 +154,13 @@ never signalled once reaped, and Windows `taskkill /T /F` runs only while the le
 `test/termination.test.ts` covers this on all three platforms with a stand-in that starts a
 descendant.
 
+The real CLI does not keep its commands in that group (#107, verified on 0.159.2): each shell
+command and helper leads a process group of its own, and on SIGTERM Codex exits and leaves them
+running, while on SIGINT it kills them. So the polite signal is SIGINT, and the groups of Codex's
+descendants are read from `ps` while Codex is still alive and included in the forced stage. The
+stand-in reproduces this with `descendant.ownGroup`; a stand-in that skips it would pass while the
+real CLI leaks commands, which is how #96 shipped with this gap.
+
 Shutdown has a budget set by the host, not by this server: Claude Code 2.1.285 sends SIGINT,
 SIGTERM 100 ms later and SIGKILL about half a second after the first signal, and never closes stdin
 first. `src/shutdown.ts` fits inside it (SIGKILL at 250 ms, exit by 300 ms); do not reuse the

@@ -293,9 +293,11 @@ Returns the full output of a finished background delegation. Errors if the job i
 
 ## `codex_job_cancel`
 
-Terminates a running background delegation: Codex and the commands it started. On macOS and Linux
-they are asked to stop and forced after five seconds; on Windows the whole process tree is ended at
-once. A command that detached itself from that tree, such as a daemon it launched, is out of reach.
+Terminates a running background delegation: Codex and the commands it started, including those it
+runs in process groups of their own. On macOS and Linux Codex is asked to stop (SIGINT, which makes
+it interrupt the turn and end its commands) and everything is forced after five seconds; on Windows
+the whole process tree is ended at once. A process that had already detached itself from Codex
+before the cancel, such as a daemon it launched, is out of reach.
 The job's result keeps the output read until then and reports the run as cancelled.
 
 | Parameter | Type | Default | Description |
