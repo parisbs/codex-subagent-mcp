@@ -100,6 +100,22 @@ test("AC-1 rejects a package entry that is not this npm package over stdio", () 
   }
 });
 
+test("AC-1 (#117) requires exactly one npm package in server.json", () => {
+  const npmPackage = inputs().serverJson.packages as Record<string, unknown>[];
+  const twice = inputs({ serverJson: { packages: [npmPackage[0], { ...npmPackage[0], version: "9.9.9" }] } });
+  assert.match(checkRegistryMetadata(twice).join("\n"), /exactly one npm package/);
+  // Even when both entries agree: which one a client installs is then ambiguous.
+  const same = inputs({ serverJson: { packages: [npmPackage[0], npmPackage[0]] } });
+  assert.match(checkRegistryMetadata(same).join("\n"), /exactly one npm package/);
+});
+
+test("AC-2 (#117) rejects a server name the registry's schema would refuse", () => {
+  for (const name of ["io.github.parisbs/", "io.github.parisbs/has space", "io.github.parisbs/a/b"]) {
+    const problems = checkRegistryMetadata(inputs({ packageJson: { mcpName: name }, serverJson: { name } }));
+    assert.ok(problems.some((problem) => problem.includes(JSON.stringify(name))), `${name}: ${problems.join(" | ")}`);
+  }
+});
+
 test("AC-1 the committed package.json and server.json agree on the server's name", () => {
   const { packageJson, serverJson } = committed();
   assert.equal(typeof packageJson.mcpName, "string");

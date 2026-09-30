@@ -42,6 +42,8 @@ export interface RegistryInputs {
 
 const RELEASE_TAG = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const DESCRIPTION_LIMIT = 100;
+/** The schema's pattern for `name`: one slash, and something on each side of it. */
+const NAME_PATTERN = /^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -61,6 +63,8 @@ export function checkRegistryMetadata(inputs: RegistryInputs): string[] {
   const name = serverJson.name;
   if (typeof name !== "string" || !name.startsWith(SERVER_NAMESPACE)) {
     problems.push(`server.json name ${quote(name)} is not under the ${SERVER_NAMESPACE} namespace.`);
+  } else if (!NAME_PATTERN.test(name)) {
+    problems.push(`server.json name ${quote(name)} does not match the registry's pattern ${NAME_PATTERN.source}.`);
   }
   if (typeof packageJson.mcpName !== "string") {
     problems.push(`package.json has no mcpName; the registry needs it equal to server.json's name, ${quote(name)}.`);
@@ -74,10 +78,14 @@ export function checkRegistryMetadata(inputs: RegistryInputs): string[] {
   }
 
   const packages = Array.isArray(serverJson.packages) ? serverJson.packages.filter(isRecord) : [];
-  const npmPackage = packages.find((entry) => entry.registryType === "npm");
-  if (!npmPackage) {
-    problems.push("server.json lists no npm package.");
-  } else {
+  const npmPackages = packages.filter((entry) => entry.registryType === "npm");
+  // One entry, or which package a client installs is ambiguous and only the
+  // first would be checked below (#117).
+  if (npmPackages.length !== 1) {
+    problems.push(`server.json must list exactly one npm package; it lists ${npmPackages.length}.`);
+  }
+  const npmPackage = npmPackages[0];
+  if (npmPackage) {
     if (npmPackage.identifier !== packageJson.name) {
       problems.push(
         `server.json's npm package is ${quote(npmPackage.identifier)}, not this package, ${quote(packageJson.name)}.`,
