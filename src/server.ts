@@ -28,6 +28,7 @@ import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
+import { ActiveRuns } from "./runs.js";
 import { assemblePrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
 import { ThreadRegistry, type ThreadSettings } from "./threads.js";
@@ -551,12 +552,13 @@ const delegateShape = {
     .describe("blocking (default) waits and streams progress; background returns a job_id immediately."),
 };
 
-export function createServer(): { server: McpServer; jobs: JobRegistry } {
+export function createServer(): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {}, logging: {} } },
   );
   const jobs = new JobRegistry();
+  const runs = new ActiveRuns();
   const threads = new ThreadRegistry();
   const { config, errors: configErrors } = loadConfig();
 
@@ -1202,5 +1204,5 @@ export function createServer(): { server: McpServer; jobs: JobRegistry } {
     },
   );
 
-  return { server, jobs };
+  return { server, jobs, runs };
 }

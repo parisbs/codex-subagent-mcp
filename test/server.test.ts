@@ -52,8 +52,8 @@ const CATALOG = {
 let spawnedArgs: string[][] = [];
 let spawnedCwds: (string | undefined)[] = [];
 
-/** What the next spawned "Codex" writes to stdout and how it exits. */
-let nextRun: { events: unknown[]; exitCode: number } = { events: [], exitCode: 0 };
+/** What the next spawned "Codex" writes to stdout and how it exits; `hold` keeps it running. */
+let nextRun: { events: unknown[]; exitCode: number; hold?: boolean } = { events: [], exitCode: 0 };
 
 /** What `codex mcp list --json` reports. */
 let mcpList = "[]";
@@ -99,10 +99,11 @@ cp.spawn = ((_file: string, args: string[], options?: { cwd?: string }) => {
     signalCode: null,
     kill: () => true,
   });
-  const { events, exitCode } = nextRun;
+  const { events, exitCode, hold } = nextRun;
   setImmediate(() => {
     const stdout = child["stdout"] as PassThrough;
     for (const event of events) stdout.write(`${JSON.stringify(event)}\n`);
+    if (hold) return;
     child["exitCode"] = exitCode;
     // Let the stdout data events drain before close, as a real child would.
     setImmediate(() => child.emit("close", exitCode));
@@ -128,6 +129,7 @@ async function withServer<T>(
   body: (
     call: (name: string, args: unknown) => Promise<unknown>,
     codexHome: ReturnType<typeof createCodexHome>,
+    runs: ReturnType<typeof createServer>["runs"],
   ) => Promise<T>,
 ): Promise<T> {
   const keys = [
@@ -165,7 +167,7 @@ async function withServer<T>(
   resetDoctorCache();
   // An answered run by default: a clean exit with no answer is itself a failure.
   nextRun = { events: [{ type: "item.completed", item: { type: "agent_message", text: "Done." } }], exitCode: 0 };
-  const { server, jobs } = createServer();
+  const { server, jobs, runs } = createServer();
   const tools = server as unknown as ToolServer;
   const extra = { signal: new AbortController().signal, sendNotification: async () => {} };
 
@@ -176,7 +178,7 @@ async function withServer<T>(
   };
 
   try {
-    return await body(call, codexHome);
+    return await body(call, codexHome, runs);
   } finally {
     codexHome.dispose();
     jobs.cancelAll();
@@ -1220,5 +1222,28 @@ test("codex_recommend refuses while the environment is misconfigured", async () 
 
     assert.equal(result.isError, true);
     assert.match(result.content[0]?.text ?? "", /misconfigured/);
+  });
+});
+
+test("AC-4 tracks a blocking delegation so shutdown stops it like a background job", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call, _home, runs) => {
+    nextRun = { events: [{ type: "thread.started", thread_id: "held" }], exitCode: 0, hold: true };
+    const pending = call("codex_delegate", { prompt: "Take your time." });
+    for (let i = 0; i < 50 && runs.size === 0; i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(runs.size, 1, "the blocking delegation should be tracked while it runs");
+
+    await runs.stopAll({ graceMs: 50, deadlineMs: 100 });
+    const result = (await pending) as { content: { text: string }[]; isError?: boolean };
+    assert.equal(result.isError, true);
+    assert.match(result.content[0]!.text, /cancelled before it finished/);
+  });
+});
+
+test("tracks a background delegation until its process exits", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call, _home, runs) => {
+    await call("codex_delegate", { prompt: "In the background.", mode: "background" });
+    assert.equal(runs.size, 1);
+    for (let i = 0; i < 50 && runs.size > 0; i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(runs.size, 0, "a finished run should leave the registry");
   });
 });

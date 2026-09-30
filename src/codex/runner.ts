@@ -76,9 +76,18 @@ export interface RunOptions {
   killGraceMs?: number;
 }
 
+export interface CancelOptions {
+  /** Overrides the run's grace for this request; only ever shortens a pending escalation. */
+  graceMs?: number;
+}
+
 export interface RunHandle {
   result: Promise<DelegationResult>;
-  cancel: () => void;
+  cancel: (options?: CancelOptions) => void;
+  /** The Codex process, when one was started. */
+  pid: number | undefined;
+  /** Resolves once the Codex process has exited and its pipes have closed. */
+  exited: Promise<void>;
 }
 
 /**
@@ -103,6 +112,8 @@ export function runCodex(options: RunOptions): RunHandle {
     return {
       cancel: () => {},
       result: Promise.reject(new Error("Codex delegation was cancelled before it started.")),
+      pid: undefined,
+      exited: Promise.resolve(),
     };
   }
 
@@ -133,6 +144,8 @@ export function runCodex(options: RunOptions): RunHandle {
       result: Promise.reject(
         new Error(`Could not start the Codex CLI ("${codexPath}"): ${message}`),
       ),
+      pid: undefined,
+      exited: Promise.resolve(),
     };
   }
 
@@ -451,5 +464,5 @@ export function runCodex(options: RunOptions): RunHandle {
     signal?.removeEventListener("abort", onAbort);
   }
 
-  return { result, cancel: () => terminate("cancel") };
+  return { result, cancel: () => terminate("cancel"), pid: child.pid, exited: new Promise<void>(() => {}) };
 }
