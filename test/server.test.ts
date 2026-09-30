@@ -55,6 +55,9 @@ let spawnedCwds: (string | undefined)[] = [];
 /** What the next spawned "Codex" writes to stdout and how it exits; `hold` keeps it running. */
 let nextRun: { events: unknown[]; exitCode: number; hold?: boolean } = { events: [], exitCode: 0 };
 
+/** What `codex --version` prints. */
+let fakeVersion = "codex-cli 0.154.0";
+
 /** What `codex mcp list --json` reports. */
 let mcpList = "[]";
 let mcpListError: Error | undefined;
@@ -71,7 +74,7 @@ const fakeExecFile = async (
   options?: { cwd?: string },
 ): Promise<{ stdout: string; stderr: string }> => {
   probedCwds.push(options?.cwd);
-  if (args[0] === "--version") return { stdout: "codex-cli 0.154.0", stderr: "" };
+  if (args[0] === "--version") return { stdout: fakeVersion, stderr: "" };
   if (args[0] === "mcp") {
     mcpListCwds.push(options?.cwd);
     if (mcpListError) throw mcpListError;
@@ -156,6 +159,7 @@ async function withServer<T>(
 
   spawnedArgs = [];
   spawnedCwds = [];
+  fakeVersion = "codex-cli 0.154.0";
   probedCwds = [];
   catalogByCwd = new Map();
   mcpList = "[]";
@@ -1252,5 +1256,17 @@ test("tracks a background delegation until its process exits", async () => {
     assert.equal(runs.size, 1);
     for (let i = 0; i < 50 && runs.size > 0; i += 1) await new Promise((r) => setTimeout(r, 10));
     assert.equal(runs.size, 0, "a finished run should leave the registry");
+  });
+});
+
+test("AC-5 (#98) names a newer CLI in codex_doctor but not in a delegation's result", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    fakeVersion = "codex-cli 9.0.0";
+    const doctor = (await call("codex_doctor", { refresh: true })) as { content: { text: string }[]; isError?: boolean };
+    assert.notEqual(doctor.isError, true);
+    assert.match(doctor.content[0]!.text, /newer than/);
+
+    const delegated = (await call("codex_delegate", { prompt: "Anything." })) as { content: { text: string }[] };
+    assert.doesNotMatch(delegated.content[0]!.text, /newer than/);
   });
 });
