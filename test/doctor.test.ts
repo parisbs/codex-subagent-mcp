@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  NEWEST_VERIFIED_CODEX_VERSION,
   VERIFIED_CODEX_VERSION,
   classifyLoginFailure,
   compareVersions,
@@ -224,4 +225,14 @@ test("treats a sign-in probe that timed out as unknown but usable", () => {
 test("still reports a missing CLI before a config error", () => {
   const diagnosis = diagnose({ codexPath: "codex", version: null, authenticated: null, configError: "Error loading configuration: x" });
   assert.equal(diagnosis.status, "missing");
+});
+
+test("AC-5 (#98) says when the CLI is newer than the newest verified version, and stays usable", () => {
+  const newer = diagnose({ codexPath: "codex", version: "9.0.0", authenticated: true });
+  assert.equal(newer.status, "ok");
+  assert.equal(isUsable(newer), true);
+  assert.ok(newer.summary.includes(`newer than ${NEWEST_VERIFIED_CODEX_VERSION}`), newer.summary);
+
+  const verified = diagnose({ codexPath: "codex", version: NEWEST_VERIFIED_CODEX_VERSION, authenticated: true });
+  assert.doesNotMatch(verified.summary, /newer than/);
 });

@@ -26,7 +26,7 @@ export const VERIFIED_CODEX_VERSION = "0.154.0";
  * (`scripts/check-codex-compat.ts`) compares each new release against this and
  * says when a smoke test is due.
  */
-export const NEWEST_VERIFIED_CODEX_VERSION = "0.154.0";
+export const NEWEST_VERIFIED_CODEX_VERSION = "0.159.2";
 
 export type DiagnosisStatus =
   | "ok"
@@ -282,10 +282,17 @@ export function diagnose(input: {
     };
   }
 
+  // Said here and nowhere else: a note on every delegation would be ignored
+  // within days at the pace the CLI releases (#98).
+  const unverifiedNewer =
+    compareVersions(version, NEWEST_VERIFIED_CODEX_VERSION) > 0
+      ? ` It is newer than ${NEWEST_VERIFIED_CODEX_VERSION}, the newest version this server has been verified ` +
+        "against with a real run; delegations are expected to work, and a failure should be reported as an issue."
+      : "";
   return {
     ...base,
     status: "ok",
-    summary: `The Codex CLI ${version} is installed and signed in.`,
+    summary: `The Codex CLI ${version} is installed and signed in.${unverifiedNewer}`,
     remediation: [],
   };
 }

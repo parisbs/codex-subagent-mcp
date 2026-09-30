@@ -32,7 +32,8 @@ subcommands and between versions. Two traps already found the hard way, both cov
   `--sandbox`; it replaces the flag instead of accompanying it.
 
 - `--worktree` needs `--enable worktrees` on the same invocation: the feature is experimental and
-  off by default, and the flag alone exits with "requires the worktrees feature".
+  off by default in 0.154.0, and the flag alone exits with "requires the worktrees feature". It is
+  stable and on by default in 0.159.2; the flag stays for the 0.154.0 floor.
 
 - `--search` is an option of `codex`, not of `codex exec`: after the subcommand the CLI exits 2 with
   "unexpected argument '--search' found", so `web_search: true` never worked until it was replaced
@@ -58,7 +59,7 @@ subcommands and between versions. Two traps already found the hard way, both cov
 - What a run *applied* is not what it was *asked for*. The session file under
   `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
   turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and
-  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins a real 0.154.0 line), and
+  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins real 0.154.0 and 0.159.2 lines), and
   keep every failure path reporting "unconfirmed" rather than guessing. Never let a read of it change
   anything but the report.
 - Codex starts its MCP servers with almost no environment (`HOME`, `LOGNAME`, `PATH`, `SHELL`,

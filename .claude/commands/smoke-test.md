@@ -36,3 +36,8 @@ Verify the server works against the real Codex CLI. Delegations cost quota, so u
 
 Report each step as pass or fail with the actual evidence. Do not claim a step passed if you did
 not run it.
+
+When every step passes on a CLI newer than `NEWEST_VERIFIED_CODEX_VERSION` in `src/codex/doctor.ts`,
+move that constant to it in a pull request, together with a `turn_context` line and a `codex exec
+--json` stream captured from that version (home paths and timezone replaced, as in the existing
+fixtures) and the `exec`, `exec resume` and `exec review` help under `docs/reference/`.
