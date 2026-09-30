@@ -129,12 +129,24 @@ export function parseProcessTable(text: string): ProcessEntry[] {
   return entries;
 }
 
-/** Reads the whole process table with `ps`: synchronous, about 30 ms on macOS. */
-export function readProcessTable(): ProcessEntry[] {
-  const result = spawnSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
+export interface ProcessTableOptions {
+  /** Abandons the read after this long; a shutdown cannot wait for a slow `ps` (#116). */
+  timeoutMs?: number;
+  /** The listing command; replaceable so a test can stand in for a `ps` that hangs. */
+  command?: string;
+  args?: string[];
+}
+
+/**
+ * Reads the whole process table with `ps`: synchronous, about 30 ms on a
+ * developer Mac and about 130 ms on GitHub's macOS runner. Throws when the
+ * listing fails or does not answer within `timeoutMs`.
+ */
+export function readProcessTable(options: ProcessTableOptions = {}): ProcessEntry[] {
+  const result = spawnSync(options.command ?? "ps", options.args ?? ["-A", "-o", "pid=,ppid=,pgid="], {
     shell: false,
     encoding: "utf8",
-    timeout: 2000,
+    timeout: options.timeoutMs ?? 2000,
   });
   if (result.status !== 0 || typeof result.stdout !== "string") {
     throw new Error(result.error?.message ?? `ps exited ${result.status}`);
@@ -185,7 +197,7 @@ export function descendantGroups(rootPid: number | undefined, deps: DescendantDe
   if (rootPid === undefined || (deps.platform ?? process.platform) === "win32") return [];
   let table: ProcessEntry[];
   try {
-    table = (deps.listProcesses ?? readProcessTable)();
+    table = (deps.listProcesses ?? (() => readProcessTable()))();
   } catch {
     return [];
   }

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   descendantGroups,
   parseProcessTable,
+  readProcessTable,
   processGroupAlive,
   signalGroups,
   signalProcessTree,
@@ -132,4 +133,14 @@ test("AC-5 (#107) signals each recorded group, never a bare pid, and carries on 
   const { deps, kills } = recorder("linux", { groupKillFails: "ESRCH" });
   signalGroups([200, 300], "SIGKILL", deps);
   assert.deepEqual(kills, [[-200, "SIGKILL"], [-300, "SIGKILL"]]);
+});
+
+test("AC-3 (#116) abandons a process listing that does not answer within its timeout", () => {
+  // A stand-in for a `ps` that hangs: it would answer after five seconds.
+  const started = Date.now();
+  assert.throws(() =>
+    readProcessTable({ timeoutMs: 100, command: process.execPath, args: ["-e", "setTimeout(() => {}, 5000)"] }),
+  );
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 2000, `waited ${elapsed} ms for a listing bounded at 100 ms`);
 });

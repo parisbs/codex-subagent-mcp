@@ -12,6 +12,12 @@ import type { ActiveRuns } from "./runs.js";
  */
 export const SHUTDOWN_KILL_MS = 250;
 export const SHUTDOWN_DEADLINE_MS = 300;
+/**
+ * The most a shutdown waits for the process table (#116). Below
+ * `SHUTDOWN_KILL_MS`, so a read at its bound cannot delay SIGKILL; above the
+ * 130 ms `ps` took on GitHub's macOS runner, so an ordinary read completes.
+ */
+export const SHUTDOWN_TABLE_TIMEOUT_MS = 200;
 
 export interface ShutdownDeps {
   runs: Pick<ActiveRuns, "stopAll">;
@@ -37,7 +43,11 @@ export function createShutdown(deps: ShutdownDeps): (code: number) => void {
     started = true;
     // Shortens every run's escalation first, so the abort that marks background
     // jobs cancelled cannot arm the longer default grace.
-    const stopped = deps.runs.stopAll({ graceMs: SHUTDOWN_KILL_MS, deadlineMs: SHUTDOWN_DEADLINE_MS });
+    const stopped = deps.runs.stopAll({
+      graceMs: SHUTDOWN_KILL_MS,
+      deadlineMs: SHUTDOWN_DEADLINE_MS,
+      tableTimeoutMs: SHUTDOWN_TABLE_TIMEOUT_MS,
+    });
     deps.jobs.cancelAll();
     void stopped
       .then((unconfirmed) => {
