@@ -871,13 +871,17 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
             reasoningEffort: effort,
             controller,
             run: (hooks) =>
-              runCodex({
-                invocation,
-                prompt,
-                timeoutSeconds,
-                signal: controller.signal,
-                onEvent: hooks.onEvent,
-              }).result.then((result) => rememberThread(result, threadSettings)),
+              runs
+                .track(
+                  runCodex({
+                    invocation,
+                    prompt,
+                    timeoutSeconds,
+                    signal: controller.signal,
+                    onEvent: hooks.onEvent,
+                  }),
+                )
+                .result.then((result) => rememberThread(result, threadSettings)),
           });
 
           return textResult(
@@ -906,13 +910,16 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
             });
         };
 
-        const handle = runCodex({
-          invocation,
-          prompt,
-          timeoutSeconds,
-          onEvent,
-          signal: extra.signal,
-        });
+        // Tracked so shutdown stops it too, not only background jobs (#40).
+        const handle = runs.track(
+          runCodex({
+            invocation,
+            prompt,
+            timeoutSeconds,
+            onEvent,
+            signal: extra.signal,
+          }),
+        );
         const result = rememberThread(await handle.result, threadSettings);
         return textResult(renderResult(result, notes, config), isFailure(result));
       } catch (error) {
@@ -1072,7 +1079,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         const progressToken = extra._meta?.progressToken;
         let progress = 0;
 
-        const handle = runCodex({
+        const handle = runs.track(runCodex({
           invocation,
           // The contract is already in the session's history; a follow-up only
           // needs the new instruction.
@@ -1089,7 +1096,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
               })
               .catch(() => {});
           },
-        });
+        }));
 
         const result = rememberThread(await handle.result, {
           model,

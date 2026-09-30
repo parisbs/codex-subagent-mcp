@@ -145,6 +145,11 @@ never signalled once reaped, and Windows `taskkill /T /F` runs only while the le
 `test/termination.test.ts` covers this on all three platforms with a stand-in that starts a
 descendant.
 
+Shutdown has a budget set by the host, not by this server: Claude Code 2.1.285 sends SIGINT,
+SIGTERM 100 ms later and SIGKILL about half a second after the first signal, and never closes stdin
+first. `src/shutdown.ts` fits inside it (SIGKILL at 250 ms, exit by 300 ms); do not reuse the
+five-second cancellation grace there. Re-measure with a probe MCP server when the host changes.
+
 ## Testing the server by hand
 
 Build first, then drive it with an MCP stdio client pointed at `node build/index.js`. Useful probes:
