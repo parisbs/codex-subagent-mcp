@@ -1,4 +1,5 @@
 import type { RunHandle } from "./codex/runner.js";
+import { readOnce, readProcessTable, type ProcessEntry } from "./codex/terminate.js";
 
 export interface StopOptions {
   /** Grace between SIGTERM and SIGKILL for every run. */
@@ -16,8 +17,18 @@ export interface StopOptions {
  * settles: a timed-out run settles at once and can still be bringing its
  * processes down.
  */
+export interface ActiveRunsOptions {
+  /** Reads the process table; replaceable so tests can make it slow. */
+  readProcessTable?: () => ProcessEntry[];
+}
+
 export class ActiveRuns {
   private readonly runs = new Set<RunHandle>();
+  private readonly readProcessTable: () => ProcessEntry[];
+
+  constructor(options: ActiveRunsOptions = {}) {
+    this.readProcessTable = options.readProcessTable ?? readProcessTable;
+  }
 
   track(handle: RunHandle): RunHandle {
     this.runs.add(handle);
@@ -45,7 +56,13 @@ export class ActiveRuns {
     const deadline = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, deadlineMs);
     });
-    for (const handle of pending) handle.cancel({ graceMs });
+    // Every run's forced stage is due at the same instant, counted like the
+    // deadline from the request, and each stage reads the process table once
+    // for all of them. Counted per run, the reads (about 30 ms each on macOS)
+    // pushed a later run's SIGKILL past the exit, so it was never sent (#112).
+    const killAt = Date.now() + graceMs;
+    const processTables = { polite: readOnce(this.readProcessTable), forced: readOnce(this.readProcessTable) };
+    for (const handle of pending) handle.cancel({ graceMs, killAt, processTables });
 
     const stopped = new Set<RunHandle>();
     await Promise.race([
