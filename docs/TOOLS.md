@@ -277,13 +277,16 @@ every known job.
 | `job_id` | string | — | Omit to list all jobs. |
 | `include_activity` | boolean | `false` | Include the recent progress log. |
 
-States: `running`, `completed`, `failed`, `cancelled`.
+States: `running`, `completed`, `failed`, `cancelled`. A job is `cancelled` as soon as
+`codex_job_cancel` returns, but Codex may take up to the five-second grace to stop; until it has,
+the status says it is still stopping and does not point at `codex_job_result`.
 
 ---
 
 ## `codex_job_result`
 
-Returns the full output of a finished background delegation. Errors if the job is still running.
+Returns the full output of a finished background delegation. Errors if the job is still running,
+or cancelled and still stopping — in which case the partial output follows once Codex has stopped.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |

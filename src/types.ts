@@ -162,5 +162,7 @@ export interface JobSnapshot {
   threadId: string | null;
   commandCount: number;
   lastActivity: string;
+  /** Cancelled, but Codex has not stopped yet, so the partial result is not ready (#108). */
+  stopping: boolean;
   error?: string;
 }

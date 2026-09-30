@@ -100,3 +100,85 @@ test("keeps at most the configured number of finished jobs, dropping the oldest"
   assert.equal(registry.snapshot(third).state, "failed");
 });
 
+
+/** A job whose run settles only when the test says so, like a Codex process still stopping. */
+function slowToStop(registry: JobRegistry) {
+  const controller = new AbortController();
+  let finish: () => void = () => {};
+  const jobId = registry.start({
+    model: null,
+    reasoningEffort: null,
+    controller,
+    run: () =>
+      new Promise((resolve) => {
+        finish = () =>
+          resolve({
+            finalMessage: "Partial findings.",
+            threadId: "t",
+            model: null,
+            reasoningEffort: null,
+            sandbox: "read-only",
+            workingDir: "/repo",
+            applied: {
+              source: null,
+              reason: "test",
+              model: { requested: null, applied: null, state: "unconfirmed" },
+              reasoningEffort: { requested: null, applied: null, state: "unconfirmed" },
+              sandbox: { requested: "read-only", applied: null, state: "unconfirmed" },
+              workingDir: { requested: "/repo", applied: null, state: "unconfirmed" },
+              approvalPolicy: null,
+            },
+            commandCount: 0,
+            commands: [],
+            fileChanges: [],
+            agentMessages: ["Partial findings."],
+            errors: [],
+            warnings: [],
+            turnFailure: null,
+            turnUsage: null,
+            threadUsage: null,
+            durationMs: 1,
+            exitCode: null,
+            timedOut: false,
+            cancelled: true,
+            stderr: "",
+          });
+      }),
+  });
+  return { jobId, finish: () => finish() };
+}
+
+test("AC-1 (#108) reports a cancelled job as stopping until its run settles", async () => {
+  const registry = new JobRegistry();
+  const { jobId, finish } = slowToStop(registry);
+  registry.cancel(jobId);
+  assert.equal(registry.snapshot(jobId).state, "cancelled");
+  assert.equal(registry.snapshot(jobId).stopping, true);
+
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(registry.snapshot(jobId).stopping, false);
+});
+
+test("AC-2 (#108) says the partial result is coming, not 'unknown error', while a job stops", () => {
+  const registry = new JobRegistry();
+  const { jobId } = slowToStop(registry);
+  registry.cancel(jobId);
+  assert.throws(() => registry.result(jobId), (error: Error) => {
+    assert.doesNotMatch(error.message, /unknown error/);
+    assert.match(error.message, /still stopping/);
+    return true;
+  });
+});
+
+test("AC-3 (#108) returns the partial result, reported as cancelled, once the job has stopped", async () => {
+  const registry = new JobRegistry();
+  const { jobId, finish } = slowToStop(registry);
+  registry.cancel(jobId);
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  const result = registry.result(jobId);
+  assert.equal(result.finalMessage, "Partial findings.");
+  assert.equal(result.cancelled, true);
+  assert.equal(registry.snapshot(jobId).state, "cancelled");
+});

@@ -160,6 +160,9 @@ export class JobRegistry {
       threadId: job.threadId,
       commandCount: job.commandCount,
       lastActivity: job.activity.at(-1) ?? "No activity reported yet.",
+      // `cancel()` marks the state at once; the run settles only when Codex has
+      // stopped, up to its grace period later.
+      stopping: job.state === "cancelled" && job.finishedAtMs === null,
     };
     if (job.error) snapshot.error = job.error;
     return snapshot;
@@ -176,6 +179,12 @@ export class JobRegistry {
     if (job.state === "running") {
       throw new Error(
         `Job ${jobId} is still running. Poll codex_job_status before reading the result.`,
+      );
+    }
+    if (!job.result && job.finishedAtMs === null) {
+      throw new Error(
+        `Job ${jobId} was cancelled and Codex is still stopping. Its partial result will be ` +
+          "available once it has stopped, within a few seconds; poll codex_job_status until it no longer says stopping.",
       );
     }
     if (!job.result) {
