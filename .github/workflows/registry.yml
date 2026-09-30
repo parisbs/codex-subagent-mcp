@@ -1,0 +1,72 @@
+name: Publish to the MCP Registry
+
+# Run by hand, right after approving a staged npm release (#97). The registry
+# hosts metadata only and checks it against what npm serves, so this cannot run
+# before the approval, and approval is a step on npmjs.com that no workflow can
+# wait for. Re-running it for the current version is safe: that is also how the
+# entry comes back after a registry data reset while the registry is in preview.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Released version tag to list (for example, v0.4.0)
+        required: true
+        type: string
+
+concurrency:
+  group: registry-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish server.json
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # `mcp-publisher login github-oidc` proves the io.github.parisbs namespace
+      # with the job's OIDC token; no secret is stored.
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      # The checks come from this workflow's own commit, and the metadata from
+      # the tag: a tag cut before the checks existed must still be checked.
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: release
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      # Nothing below contacts the registry until npm serves this version with
+      # the expected mcpName: the registry would refuse it anyway, with a less
+      # useful message.
+      - name: Check the release is live on npm with its mcpName
+        run: node --import tsx scripts/check-registry.ts published --root release --tag "$RELEASE_TAG"
+
+      - name: Check the registry metadata agrees with the tag
+        run: node --import tsx scripts/check-registry.ts metadata --root release --tag "$RELEASE_TAG"
+
+      - name: Download mcp-publisher and verify its checksum
+        run: |
+          PUBLISHER=$(node --import tsx scripts/check-registry.ts install-publisher "$RUNNER_TEMP/mcp-publisher")
+          echo "PUBLISHER=$PUBLISHER" >> "$GITHUB_ENV"
+
+      - name: Validate server.json
+        working-directory: release
+        run: '"$PUBLISHER" validate server.json'
+
+      - name: Log in to the registry with GitHub OIDC
+        working-directory: release
+        run: '"$PUBLISHER" login github-oidc'
+
+      - name: Publish server.json
+        working-directory: release
+        run: '"$PUBLISHER" publish server.json'

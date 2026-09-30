@@ -139,3 +139,12 @@ jobs:
           npm init -y > /dev/null
           npm install "$RUNNER_TEMP/$TARBALL"
           node "$GITHUB_WORKSPACE/scripts/check-startup.mjs" ./node_modules/.bin/codex-subagent
+
+      # The registry validates server.json itself, through its API (#97), so this
+      # step needs the registry to be up. The publisher is the one the release
+      # uses, and its download is checked against the pinned SHA-256 before it
+      # runs, which also exercises the pin on every pull request.
+      - name: Validate server.json with the pinned mcp-publisher
+        run: |
+          PUBLISHER=$(node --import tsx scripts/check-registry.ts install-publisher "$RUNNER_TEMP/mcp-publisher")
+          "$PUBLISHER" validate server.json

@@ -56,42 +56,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify release versions agree
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from "node:fs";
-
-          const tag = process.env.RELEASE_TAG;
-          if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(tag)) {
-            console.error(`Invalid release tag "${tag}"; expected v<major>.<minor>.<patch>.`);
-            process.exit(1);
-          }
-
-          const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
-          const serverSource = readFileSync("src/server.ts", "utf8");
-          const serverMatch = serverSource.match(
-            /export const SERVER_VERSION\s*=\s*["']([^"']+)["']/,
-          );
-          if (!serverMatch) {
-            console.error("Could not find the exported SERVER_VERSION constant in src/server.ts.");
-            process.exit(1);
-          }
-
-          const tagVersion = tag.slice(1);
-          const serverVersion = serverMatch[1];
-          if (tagVersion !== packageVersion || tagVersion !== serverVersion) {
-            console.error([
-              "Release version mismatch:",
-              `  git tag:            ${tag}`,
-              `  package.json:       ${packageVersion}`,
-              `  src/server.ts:      ${serverVersion}`,
-            ].join("\n"));
-            process.exit(1);
-          }
-
-          console.log(`Verified release version ${tagVersion}.`);
-          NODE
+      # The tag, package.json, SERVER_VERSION and server.json must name one
+      # version, and server.json must describe this package, before anything is
+      # staged: the registry lists a release by that metadata (#97).
+      - name: Verify release versions and registry metadata agree
+        run: node --import tsx scripts/check-registry.ts metadata --tag "$RELEASE_TAG"
 
       # Trusted publishing exchanges GitHub's OIDC token for a short-lived npm
       # credential. Token fallback (not the default): create an NPM_TOKEN secret

@@ -205,6 +205,13 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
   squash-merged into `main` like any other branch, and the annotated tag `vX.Y.Z` is what records
   the published state; pushing the tag runs `.github/workflows/publish.yml`, which stages the
   release with npm provenance for a maintainer to approve.
+- **The MCP Registry entry follows the npm approval, by hand.** Once the staged release is live, run
+  `.github/workflows/registry.yml` with the tag. The registry checks `server.json` against the
+  package npm serves, so it refuses a version that is only staged or whose `package.json` lacks
+  `mcpName`, and the workflow checks both first. `server.json` must list every variable in the
+  README's configuration table (`test/registry.test.ts`). The `mcp-publisher` version and its SHA-256
+  are pinned in `scripts/check-registry.ts`; "invalid audience" from the registry means that pin is
+  due, and both values move together.
 
 ## Workflow
 

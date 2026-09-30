@@ -1,0 +1,73 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.parisbs/codex-subagent-mcp",
+  "title": "Codex Subagent",
+  "description": "Delegate coding tasks to the OpenAI Codex CLI, installed separately, with explicit model and effort.",
+  "repository": {
+    "url": "https://github.com/parisbs/codex-subagent-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/parisbs/codex-subagent-mcp#readme",
+  "version": "0.3.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "codex-subagent-mcp",
+      "version": "0.3.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CODEX_SUBAGENT_DEFAULT_MODEL",
+          "description": "Model used when a call names none; without it the server asks which model to use.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_DEFAULT_EFFORT",
+          "description": "Reasoning effort used when a call specifies none.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_ALLOWED_MODELS",
+          "description": "Comma-separated allow-list of model slugs; anything else is refused.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_DEFAULT_SANDBOX",
+          "description": "Sandbox used when a call specifies none. Defaults to read-only and cannot exceed the ceiling.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_MAX_SANDBOX",
+          "description": "Ceiling on what a delegation may do. Defaults to workspace-write; danger-full-access must be set explicitly.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_MAX_EFFORT",
+          "description": "Ceiling on reasoning effort.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_BIN",
+          "description": "Path to the Codex executable, if it is not codex on PATH. On Windows it must be codex.exe, not a .cmd shim.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
