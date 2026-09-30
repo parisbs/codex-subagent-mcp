@@ -139,6 +139,12 @@ different reason found in CI: on Windows that run settled in 89 ms with `timedOu
 `close` arrives as soon as the parent exits even when a descendant inherited its stdout — the stuck
 pipe the test needs does not occur. Both are platform differences, not gaps.
 
+Termination targets the process tree, not the Codex process (`src/codex/terminate.ts`): on POSIX the
+CLI leads its own process group and the group is signalled, even after Codex exits; a bare pid is
+never signalled once reaped, and Windows `taskkill /T /F` runs only while the leader lives.
+`test/termination.test.ts` covers this on all three platforms with a stand-in that starts a
+descendant.
+
 ## Testing the server by hand
 
 Build first, then drive it with an MCP stdio client pointed at `node build/index.js`. Useful probes:

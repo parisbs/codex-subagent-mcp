@@ -319,6 +319,8 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
       "The delegation was terminated because it exceeded its timeout. Partial output follows.",
       "",
     );
+  } else if (result.cancelled) {
+    lines.push("The delegation was cancelled before it finished. Partial output follows.", "");
   } else if (result.exitCode !== 0) {
     lines.push(
       `Codex exited with code ${result.exitCode}.` +
