@@ -1233,7 +1233,14 @@ test("AC-4 tracks a blocking delegation so shutdown stops it like a background j
     assert.equal(runs.size, 1, "the blocking delegation should be tracked while it runs");
 
     await runs.stopAll({ graceMs: 50, deadlineMs: 100 });
-    const result = (await pending) as { content: { text: string }[]; isError?: boolean };
+    // The fake child owns no OS handle and the runner's settle timer is unref'd,
+    // as it should be: a real child keeps the loop alive. Node 22's test runner
+    // cancels a test whose loop empties, so hold it open while the run settles.
+    const keepAlive = setInterval(() => {}, 100);
+    const result = (await pending.finally(() => clearInterval(keepAlive))) as {
+      content: { text: string }[];
+      isError?: boolean;
+    };
     assert.equal(result.isError, true);
     assert.match(result.content[0]!.text, /cancelled before it finished/);
   });
