@@ -162,8 +162,8 @@ test("AC-5 reports a cancelled run as cancelled and keeps its partial output", a
         jsonl({ type: "item.completed", item: { type: "agent_message", text: "Partial findings." } }),
       ],
       stayRunning: true,
-      // A CLI that answers SIGTERM by finishing cleanly must still not read as a success.
-      onSigterm: {
+      // A CLI that answers the stop request by finishing cleanly must still not read as a success.
+      onStop: {
         chunks: [jsonl({ type: "item.completed", item: { type: "agent_message", text: "Stopping." } })],
         exitCode: 0,
       },
@@ -173,6 +173,57 @@ test("AC-5 reports a cancelled run as cancelled and keeps its partial output", a
       assert.equal(outcome.cancelled, true);
       assert.match(describeFailure(outcome) ?? "", /cancel/i);
       assert.ok(outcome.agentMessages.includes("Partial findings."));
+      if (POSIX) {
+        // The stand-in answered the stop request, so its last words were read too.
+        assert.ok(outcome.agentMessages.includes("Stopping."));
+        assert.equal(outcome.exitCode, 0);
+      }
     },
   );
+});
+
+// #107: what the real CLI does, reproduced — a command in a process group of
+// its own, which a signal to Codex's group never reaches.
+
+test("AC-4 (#107) asks Codex to stop with SIGINT first", { skip: POSIX ? false : "no signals on Windows" }, async () => {
+  const fake = createFakeCodex({ chunks: [THREAD], stayRunning: true, recordSignals: true });
+  try {
+    let handle: RunHandle | undefined;
+    handle = runCodex({
+      invocation: { kind: "exec", sandbox: "read-only", workingDir: fake.workingDir },
+      prompt: "irrelevant",
+      codexPath: fake.codexPath,
+      codexHome: fake.workingDir,
+      killGraceMs: GRACE_MS,
+      onEvent: (event) => { if (event.type === "thread.started") handle?.cancel(); },
+    });
+    await settleWithin(handle.result, GRACE_MS + SETTLE_SLACK_MS + 1000);
+    assert.equal(fake.signals()[0], "SIGINT");
+  } finally {
+    await sleep(100);
+    fake.dispose();
+  }
+});
+
+const OWN_GROUP_COMMAND: Scenario = {
+  chunks: [THREAD],
+  stayRunning: true,
+  descendant: { holdMs: 20_000, holdPipes: false, ignoreSigterm: POSIX, ownGroup: true },
+};
+
+test("AC-1 (#107) stops a command Codex started in its own process group when the run is cancelled", async () => {
+  await runAndStop(OWN_GROUP_COMMAND, { cancelOnThread: true }, async (_outcome, pid) => {
+    assert.notEqual(pid, null);
+    await sleep(GRACE_MS + 500);
+    assert.equal(isAlive(pid!), false, `command ${pid} outlived the cancelled run`);
+  });
+});
+
+test("AC-2 (#107) stops a command Codex started in its own process group when the run times out", async () => {
+  await runAndStop(OWN_GROUP_COMMAND, { timeoutSeconds: 1 }, async (outcome, pid) => {
+    assert.equal(outcome.timedOut, true);
+    assert.notEqual(pid, null);
+    await sleep(GRACE_MS + 500);
+    assert.equal(isAlive(pid!), false, `command ${pid} outlived the timed-out run`);
+  });
 });

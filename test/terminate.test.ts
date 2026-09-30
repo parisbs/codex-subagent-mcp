@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { processGroupAlive, signalProcessTree, type TreeKillDeps } from "../src/codex/terminate.ts";
+import {
+  descendantGroups,
+  parseProcessTable,
+  processGroupAlive,
+  signalGroups,
+  signalProcessTree,
+  type TreeKillDeps,
+} from "../src/codex/terminate.ts";
 
 /** Records every kill and taskkill instead of performing it. */
 function recorder(platform: NodeJS.Platform, options: { groupKillFails?: string } = {}) {
@@ -77,4 +84,52 @@ test("reports whether a process group still has members", () => {
 
   assert.equal(processGroupAlive(4242, recorder("win32").deps), false);
   assert.equal(processGroupAlive(undefined, recorder("linux").deps), false);
+});
+
+// #107: the real CLI starts each command as the leader of a process group of
+// its own, so the groups have to be found in the process table.
+
+test("parses the process table ps prints", () => {
+  assert.deepEqual(parseProcessTable("  100     1   100\n  200   100   200\n\n bad line\n"), [
+    { pid: 100, ppid: 1, pgid: 100 },
+    { pid: 200, ppid: 100, pgid: 200 },
+  ]);
+});
+
+test("AC-5 (#107) records every descendant's group, but not Codex's own, the server's, or init's", () => {
+  const table = [
+    { pid: 100, ppid: 50, pgid: 100 }, // Codex, leading its own group
+    { pid: 200, ppid: 100, pgid: 200 }, // a command in a group of its own
+    { pid: 201, ppid: 100, pgid: 100 }, // a helper that stayed in Codex's group
+    { pid: 300, ppid: 200, pgid: 300 }, // a grandchild in yet another group
+    { pid: 301, ppid: 200, pgid: 200 }, // a grandchild in its parent's group
+    { pid: 500, ppid: 100, pgid: 7 }, // somehow in the server's group
+    { pid: 600, ppid: 100, pgid: 1 }, // somehow in init's group
+    { pid: 400, ppid: 1, pgid: 400 }, // unrelated
+  ];
+  const groups = descendantGroups(100, { platform: "darwin", listProcesses: () => table, ownPgid: 7 });
+  assert.deepEqual([...groups].sort((a, b) => a - b), [200, 300]);
+});
+
+test("AC-6 (#107) records nothing when the process table cannot be read", () => {
+  const groups = descendantGroups(100, {
+    platform: "linux",
+    listProcesses: () => {
+      throw new Error("ps: not found");
+    },
+  });
+  assert.deepEqual(groups, []);
+});
+
+test("records nothing on Windows, where taskkill walks the tree instead", () => {
+  let listed = false;
+  const groups = descendantGroups(100, { platform: "win32", listProcesses: () => ((listed = true), []) });
+  assert.deepEqual(groups, []);
+  assert.equal(listed, false);
+});
+
+test("AC-5 (#107) signals each recorded group, never a bare pid, and carries on past a gone one", () => {
+  const { deps, kills } = recorder("linux", { groupKillFails: "ESRCH" });
+  signalGroups([200, 300], "SIGKILL", deps);
+  assert.deepEqual(kills, [[-200, "SIGKILL"], [-300, "SIGKILL"]]);
 });
