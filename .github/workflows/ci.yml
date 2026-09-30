@@ -140,6 +140,21 @@ jobs:
           npm install "$RUNNER_TEMP/$TARBALL"
           node "$GITHUB_WORKSPACE/scripts/check-startup.mjs" ./node_modules/.bin/codex-subagent
 
+      # The registry matches its entry against the package.json npm serves, which
+      # is the packed one, not the repository's (#117).
+      - name: Check the installed package carries the registry name
+        run: |
+          node -e '
+            const fs = require("fs");
+            const packed = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            if (packed.mcpName !== server.name) {
+              console.error(`Installed mcpName ${JSON.stringify(packed.mcpName)} differs from server.json name ${JSON.stringify(server.name)}.`);
+              process.exit(1);
+            }
+            console.log(`Installed package carries mcpName ${packed.mcpName}.`);
+          ' "$RUNNER_TEMP/consumer/node_modules/codex-subagent-mcp/package.json"
+
       # The registry validates server.json itself, through its API (#97), so this
       # step needs the registry to be up. The publisher is the one the release
       # uses, and its download is checked against the pinned SHA-256 before it
