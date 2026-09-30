@@ -123,7 +123,9 @@ jobs:
             const required = ['build/index.js', 'package.json', 'README.md', 'LICENSE'];
             const missing = required.filter(f => !files.includes(f));
             if (missing.length) { console.error('Missing from the tarball:', missing); process.exit(1); }
-            const leaked = files.filter(f => f.startsWith('test/') || f.startsWith('src/') || f === '.mcp.json');
+            // A command-line server, not a library: type declarations and source maps
+            // were 42% of the package and nothing reads them.
+            const leaked = files.filter(f => f.startsWith('test/') || f.startsWith('src/') || f === '.mcp.json' || f.endsWith('.map') || f.endsWith('.d.ts'));
             if (leaked.length) { console.error('Should not be published:', leaked); process.exit(1); }
             console.log('Tarball contains', files.length, 'files; all required entries present.');
           "
