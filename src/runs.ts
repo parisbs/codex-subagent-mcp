@@ -36,15 +36,21 @@ export class ActiveRuns {
   async stopAll({ graceMs, deadlineMs }: StopOptions): Promise<number[]> {
     const pending = [...this.runs];
     if (pending.length === 0) return [];
+
+    // The deadline counts from the request, not from after the cancels: on
+    // Windows each cancel spawns taskkill, which blocks for tens of
+    // milliseconds, and CI measured an exit at 373 ms with two runs when the
+    // clock started late.
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, deadlineMs);
+    });
     for (const handle of pending) handle.cancel({ graceMs });
 
     const stopped = new Set<RunHandle>();
-    let timer: NodeJS.Timeout | undefined;
     await Promise.race([
       Promise.all(pending.map((handle) => handle.exited.then(() => stopped.add(handle)))),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, deadlineMs);
-      }),
+      deadline,
     ]);
     clearTimeout(timer);
 
