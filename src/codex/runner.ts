@@ -9,7 +9,13 @@ import type {
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
 import { parseStructuredResult, writeSchemaFile, type SchemaFile } from "./schema.js";
-import { descendantGroups, processGroupAlive, signalGroups, signalProcessTree } from "./terminate.js";
+import {
+  descendantGroups,
+  processGroupAlive,
+  signalGroups,
+  signalProcessTree,
+  type ProcessEntry,
+} from "./terminate.js";
 import { compareApplied, readTurnContext } from "./rollout.js";
 import {
   JsonLinesParser,
@@ -91,6 +97,15 @@ export interface RunOptions {
 export interface CancelOptions {
   /** Overrides the run's grace for this request; only ever shortens a pending escalation. */
   graceMs?: number;
+  /**
+   * When the forced stage is due, as an epoch time in milliseconds, instead of
+   * `graceMs` after this request. Shutdown gives every run the same instant, so
+   * the time spent stopping one run cannot push another's SIGKILL past the
+   * server's exit (#112).
+   */
+  killAt?: number;
+  /** Process-table readers shared by runs stopped together, one per stage (#112). */
+  processTables?: { polite: () => ProcessEntry[]; forced: () => ProcessEntry[] };
 }
 
 export interface RunHandle {
@@ -348,19 +363,20 @@ export function runCodex(options: RunOptions): RunHandle {
    * Schedules the forced stage. A later request can only bring it forward: the
    * server's shutdown has a fraction of a second where a cancellation has five.
    */
-  const armKill = (graceMs: number): void => {
-    const dueAt = Date.now() + graceMs;
+  const armKill = (dueAt: number, listProcesses?: () => ProcessEntry[]): void => {
     if (killDueAt !== null && killDueAt <= dueAt) return;
     clearTimeout(killTimer);
     killDueAt = dueAt;
     killTimer = setTimeout(() => {
       killDueAt = null;
       // Commands Codex started during the grace are in the table only while it lives.
-      if (codexAlive()) commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid)])];
+      if (codexAlive()) {
+        commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid, { listProcesses })])];
+      }
       signalTree("SIGKILL");
       signalGroups(commandGroups, "SIGKILL");
       reportExitedIfDone();
-    }, graceMs);
+    }, Math.max(0, dueAt - Date.now()));
     killTimer.unref?.();
   };
 
@@ -384,7 +400,7 @@ export function runCodex(options: RunOptions): RunHandle {
     killDueAt = null;
   };
 
-  const terminate = (reason: "timeout" | "cancel", graceMs = killGraceMs): void => {
+  const terminate = (reason: "timeout" | "cancel", graceMs = killGraceMs, options: CancelOptions = {}): void => {
     // Once the pipes have closed there is nothing left to stop. A result that
     // settled earlier, at its timeout, can still have processes to bring down.
     if (closed) return;
@@ -399,7 +415,7 @@ export function runCodex(options: RunOptions): RunHandle {
       terminating = true;
       // Recorded before the request: once Codex exits, its commands are
       // reparented and can no longer be found.
-      if (codexAlive()) commandGroups = descendantGroups(child.pid);
+      if (codexAlive()) commandGroups = descendantGroups(child.pid, { listProcesses: options.processTables?.polite });
       signalTree(STOP_SIGNAL);
       if (reason === "cancel" && !settled) {
         // A cancelled run waits for the CLI's last words, but not forever.
@@ -407,7 +423,7 @@ export function runCodex(options: RunOptions): RunHandle {
         settleTimer.unref?.();
       }
     }
-    armKill(graceMs);
+    armKill(options.killAt ?? Date.now() + graceMs, options.processTables?.forced);
     if (reason === "timeout") settleNow();
   };
 
@@ -571,7 +587,7 @@ export function runCodex(options: RunOptions): RunHandle {
 
   return {
     result,
-    cancel: (options = {}) => terminate("cancel", options.graceMs ?? killGraceMs),
+    cancel: (options = {}) => terminate("cancel", options.graceMs ?? killGraceMs, options),
     pid: child.pid,
     exited,
   };

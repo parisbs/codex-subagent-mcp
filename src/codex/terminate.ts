@@ -129,7 +129,8 @@ export function parseProcessTable(text: string): ProcessEntry[] {
   return entries;
 }
 
-function readProcessTable(): ProcessEntry[] {
+/** Reads the whole process table with `ps`: synchronous, about 30 ms on macOS. */
+export function readProcessTable(): ProcessEntry[] {
   const result = spawnSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
     shell: false,
     encoding: "utf8",
@@ -139,6 +140,26 @@ function readProcessTable(): ProcessEntry[] {
     throw new Error(result.error?.message ?? `ps exited ${result.status}`);
   }
   return parseProcessTable(result.stdout);
+}
+
+/**
+ * A reader that runs `read` on its first call and returns that answer, or
+ * rethrows that failure, on every later one. Runs stopped together share one,
+ * so the table is read once per stage rather than once per run (#112).
+ */
+export function readOnce(read: () => ProcessEntry[]): () => ProcessEntry[] {
+  let outcome: { table: ProcessEntry[] } | { error: unknown } | undefined;
+  return () => {
+    if (!outcome) {
+      try {
+        outcome = { table: read() };
+      } catch (error) {
+        outcome = { error };
+      }
+    }
+    if ("error" in outcome) throw outcome.error;
+    return outcome.table;
+  };
 }
 
 function ownProcessGroup(table: ProcessEntry[]): number | undefined {

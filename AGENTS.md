@@ -165,6 +165,10 @@ Shutdown has a budget set by the host, not by this server: Claude Code 2.1.285 s
 SIGTERM 100 ms later and SIGKILL about half a second after the first signal, and never closes stdin
 first. `src/shutdown.ts` fits inside it (SIGKILL at 250 ms, exit by 300 ms); do not reuse the
 five-second cancellation grace there. Re-measure with a probe MCP server when the host changes.
+Every millisecond spent before a SIGKILL counts against that budget, and reading the process table
+takes about 30 ms on macOS: counted per run, the reads pushed a second run's SIGKILL past the exit,
+so it was never sent (#112). Runs stopped together therefore share one SIGKILL instant, counted from
+the request, and one table read per stage.
 
 ## Testing the server by hand
 
