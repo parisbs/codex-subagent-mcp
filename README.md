@@ -359,15 +359,18 @@ own, and what no setting can guarantee.
 
 ## Choosing a model
 
-Read live from your installed CLI, so this list tracks whatever you have. As of Codex CLI 0.154.0:
+Read live from your installed CLI, so this list tracks whatever you have. As of Codex CLI 0.159.2:
 
 | Slug | Positioning | Reasoning efforts | Default |
 | --- | --- | --- | --- |
-| `gpt-6-astra` | Most capable, for complex demanding work | low … ultra | low |
-| `gpt-5.6-sol` | Reliable agentic workhorse | low … ultra | low |
-| `gpt-5.6-terra` | Balanced everyday coding | low … ultra | medium |
-| `gpt-5.6-luna` | Fast and affordable | low … max | medium |
-| `gpt-5.5` | Previous generation | low … xhigh | medium |
+| `gpt-6.1-sol` | Latest workhorse for coding and everyday work | low … ultra | low |
+| `gpt-6-astra` | Frontier intelligence for the most demanding work | low … ultra | low |
+| `gpt-6-sol` | Previous generation workhorse | low … ultra | medium |
+| `gpt-6-luna` | Fast and affordable, for easier tasks | low … max | medium |
+| `gpt-5.6-sol` | Older generation workhorse | low … ultra | low |
+| `gpt-5.6-terra` | Older balanced model for straightforward work | low … ultra | medium |
+| `gpt-5.6-luna` | Older fast and efficient model | low … max | medium |
+| `gpt-5.5` | Legacy coding model | low … xhigh | medium |
 
 Model and reasoning effort are **independent**. The model sets raw capability; the effort — `low`,
 `medium`, `high`, `xhigh`, `max`, `ultra` — sets how long it deliberates before acting. `ultra`
