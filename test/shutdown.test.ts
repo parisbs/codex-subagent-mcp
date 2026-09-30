@@ -134,6 +134,27 @@ test("AC-5 exits on time and names a process it could not confirm stopped", asyn
   assert.ok(logs.some((line) => line.includes("424242")), `stderr did not name the pid: ${logs.join(" | ")}`);
 });
 
+test("AC-1 AC-5 keep the deadline when starting to stop each run is slow", async () => {
+  // Stopping a run on Windows spawns taskkill, which blocks for tens of
+  // milliseconds; CI measured an exit at 373 ms with two runs when the deadline
+  // was counted from after the cancels instead of from the signal.
+  const runs = new ActiveRuns();
+  const busy = (ms: number) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      // Stand-in for a synchronous process spawn.
+    }
+  };
+  for (const pid of [101, 102, 103]) {
+    runs.track({ pid, result: new Promise(() => {}), exited: new Promise(() => {}), cancel: () => busy(60) });
+  }
+  const { shutdown, exits } = harness(runs);
+  const at = Date.now();
+  shutdown(143);
+  await waitForExit(exits, 2000);
+  assert.ok(exits[0]!.atMs - at <= DEADLINE_MS, `exited ${exits[0]!.atMs - at} ms after the signal`);
+});
+
 test("AC-6 ignores a second signal while shutting down", async () => {
   const runs = new ActiveRuns();
   let cancels = 0;
