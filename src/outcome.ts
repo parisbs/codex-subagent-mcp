@@ -33,8 +33,17 @@ export function describeSandboxBreach(result: DelegationResult): string | null {
  * The advice added when OpenAI rejected a turn's output schema (#28, AC-6):
  * null for any other failure and for turns without a schema.
  */
-export function schemaRejectionHint(_result: DelegationResult): string | null {
-  throw new Error("not implemented");
+export function schemaRejectionHint(result: DelegationResult): string | null {
+  if (result.structured === null) return null;
+  // Verified against codex-cli 0.159.2: the rejection arrives as a top-level
+  // `error` event and `turn.failed`, both carrying the API's JSON with
+  // `"code": "invalid_json_schema"`. This reads that code, not OpenAI's rules.
+  const reported = [result.turnFailure ?? "", ...result.errors].join("\n");
+  if (!reported.includes("invalid_json_schema")) return null;
+  return (
+    "OpenAI rejected the output schema. Structured outputs need \"additionalProperties\": false on every " +
+    "object and every property listed in \"required\"; the API's own reason is above."
+  );
 }
 
 /**
@@ -76,6 +85,11 @@ export function describeFailure(result: DelegationResult): string | null {
   }
   if (result.exitCode !== 0) {
     return `Codex exited with code ${result.exitCode}.` + (result.stderr ? ` ${result.stderr}` : "");
+  }
+  // After every other rule: a run that failed for another reason reports that
+  // reason, and its output is only ever partial (#28, AC-4).
+  if (result.structured && !result.structured.ok) {
+    return `Codex did not return a valid structured result: ${result.structured.error}`;
   }
   const answered = result.finalMessage.trim().length > 0;
   if (result.errors.length > 0 && !answered) {

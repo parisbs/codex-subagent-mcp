@@ -23,13 +23,14 @@ import {
 } from "./codex/doctor.js";
 import type { CodexEvent } from "./codex/events.js";
 import { selfRegisteredServers } from "./codex/mcp.js";
+import { serialiseOutputSchema } from "./codex/schema.js";
 import { readTurnContext, recoverThreadSettings } from "./codex/rollout.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
-import { describeFailure, describeSandboxBreach } from "./outcome.js";
+import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { ActiveRuns } from "./runs.js";
-import { assemblePrompt } from "./prompt.js";
+import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
 import { ThreadRegistry, type ThreadSettings } from "./threads.js";
 import {
@@ -282,6 +283,30 @@ function appliedSummary(result: DelegationResult): string {
   return "confirmed";
 }
 
+/** Delimit a schema turn's JSON so an orchestrator can take it without reading prose (#28). */
+const STRUCTURED_BEGIN = "-----BEGIN STRUCTURED RESULT-----";
+const STRUCTURED_END = "-----END STRUCTURED RESULT-----";
+
+/**
+ * The final message, as a structured result only when the turn asked for one,
+ * it parsed, and the run succeeded in every other respect (#28, AC-2 to AC-4).
+ */
+function renderFinalMessage(result: DelegationResult): string[] {
+  const text = result.finalMessage.trim();
+  const shown = text.length > 0 ? text : "(Codex produced no final message.)";
+  const structured = result.structured;
+  if (structured === null) return [shown];
+
+  const otherwiseSuccessful = describeFailure({ ...result, structured: null }) === null;
+  if (structured.ok && otherwiseSuccessful) {
+    return ["Structured result (JSON, exactly as Codex returned it):", STRUCTURED_BEGIN, structured.json, STRUCTURED_END];
+  }
+  if (otherwiseSuccessful) {
+    return [`The structured result is missing or invalid: ${structured.ok ? "" : structured.error}`, "", "Codex's final message:", shown];
+  }
+  return ["Partial output (the run failed, so this is not a structured result):", shown];
+}
+
 /** Renders a finished delegation as the text the orchestrator reads. */
 function renderResult(result: DelegationResult, notes: string[], config: ServerConfig): string {
   // Codex may have read hostile content — an issue body, a file from someone
@@ -298,6 +323,9 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
   if (result.turnFailure) {
     lines.push(`Codex reported the turn as failed: ${result.turnFailure}`, "");
   }
+
+  const schemaHint = schemaRejectionHint(result);
+  if (schemaHint) lines.push(schemaHint, "");
 
   if (result.warnings.length > 0) {
     lines.push(
@@ -338,11 +366,7 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
     if (stderr) lines.push(`Codex stderr: ${stderr}`, "");
   }
 
-  lines.push(
-    result.finalMessage.trim().length > 0
-      ? result.finalMessage.trim()
-      : "(Codex produced no final message.)",
-  );
+  lines.push(...renderFinalMessage(result));
 
   if (result.fileChanges.length > 0) {
     lines.push("", `Files changed (${result.fileChanges.length}):`);
@@ -815,6 +839,9 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
     async (args, extra) => {
       try {
         requireValidConfig();
+        // Before anything that starts a CLI process: preflight, catalog, MCP listing (#28, AC-8).
+        const outputSchema =
+          args.output_schema === undefined ? undefined : serialiseOutputSchema(args.output_schema);
         validateWorkingDir(args.working_dir);
         validateAddDirs(args.add_dirs);
 
@@ -843,6 +870,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           targetFiles: args.target_files,
           acceptanceCriteria: args.acceptance_criteria,
           readOnly: sandbox === "read-only",
+          structuredOutput: outputSchema !== undefined,
         });
 
         const recursionGuard = await selfRegisteredServers({ cwd: args.working_dir });
@@ -890,6 +918,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
                     timeoutSeconds,
                     signal: controller.signal,
                     onEvent: hooks.onEvent,
+                    outputSchema,
                   }),
                 )
                 .result.then((result) => rememberThread(result, threadSettings)),
@@ -929,6 +958,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
             timeoutSeconds,
             onEvent,
             signal: extra.signal,
+            outputSchema,
           }),
         );
         const result = rememberThread(await handle.result, threadSettings);
@@ -984,6 +1014,10 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         // `codex exec resume` has no --approve-for-me, and this server never
         // applied the flag on resume. Accepting it and running without it told
         // the caller something that did not happen.
+        // Before thread recovery and every CLI process (#28, AC-8).
+        const outputSchema =
+          args.output_schema === undefined ? undefined : serialiseOutputSchema(args.output_schema);
+
         if (args.auto_approve) {
           throw new Error(
             "auto_approve is not supported on follow-ups, so nothing was run. Continue without it, or " +
@@ -1094,8 +1128,9 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         const handle = runs.track(runCodex({
           invocation,
           // The contract is already in the session's history; a follow-up only
-          // needs the new instruction.
-          prompt: args.prompt,
+          // needs the new instruction, and a schema turn the output format.
+          prompt: followUpPrompt(args.prompt, outputSchema !== undefined),
+          outputSchema,
           timeoutSeconds: args.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS,
           signal: extra.signal,
           onEvent: (_event, description) => {

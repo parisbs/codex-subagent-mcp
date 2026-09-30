@@ -70,6 +70,8 @@ export function argvShapes(model: string, dir: string): Shape[] {
     name: `resume ${name}`,
     argv: buildCodexArgs({ kind: "resume", threadId: THREAD_ID, sandbox: "read-only", ...extra }),
   });
+  // `--help` stops before the CLI reads the file, so the path need not exist.
+  const outputSchemaPath = join(dir, "schema.json");
   const full: Partial<CodexInvocation> = {
     model,
     reasoningEffort: "low",
@@ -89,17 +91,26 @@ export function argvShapes(model: string, dir: string): Shape[] {
     exec("skip git repo check", { skipGitRepoCheck: true }),
     exec("ephemeral", { ephemeral: true }),
     exec("recursion guard", { disabledMcpServers: ["codex-subagent", "name with spaces"] }),
-    exec("everything a delegation can combine", { ...full, sandbox: "workspace-write", useWorktree: true, webSearch: true }),
+    exec("output schema", { outputSchemaPath }),
+    exec("everything a delegation can combine", {
+      ...full,
+      sandbox: "workspace-write",
+      useWorktree: true,
+      webSearch: true,
+      outputSchemaPath,
+    }),
     exec("everything with approve-for-me", { ...full, sandbox: "workspace-write", autoApprove: true }),
     resume("minimal", {}),
     resume("model and effort", { model, reasoningEffort: "low" }),
     resume("worktree", { useWorktree: true }),
+    resume("output schema", { outputSchemaPath }),
     resume("everything a follow-up can combine", {
       model,
       reasoningEffort: "low",
       sandbox: "workspace-write",
       skipGitRepoCheck: true,
       disabledMcpServers: ["codex-subagent"],
+      outputSchemaPath,
     }),
   ];
 }

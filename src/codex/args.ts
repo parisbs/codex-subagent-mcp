@@ -38,6 +38,17 @@ function disableMcpServerArgs(names: string[] | undefined): string[] {
 }
 
 /**
+ * Constrains the final message to a JSON Schema (#28).
+ *
+ * Verified against codex-cli 0.154.0 and 0.159.2: `--output-schema <FILE>` is
+ * accepted by `exec` and by `exec resume`. The path is one argv element — the
+ * server creates it, absolute, and spawn never goes through a shell.
+ */
+function outputSchemaArgs(path: string | undefined): string[] {
+  return path === undefined ? [] : ["--output-schema", path];
+}
+
+/**
  * Flags `codex exec resume` does not accept.
  *
  * Verified against codex-cli 0.154.0: resume takes a much smaller flag set than
@@ -131,6 +142,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
 }
@@ -164,6 +176,7 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
 }

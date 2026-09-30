@@ -64,9 +64,21 @@ report.
 </output_format>`;
 
 /** The prompt of a follow-up turn, with the output instruction when it carries a schema. */
-export function followUpPrompt(_text: string, _structured: boolean): string {
-  throw new Error("not implemented");
+export function followUpPrompt(text: string, structured: boolean): string {
+  // The delegation contract, already in the thread's history, asked for a prose
+  // summary; a schema turn has to be told that no longer applies (#28, AC-9).
+  return structured ? `${STRUCTURED_OUTPUT_INSTRUCTION}\n\n${text}` : text;
 }
+
+/** The contract's reporting rule, which a schema turn replaces. */
+const PROSE_REPORTING = `- End with a short, concrete summary: what you changed (file by file), what you
+  verified and how, and anything the orchestrator must decide or double-check.`;
+
+const STRUCTURED_REPORTING = `- Your final message is the JSON document described in <output_format>. Say what
+  you changed and verified in your working messages before it, not in it.`;
+
+/** The contract for a schema delegation: the same rules, minus the prose summary. */
+const STRUCTURED_QUALITY_CONTRACT = QUALITY_CONTRACT.replace(PROSE_REPORTING, STRUCTURED_REPORTING);
 
 export interface PromptParts {
   task: string;
@@ -93,7 +105,8 @@ function section(tag: string, body: string): string {
  * to the model's generation point.
  */
 export function assemblePrompt(parts: PromptParts): string {
-  const blocks: string[] = [QUALITY_CONTRACT, NO_FURTHER_DELEGATION_INSTRUCTION];
+  const contract = parts.structuredOutput ? STRUCTURED_QUALITY_CONTRACT : QUALITY_CONTRACT;
+  const blocks: string[] = [contract, NO_FURTHER_DELEGATION_INSTRUCTION];
 
   if (parts.readOnly) {
     blocks.push(
@@ -139,6 +152,10 @@ export function assemblePrompt(parts: PromptParts): string {
           .join("\n")}`,
       ),
     );
+  }
+
+  if (parts.structuredOutput) {
+    blocks.push(STRUCTURED_OUTPUT_INSTRUCTION);
   }
 
   blocks.push(section("task", parts.task));

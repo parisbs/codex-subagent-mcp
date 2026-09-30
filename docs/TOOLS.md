@@ -149,6 +149,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
 | `mode` | `blocking` \| `background` | `blocking` | `background` returns a `job_id` immediately. |
+| `output_schema` | object | — | A JSON Schema for the final message, returned as JSON. See [Structured results](#structured-results). |
 
 ### What comes back
 
@@ -178,6 +179,36 @@ command is often the evidence a task needs. As measured examples, naming target 
 question reduced uncached input from 17,424 to 6,351; the same open-ended investigation at low and
 high effort used 31,112 and 99,290 uncached input respectively. Each command is another model
 request carrying the accumulated context, which is why the complete count is reported.
+
+### Structured results
+
+With `output_schema`, Codex's final message is constrained to that JSON Schema and comes back in a
+delimited block, exactly as Codex returned it:
+
+```text
+Structured result (JSON, exactly as Codex returned it):
+-----BEGIN STRUCTURED RESULT-----
+{"findings":[{"file":"src/a.ts","line":12,"severity":"high"}]}
+-----END STRUCTURED RESULT-----
+```
+
+- The schema must be a JSON object of at most 65,536 bytes once serialised (UTF-8). Anything else is
+  refused before any Codex process runs.
+- OpenAI's structured outputs apply to it: every object needs `"additionalProperties": false` and
+  every property listed in `required`. A schema outside that form is rejected by the API before
+  anything is generated, and the result carries the API's reason with that reminder.
+- The block appears only for a run that succeeded in every other respect and whose final message
+  parses as JSON of any type. This server does not validate the JSON against the schema: the API's
+  constrained decoding does. A timed-out, cancelled or failed run keeps its own failure, and any
+  output it produced is labelled partial. A final message that is empty or not JSON, or a run whose
+  output was truncated so the last message may not be the one Codex ended with, is an error.
+- The prompt tells Codex its final message must be only that JSON, replacing the contract's usual
+  prose summary. The schema itself is never copied into the prompt.
+- The schema is written to a private temporary file (`codex-subagent-schema-*` in the system
+  temporary directory; mode 0600 in a 0700 directory on macOS and Linux, while on Windows it inherits
+  the permissions of the user's temporary directory) and removed once the run's processes have
+  exited. The one case where it stays behind is a server shutdown whose deadline passes before the
+  run could be confirmed stopped; the operating system's temporary-file cleanup reaches it there.
 
 ### What Codex actually applied
 
@@ -254,6 +285,7 @@ this is far cheaper than re-sending it.
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
 | `working_dir` | string | the thread's directory | Absolute directory to resume in. |
 | `timeout_seconds` | integer | `1800` | |
+| `output_schema` | object | — | Constrains this turn only; see [Structured results](#structured-results). A turn without one is not parsed. |
 
 A resumed Codex session does not keep its model or effort: without them, Codex takes both from the
 configuration of the directory it resumes in, switches model mid-thread and compacts the history.
