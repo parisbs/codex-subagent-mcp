@@ -17,7 +17,7 @@
  */
 "use strict";
 
-const { readFileSync, writeFileSync } = require("node:fs");
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
 const { spawn } = require("node:child_process");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
@@ -46,15 +46,29 @@ process.stdin.on("end", () => {
   // A descendant started before any output, standing in for a command Codex
   // runs. Its pid is recorded so a test can check whether it outlived the run.
   if (scenario.descendant) {
-    const { holdMs, holdPipes, ignoreSigterm } = scenario.descendant;
-    const body = `${ignoreSigterm ? 'process.on("SIGTERM", () => {});' : ""} setTimeout(() => {}, ${Number(holdMs)});`;
+    const { holdMs, holdPipes, ignoreSigterm, ownGroup } = scenario.descendant;
+    const ignore = ignoreSigterm ? 'process.on("SIGTERM", () => {}); process.on("SIGINT", () => {});' : "";
+    const body = `${ignore} setTimeout(() => {}, ${Number(holdMs)});`;
     const descendant = spawn(process.execPath, ["-e", body], {
       shell: false,
       stdio: holdPipes ? ["ignore", process.stdout, process.stderr] : "ignore",
       cwd: tmpdir(),
+      // The real CLI starts each command as the leader of a process group of
+      // its own, out of reach of a signal to the CLI's group (#107).
+      detached: Boolean(ownGroup),
     });
     writeFileSync(join(process.cwd(), "descendant.pid"), String(descendant.pid), "utf8");
     descendant.unref();
+  }
+
+  // Records which termination signals arrive, then exits the way Node would.
+  if (scenario.recordSignals) {
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      process.on(signal, () => {
+        appendFileSync(join(process.cwd(), "signals.log"), `${signal}\n`, "utf8");
+        process.exit(signal === "SIGINT" ? 130 : 143);
+      });
+    }
   }
 
   // A CLI that does not stop when asked: only the forced stage can end it.

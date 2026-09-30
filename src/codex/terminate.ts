@@ -101,3 +101,30 @@ export function processGroupAlive(pid: number | undefined, deps: TreeKillDeps = 
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
+
+/** One row of the process table. */
+export interface ProcessEntry {
+  pid: number;
+  ppid: number;
+  pgid: number;
+}
+
+export interface DescendantDeps {
+  platform?: NodeJS.Platform;
+  /** The process table; defaults to `ps -A -o pid=,ppid=,pgid=`. */
+  listProcesses?: () => ProcessEntry[];
+  /** This server's own process group, which is never recorded. */
+  ownPgid?: number;
+}
+
+export function parseProcessTable(_text: string): ProcessEntry[] {
+  throw new Error("not implemented");
+}
+
+export function descendantGroups(_rootPid: number | undefined, _deps: DescendantDeps = {}): number[] {
+  throw new Error("not implemented");
+}
+
+export function signalGroups(_pgids: number[], _signal: NodeJS.Signals, _deps: TreeKillDeps = {}): void {
+  throw new Error("not implemented");
+}

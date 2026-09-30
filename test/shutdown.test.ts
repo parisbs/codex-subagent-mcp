@@ -108,6 +108,41 @@ test("AC-1 stops every run, forcing the stubborn ones, and exits within 350 ms",
   }
 });
 
+test("AC-3 (#107) stops a command Codex started in its own process group, within the budget", async () => {
+  const runs = new ActiveRuns();
+  const fake = createFakeCodex({
+    chunks: [jsonl({ type: "thread.started", thread_id: "own-group" })],
+    stayRunning: true,
+    descendant: { holdMs: 20_000, holdPipes: false, ignoreSigterm: POSIX, ownGroup: true },
+  });
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  runs.track(runCodex({
+    invocation: { kind: "exec", sandbox: "read-only", workingDir: fake.workingDir },
+    prompt: "irrelevant",
+    codexPath: fake.codexPath,
+    codexHome: fake.workingDir,
+    timeoutSeconds: 60,
+    onEvent: (event) => { if (event.type === "thread.started") started(); },
+  }));
+  await ready;
+  const pid = fake.descendantPid();
+  try {
+    const { shutdown, exits } = harness(runs);
+    const at = Date.now();
+    shutdown(143);
+    await waitForExit(exits, 2000);
+    assert.ok(exits[0]!.atMs - at <= DEADLINE_MS, `exited ${exits[0]!.atMs - at} ms after the signal`);
+    await sleep(100);
+    assert.notEqual(pid, null);
+    assert.equal(isAlive(pid!), false, `command ${pid} survived shutdown`);
+  } finally {
+    killQuietly(pid);
+    await sleep(100);
+    fake.dispose();
+  }
+});
+
 test("AC-3 exits at once when nothing is running", async () => {
   const { shutdown, exits } = harness(new ActiveRuns());
   const at = Date.now();

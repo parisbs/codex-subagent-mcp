@@ -25,9 +25,13 @@ export interface Scenario {
     holdMs: number;
     /** Inherit the CLI's stdout and stderr, so they stay open while it lives. */
     holdPipes?: boolean;
-    /** Ignore SIGTERM. Meaningful on POSIX only. */
+    /** Ignore SIGTERM and SIGINT. Meaningful on POSIX only. */
     ignoreSigterm?: boolean;
+    /** Start it as the leader of its own process group, as the real CLI does with commands. */
+    ownGroup?: boolean;
   };
+  /** Append each SIGINT or SIGTERM received to `signals.log`, then exit. */
+  recordSignals?: boolean;
 }
 
 export interface FakeCodex {
@@ -39,6 +43,8 @@ export interface FakeCodex {
   received: () => { argv: string[]; stdin: string };
   /** The pid of `scenario.descendant`, once the stand-in has started it. */
   descendantPid: () => number | null;
+  /** Signals the stand-in recorded with `recordSignals`, in order. */
+  signals: () => string[];
   dispose: () => void;
 }
 
@@ -71,6 +77,10 @@ export function createFakeCodex(scenario: Scenario): FakeCodex {
     descendantPid: () => {
       const file = join(workingDir, "descendant.pid");
       return existsSync(file) ? Number(readFileSync(file, "utf8")) : null;
+    },
+    signals: () => {
+      const file = join(workingDir, "signals.log");
+      return existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
     },
     dispose: () => rmSync(workingDir, { recursive: true, force: true }),
   };
