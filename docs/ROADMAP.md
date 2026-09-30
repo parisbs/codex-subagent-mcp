@@ -67,7 +67,8 @@ for every user who does not already have Codex. See
 ## v0.4 — Continuous integration (done)
 
 - Build, typecheck and tests on every pull request: Node 20, 24 and 26 on Linux, plus Windows on 20
-  and 24, and macOS. Required status checks on `main`.
+  and 24, and macOS. Required status checks on `main`. The Node 20 rows moved to 22 when the floor
+  was raised in 0.2.0 ([#43](https://github.com/parisbs/codex-subagent-mcp/issues/43)).
 - A startup check asserting the server comes up with no Codex CLI present, which is the one thing
   local development cannot verify.
 - A resolution check that fabricates a Codex CLI on `PATH` and asserts the preflight finds it.
@@ -258,10 +259,11 @@ one requested fails the delegation ([#55](https://github.com/parisbs/codex-subag
 catalog now run in the delegation's working directory and are cached per directory, so a trusted
 project's configuration is part of what they check
 ([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)). What is left from that issue is
-summarising `codex doctor --json`, which is tracked separately: the command takes about ten seconds
+summarising `codex doctor --json`, which is tracked separately
+([#69](https://github.com/parisbs/codex-subagent-mcp/issues/69)): the command takes about ten seconds
 and performs network reachability probes, so it cannot sit on a preflight path.
 
-## 0.4.0 — Structured results
+## 0.4.0 — Structured results, and runs that stop when told to
 
 `codex exec --output-schema <FILE>` constrains the model's final response to a JSON Schema. Today
 the orchestrator receives prose and has to re-read it. An optional `output_schema` parameter would
@@ -272,6 +274,21 @@ Requires writing the schema to a temporary file and cleaning it up, including wh
 killed — a path this project now knows it gets wrong in some orderings.
 
 [#28](https://github.com/parisbs/codex-subagent-mcp/issues/28)
+
+The same release fixes what that sentence refers to. Cancelling a run stops the Codex process but
+not what it started, and a descendant holding its pipes keeps the result from settling until the
+timeout ([#96](https://github.com/parisbs/codex-subagent-mcp/issues/96)). Shutdown exits before its
+children stop and ignores the host closing stdin; measured against Claude Code, the host kills the
+server about half a second after its first signal, so cleanup has to fit inside that
+([#40](https://github.com/parisbs/codex-subagent-mcp/issues/40)).
+
+It also takes the registry step ADR 10 decided on and never took: an `mcpName`, a `server.json`, and
+a manually triggered publication once the npm release is approved
+([#97](https://github.com/parisbs/codex-subagent-mcp/issues/97)). And it re-verifies the server
+against the current Codex CLI, with a scheduled CI check that validates every argv shape and the
+catalog against each new release without credentials, since the CLI now ships several releases a
+week ([#98](https://github.com/parisbs/codex-subagent-mcp/issues/98),
+[#99](https://github.com/parisbs/codex-subagent-mcp/issues/99)).
 
 ## 0.5.0 — Cost and configuration
 
@@ -316,7 +333,8 @@ a delegation calling this server again) and to four ideas that need design or ev
   verified what they can do under `codex exec`
   ([#64](https://github.com/parisbs/codex-subagent-mcp/issues/64)).
 - Asking the user directly before expensive runs through MCP elicitation, if clients actually show it
-  ([#65](https://github.com/parisbs/codex-subagent-mcp/issues/65)).
+  ([#65](https://github.com/parisbs/codex-subagent-mcp/issues/65)). So far they do not reliably: the
+  Claude Code desktop app answers `decline` without showing a prompt.
 
 The strongest controls remain the ones the user already has: the client's permission prompt, the
 server's ceilings, and their own instructions to Claude. [CONTROL.md](CONTROL.md) explains how to use
