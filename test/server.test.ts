@@ -1270,3 +1270,18 @@ test("AC-5 (#98) names a newer CLI in codex_doctor but not in a delegation's res
     assert.doesNotMatch(delegated.content[0]!.text, /newer than/);
   });
 });
+
+test("AC-1 (#108) codex_job_status says a cancelled job is stopping and does not point at its result yet", async () => {
+  await withServer({ CODEX_SUBAGENT_DEFAULT_MODEL: "cheap-model" }, async (call) => {
+    nextRun = { events: [{ type: "thread.started", thread_id: "held" }], exitCode: 0, hold: true };
+    const started = (await call("codex_delegate", { prompt: "Take your time.", mode: "background" })) as {
+      content: { text: string }[];
+    };
+    const jobId = /delegation ([0-9a-f-]{36})/.exec(started.content[0]!.text)![1]!;
+    await call("codex_job_cancel", { job_id: jobId });
+
+    const status = (await call("codex_job_status", { job_id: jobId })) as { content: { text: string }[] };
+    assert.match(status.content[0]!.text, /stopping/);
+    assert.doesNotMatch(status.content[0]!.text, /codex_job_result/);
+  });
+});

@@ -160,6 +160,7 @@ export class JobRegistry {
       threadId: job.threadId,
       commandCount: job.commandCount,
       lastActivity: job.activity.at(-1) ?? "No activity reported yet.",
+      stopping: false,
     };
     if (job.error) snapshot.error = job.error;
     return snapshot;
