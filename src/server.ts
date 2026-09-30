@@ -1136,7 +1136,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
             all
               .map(
                 (job) =>
-                  `${job.jobId} — ${job.state} (${job.model ?? "default"} at ${job.reasoningEffort ?? "default"}, ${formatDuration(job.durationMs)}): ${job.lastActivity}`,
+                  `${job.jobId} — ${job.state}${job.stopping ? ", stopping" : ""} (${job.model ?? "default"} at ${job.reasoningEffort ?? "default"}, ${formatDuration(job.durationMs)}): ${job.lastActivity}`,
               )
               .join("\n"),
           );
@@ -1145,7 +1145,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         const snapshot = jobs.snapshot(job_id);
         const lines = [
           `job_id: ${snapshot.jobId}`,
-          `state: ${snapshot.state}`,
+          `state: ${snapshot.state}${snapshot.stopping ? " (Codex is still stopping; the partial result is not ready yet)" : ""}`,
           `model: ${snapshot.model ?? "default"} at ${snapshot.reasoningEffort ?? "default"}`,
           `started: ${snapshot.startedAt}`,
           `duration: ${formatDuration(snapshot.durationMs)}`,
@@ -1157,7 +1157,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         if (include_activity) {
           lines.push("", "Recent activity:", ...jobs.activity(job_id).map((a) => `- ${a}`));
         }
-        if (snapshot.state !== "running") {
+        if (snapshot.state !== "running" && !snapshot.stopping) {
           lines.push("", "Read the full output with codex_job_result.");
         }
         return textResult(lines.join("\n"));
