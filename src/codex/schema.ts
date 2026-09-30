@@ -63,7 +63,7 @@ export function writeSchemaFile(json: string, parentDir: string = tmpdir()): Sch
   try {
     writeFileSync(path, json, { encoding: "utf8", mode: 0o600, flag: "wx" });
   } catch (error) {
-    rmSync(directory, { recursive: true, force: true });
+    removeDirectory(directory);
     throw error;
   }
 
@@ -74,23 +74,28 @@ export function writeSchemaFile(json: string, parentDir: string = tmpdir()): Sch
     remove: () => {
       if (removed) return;
       removed = true;
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch (error) {
-        // A failed removal must not replace the run's own outcome (#28, AC-7).
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`codex-subagent: could not remove the output schema at ${directory}: ${message}`);
-      }
+      removeDirectory(directory);
     },
   };
+}
+
+/** Removes a schema directory, logging a failure instead of throwing it. */
+function removeDirectory(directory: string): void {
+  try {
+    rmSync(directory, { recursive: true, force: true });
+  } catch (error) {
+    // A failed removal must not replace the run's own outcome (#28, AC-7).
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`codex-subagent: could not remove the output schema at ${directory}: ${message}`);
+  }
 }
 
 /**
  * Reads a schema turn's final message as its structured result.
  *
  * Any JSON value counts: validating it against the schema is the API's job,
- * not this server's. The text is kept as Codex returned it, trimmed of
- * surrounding whitespace, so re-serialising cannot change a large number. A
+ * not this server's. The text is kept as Codex returned it, trimmed of the
+ * whitespace JSON allows around it, so re-serialising cannot change a large number. A
  * run whose output was truncated is refused even when its last message parses:
  * the message Codex actually ended with may be the one that was dropped.
  */
@@ -103,7 +108,9 @@ export function parseStructuredResult(finalMessage: string, truncated: boolean):
         "message kept may not be the one it ended with.",
     };
   }
-  const json = finalMessage.trim();
+  // Only JSON's own whitespace: `trim()` also strips a byte order mark and
+  // other Unicode spaces, which would pass text `JSON.parse` rejects.
+  const json = finalMessage.replace(/^[ \t\n\r]+|[ \t\n\r]+$/g, "");
   if (json.length === 0) {
     return { ok: false, error: "Codex returned no final message, so there is no structured result." };
   }
