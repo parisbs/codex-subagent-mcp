@@ -43,6 +43,30 @@ process.stdin.on("end", () => {
     process.stderr.write(scenario.stderr);
   }
 
+  // A descendant started before any output, standing in for a command Codex
+  // runs. Its pid is recorded so a test can check whether it outlived the run.
+  if (scenario.descendant) {
+    const { holdMs, holdPipes, ignoreSigterm } = scenario.descendant;
+    const body = `${ignoreSigterm ? 'process.on("SIGTERM", () => {});' : ""} setTimeout(() => {}, ${Number(holdMs)});`;
+    const descendant = spawn(process.execPath, ["-e", body], {
+      shell: false,
+      stdio: holdPipes ? ["ignore", process.stdout, process.stderr] : "ignore",
+      cwd: tmpdir(),
+    });
+    writeFileSync(join(process.cwd(), "descendant.pid"), String(descendant.pid), "utf8");
+    descendant.unref();
+  }
+
+  // How the stand-in answers a polite termination request, where the platform
+  // has one: it reports once more and exits, as the real CLI may.
+  if (scenario.onSigterm) {
+    process.on("SIGTERM", () => {
+      process.stdout.write((scenario.onSigterm.chunks ?? []).join(""), () => {
+        process.exit(scenario.onSigterm.exitCode ?? 0);
+      });
+    });
+  }
+
   const chunks = scenario.chunks ?? [];
   let index = 0;
 
@@ -61,6 +85,11 @@ process.stdin.on("end", () => {
           cwd: tmpdir(),
         });
         descendant.unref();
+      }
+      if (scenario.stayRunning) {
+        // Keep working until terminated, like a turn that has not finished.
+        setInterval(() => {}, 1000);
+        return;
       }
       process.exitCode = scenario.exitCode ?? 0;
       return;

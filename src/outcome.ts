@@ -57,6 +57,11 @@ export function describeFailure(result: DelegationResult): string | null {
   if (result.timedOut) {
     return "The delegation exceeded its timeout and was terminated.";
   }
+  // Checked before the exit code: a CLI that answers SIGTERM by exiting 0 with
+  // a message did not finish the task it was given.
+  if (result.cancelled) {
+    return "The delegation was cancelled before it finished.";
+  }
   if (result.turnFailure) {
     const exit = result.exitCode !== 0 && result.exitCode !== null ? ` (exit code ${result.exitCode})` : "";
     return `Codex reported the turn as failed${exit}: ${result.turnFailure}`;

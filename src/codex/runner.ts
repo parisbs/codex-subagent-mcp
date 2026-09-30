@@ -8,6 +8,7 @@ import type {
 } from "../types.js";
 import { buildCodexArgs, type CodexInvocation } from "./args.js";
 import { resolveCodexExecutable } from "./resolve.js";
+import { processGroupAlive, signalProcessTree } from "./terminate.js";
 import { compareApplied, readTurnContext } from "./rollout.js";
 import {
   JsonLinesParser,
@@ -28,6 +29,13 @@ export const DEFAULT_TIMEOUT_SECONDS = 1800;
 
 /** Grace period between SIGTERM and SIGKILL when a run is cut short. */
 const KILL_GRACE_MS = 5000;
+
+/**
+ * How long a cancelled run may wait for the CLI to close its pipes after the
+ * forced stage. A descendant that left the process tree can hold them open
+ * indefinitely, so the result settles at this bound regardless.
+ */
+const SETTLE_MARGIN_MS = 1000;
 
 /** Cap on retained stderr so a noisy run cannot grow unbounded. */
 const STDERR_LIMIT = 64 * 1024;
@@ -64,6 +72,8 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** Where Codex keeps its session files. Defaults to CODEX_HOME, else ~/.codex. */
   codexHome?: string;
+  /** Grace between the polite termination request and the forced one. */
+  killGraceMs?: number;
 }
 
 export interface RunHandle {
@@ -86,6 +96,7 @@ export function runCodex(options: RunOptions): RunHandle {
     onEvent,
     signal,
     codexHome,
+    killGraceMs = KILL_GRACE_MS,
   } = options;
 
   if (signal?.aborted) {
@@ -110,6 +121,10 @@ export function runCodex(options: RunOptions): RunHandle {
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
       cwd: invocation.workingDir,
+      // Its own process group on POSIX, so termination can reach every command
+      // Codex started, not only Codex. See `src/codex/terminate.ts`.
+      detached: process.platform !== "win32",
+      windowsHide: true,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -145,9 +160,11 @@ export function runCodex(options: RunOptions): RunHandle {
   let usage: TokenUsage | null = null;
   let stderr = "";
   let timedOut = false;
+  let cancelled = false;
   let terminating = false;
   let settled = false;
   let killTimer: NodeJS.Timeout | undefined;
+  let settleTimer: NodeJS.Timeout | undefined;
 
   // Notices repeat verbatim (Codex prints configuration warnings twice), so a
   // set is enough; they share the error cap because they come from the same
@@ -246,31 +263,50 @@ export function runCodex(options: RunOptions): RunHandle {
     }
   };
 
-  const terminate = (markTimeout: boolean): void => {
-    if (settled) return;
-    if (markTimeout) timedOut = true;
-    // Both the timeout and an abort can fire before the child actually exits.
-    // Only the first termination request should arm an escalation timer.
-    if (!terminating && child.exitCode === null && child.signalCode === null) {
-      terminating = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
-      killTimer.unref?.();
-    }
-    if (markTimeout) {
-      // An exited child can leave descendants holding its pipes open, so close
-      // is not a reliable deadline. Stop retaining output and settle now.
-      finish(child.exitCode);
-      child.stdin.destroy();
-      child.stdout.destroy();
-      child.stderr.destroy();
-    }
+  const signalTree = (signal: NodeJS.Signals): void =>
+    signalProcessTree(
+      { pid: child.pid, alive: child.exitCode === null && child.signalCode === null },
+      signal,
+    );
+
+  /**
+   * Settles with what has been read so far. An exited child can leave
+   * descendants holding its pipes open, so close is not a reliable deadline.
+   */
+  const settleNow = (): void => {
+    finish(child.exitCode);
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
   };
 
-  const timeoutTimer = setTimeout(() => terminate(true), timeoutSeconds * 1000);
+  const terminate = (reason: "timeout" | "cancel"): void => {
+    if (settled) return;
+    // The first reason is the one reported: a timeout reached while a
+    // cancellation is winding down does not turn it into a timeout.
+    if (reason === "timeout" && !cancelled) timedOut = true;
+    if (reason === "cancel" && !timedOut) cancelled = true;
+    // Both the timeout and an abort can fire before the child actually exits.
+    // Only the first termination request arms the escalation. The group is
+    // signalled even when Codex itself has already exited: what it started may not have.
+    if (!terminating) {
+      terminating = true;
+      signalTree("SIGTERM");
+      killTimer = setTimeout(() => signalTree("SIGKILL"), killGraceMs);
+      killTimer.unref?.();
+      if (reason === "cancel") {
+        // A cancelled run waits for the CLI's last words, but not forever.
+        settleTimer = setTimeout(settleNow, killGraceMs + SETTLE_MARGIN_MS);
+        settleTimer.unref?.();
+      }
+    }
+    if (reason === "timeout") settleNow();
+  };
+
+  const timeoutTimer = setTimeout(() => terminate("timeout"), timeoutSeconds * 1000);
   timeoutTimer.unref?.();
 
-  const onAbort = (): void => terminate(false);
+  const onAbort = (): void => terminate("cancel");
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -366,6 +402,7 @@ export function runCodex(options: RunOptions): RunHandle {
         durationMs: Date.now() - startedAt,
         exitCode: code,
         timedOut,
+        cancelled,
         stderr: stderr.trim(),
       };
 
@@ -400,16 +437,19 @@ export function runCodex(options: RunOptions): RunHandle {
     };
 
     child.on("close", (code) => {
-      if (killTimer) clearTimeout(killTimer);
+      // A member of the group that ignored SIGTERM still gets SIGKILL when the
+      // grace runs out; an empty group's id may be reused and is left alone.
+      if (killTimer && !(terminating && processGroupAlive(child.pid))) clearTimeout(killTimer);
       finish(code);
     });
   });
 
   function cleanup(): void {
     clearTimeout(timeoutTimer);
+    clearTimeout(settleTimer);
     // Settlement at the deadline must not cancel SIGKILL for a live child.
     signal?.removeEventListener("abort", onAbort);
   }
 
-  return { result, cancel: () => terminate(false) };
+  return { result, cancel: () => terminate("cancel") };
 }

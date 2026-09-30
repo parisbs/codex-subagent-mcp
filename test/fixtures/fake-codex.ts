@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,18 @@ export interface Scenario {
   exitCode?: number;
   /** A descendant keeps stdout and stderr open after the CLI exits. */
   descendantHoldMs?: number;
+  /** Keep running after the last chunk until terminated, instead of exiting. */
+  stayRunning?: boolean;
+  /** On SIGTERM, write these chunks and exit with this code. POSIX only. */
+  onSigterm?: { chunks?: string[]; exitCode?: number };
+  /** A descendant started before any output; its pid is readable through `descendantPid`. */
+  descendant?: {
+    holdMs: number;
+    /** Inherit the CLI's stdout and stderr, so they stay open while it lives. */
+    holdPipes?: boolean;
+    /** Ignore SIGTERM. Meaningful on POSIX only. */
+    ignoreSigterm?: boolean;
+  };
 }
 
 export interface FakeCodex {
@@ -23,6 +35,8 @@ export interface FakeCodex {
   workingDir: string;
   /** What the child actually received. Only valid after the run finishes. */
   received: () => { argv: string[]; stdin: string };
+  /** The pid of `scenario.descendant`, once the stand-in has started it. */
+  descendantPid: () => number | null;
   dispose: () => void;
 }
 
@@ -52,6 +66,10 @@ export function createFakeCodex(scenario: Scenario): FakeCodex {
         argv: string[];
         stdin: string;
       },
+    descendantPid: () => {
+      const file = join(workingDir, "descendant.pid");
+      return existsSync(file) ? Number(readFileSync(file, "utf8")) : null;
+    },
     dispose: () => rmSync(workingDir, { recursive: true, force: true }),
   };
 }
