@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Codex CLI version to check (default: the latest on npm)
+        description: "Codex CLI version to check (default: the latest on npm)"
         required: false
         type: string
 

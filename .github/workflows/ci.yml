@@ -101,6 +101,15 @@ jobs:
           node-version: "24"
           cache: npm
 
+      # A workflow GitHub cannot parse never shows up among a pull request's
+      # checks: it fails on its own, unseen, and a missing check reads as none
+      # required (found on #105, where a colon in a description did exactly that).
+      - name: Parse every workflow file
+        run: |
+          for file in .github/workflows/*.yml; do
+            ruby -e 'require "yaml"; YAML.load_file(ARGV[0])' "$file" || exit 1
+          done
+
       - run: npm ci
       - run: npm run build
 
