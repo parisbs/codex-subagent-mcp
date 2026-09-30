@@ -132,3 +132,15 @@ test("AC-6 finds the native binary of the platform package, not the npm wrapper"
     rmSync(prefix, { recursive: true, force: true });
   }
 });
+
+test("AC-6 also finds the binary where older platform packages put it", () => {
+  const prefix = mkdtempSync(join(tmpdir(), "codex-compat-"));
+  try {
+    const native = join(prefix, "node_modules", "@openai", "codex-darwin-x64", "vendor", "x86_64-apple-darwin", "codex");
+    mkdirSync(native, { recursive: true });
+    writeFileSync(join(native, "codex"), "", "utf8");
+    assert.equal(findCodexBinary(prefix, "darwin"), join(native, "codex"));
+  } finally {
+    rmSync(prefix, { recursive: true, force: true });
+  }
+});
