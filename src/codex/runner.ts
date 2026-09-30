@@ -104,8 +104,12 @@ export interface CancelOptions {
    * server's exit (#112).
    */
   killAt?: number;
-  /** Process-table readers shared by runs stopped together, one per stage (#112). */
-  processTables?: { polite: () => ProcessEntry[]; forced: () => ProcessEntry[] };
+  /**
+   * Process-table readers shared by runs stopped together, one per stage (#112).
+   * A null `forced` skips the second read: SIGKILL then goes, on time, to the
+   * groups the polite stage found (#116).
+   */
+  processTables?: { polite: () => ProcessEntry[]; forced: (() => ProcessEntry[]) | null };
 }
 
 export interface RunHandle {
@@ -363,15 +367,16 @@ export function runCodex(options: RunOptions): RunHandle {
    * Schedules the forced stage. A later request can only bring it forward: the
    * server's shutdown has a fraction of a second where a cancellation has five.
    */
-  const armKill = (dueAt: number, listProcesses?: () => ProcessEntry[]): void => {
+  const armKill = (dueAt: number, listProcesses?: (() => ProcessEntry[]) | null): void => {
     if (killDueAt !== null && killDueAt <= dueAt) return;
     clearTimeout(killTimer);
     killDueAt = dueAt;
     killTimer = setTimeout(() => {
       killDueAt = null;
-      // Commands Codex started during the grace are in the table only while it lives.
-      if (codexAlive()) {
-        commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid, { listProcesses })])];
+      // Commands Codex started during the grace are in the table only while it
+      // lives. A shutdown skips this read: it cannot afford the wait (#116).
+      if (listProcesses !== null && codexAlive()) {
+        commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid, { listProcesses: listProcesses ?? undefined })])];
       }
       signalTree("SIGKILL");
       signalGroups(commandGroups, "SIGKILL");

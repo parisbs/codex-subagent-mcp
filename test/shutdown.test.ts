@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { runCodex, type RunHandle } from "../src/codex/runner.ts";
+import { runCodex, type CancelOptions, type RunHandle } from "../src/codex/runner.ts";
 import { ActiveRuns } from "../src/runs.ts";
-import { createShutdown, installShutdownTriggers } from "../src/shutdown.ts";
+import {
+  SHUTDOWN_DEADLINE_MS,
+  SHUTDOWN_KILL_MS,
+  SHUTDOWN_TABLE_TIMEOUT_MS,
+  createShutdown,
+  installShutdownTriggers,
+} from "../src/shutdown.ts";
 import { readProcessTable } from "../src/codex/terminate.ts";
 import { EventEmitter } from "node:events";
 
@@ -23,14 +29,25 @@ import { createFakeCodex, jsonl, type FakeCodex } from "./fixtures/fake-codex.ts
 
 const POSIX = process.platform !== "win32";
 const DEADLINE_MS = 350;
+/**
+ * The host kills the server 430 to 550 ms after its first signal (#40). A test
+ * with real processes measures the machine as well as the code, so it is held
+ * to this budget, the limit that matters, not to the server's own schedule; the
+ * schedule is checked with a mocked clock (#116).
+ */
+const HOST_BUDGET_MS = 430;
 
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+  // A zombie has stopped: it runs nothing and waits only to be reaped, which
+  // under load can take longer than these tests wait (#116).
+  if (!POSIX) return true;
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+  return state !== "" && !state.startsWith("Z");
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,7 +103,7 @@ function killQuietly(pid: number | null | undefined): void {
   }
 }
 
-test("AC-1 stops every run, forcing the stubborn ones, and exits within 350 ms", async () => {
+test("AC-1 stops every run, forcing the stubborn ones, within the host's budget", async () => {
   const runs = new ActiveRuns();
   const started = [await startStubborn(runs), await startStubborn(runs)];
   const pids = started.flatMap(({ fake, handle }) => [handle.pid!, fake.descendantPid()!]);
@@ -98,7 +115,7 @@ test("AC-1 stops every run, forcing the stubborn ones, and exits within 350 ms",
 
     assert.equal(exits.length, 1);
     assert.equal(exits[0]!.code, 143);
-    assert.ok(exits[0]!.atMs - at <= DEADLINE_MS, `exited ${exits[0]!.atMs - at} ms after the signal`);
+    assert.ok(exits[0]!.atMs - at <= HOST_BUDGET_MS, `exited ${exits[0]!.atMs - at} ms after the signal`);
     assert.equal(cancelledJobs(), 1, "background jobs should be marked cancelled");
     await sleep(100);
     for (const pid of pids) assert.equal(isAlive(pid), false, `process ${pid} survived shutdown`);
@@ -109,7 +126,7 @@ test("AC-1 stops every run, forcing the stubborn ones, and exits within 350 ms",
   }
 });
 
-test("AC-3 (#107) stops a command Codex started in its own process group, within the budget", async () => {
+test("AC-3 (#107) stops a command Codex started in its own process group, within the host's budget", async () => {
   const runs = new ActiveRuns();
   const fake = createFakeCodex({
     chunks: [jsonl({ type: "thread.started", thread_id: "own-group" })],
@@ -133,7 +150,7 @@ test("AC-3 (#107) stops a command Codex started in its own process group, within
     const at = Date.now();
     shutdown(143);
     await waitForExit(exits, 2000);
-    assert.ok(exits[0]!.atMs - at <= DEADLINE_MS, `exited ${exits[0]!.atMs - at} ms after the signal`);
+    assert.ok(exits[0]!.atMs - at <= HOST_BUDGET_MS, `exited ${exits[0]!.atMs - at} ms after the signal`);
     await sleep(100);
     assert.notEqual(pid, null);
     assert.equal(isAlive(pid!), false, `command ${pid} survived shutdown`);
@@ -194,6 +211,82 @@ test("AC-1 AC-2 AC-3 (#112) sends every forced stage before exiting, however slo
   }
   // At least once, or the slow table above was never exercised.
   assert.ok(reads >= 1 && reads <= 2, `the process table was read ${reads} times for two runs; once per stage is enough`);
+});
+
+test("AC-1 (#116) schedules every forced stage at SHUTDOWN_KILL_MS and the exit at SHUTDOWN_DEADLINE_MS", async (t) => {
+  // What the code schedules, on a mocked clock: no machine's speed is measured.
+  const start = 1_000_000;
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: start });
+  const runs = new ActiveRuns();
+  const cancels: CancelOptions[] = [];
+  for (const pid of [101, 102]) {
+    runs.track({ pid, result: new Promise(() => {}), exited: new Promise(() => {}), cancel: (options) => { cancels.push(options ?? {}); } });
+  }
+  const exits: number[] = [];
+  const shutdown = createShutdown({
+    runs,
+    jobs: { cancelAll: () => {} },
+    close: async () => {},
+    exit: () => { exits.push(Date.now()); },
+    log: () => {},
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  shutdown(143);
+  assert.deepEqual(cancels.map((options) => options.killAt), [start + SHUTDOWN_KILL_MS, start + SHUTDOWN_KILL_MS]);
+  t.mock.timers.tick(SHUTDOWN_DEADLINE_MS - 1);
+  await settle();
+  assert.deepEqual(exits, [], "exited before the deadline with runs still unconfirmed");
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepEqual(exits, [start + SHUTDOWN_DEADLINE_MS]);
+});
+
+test("AC-3 (#116) bounds the process-table read below the forced stage", () => {
+  assert.ok(SHUTDOWN_TABLE_TIMEOUT_MS > 0, `SHUTDOWN_TABLE_TIMEOUT_MS is ${SHUTDOWN_TABLE_TIMEOUT_MS}`);
+  assert.ok(SHUTDOWN_TABLE_TIMEOUT_MS < SHUTDOWN_KILL_MS, "a read at its bound would delay SIGKILL");
+});
+
+test("AC-3 (#116) reads the process table once per shutdown, with its bound, and still forces every run", { skip: POSIX ? false : "Windows has no process table to read and ends the tree at once" }, async () => {
+  const timeouts: (number | undefined)[] = [];
+  const runs = new ActiveRuns({
+    readProcessTable: (timeoutMs?: number) => {
+      timeouts.push(timeoutMs);
+      return readProcessTable({ timeoutMs });
+    },
+  });
+  const started = [await startStubborn(runs), await startStubborn(runs)];
+  const pids = started.flatMap(({ fake, handle }) => [handle.pid!, fake.descendantPid()!]);
+  const order: string[] = [];
+  const realKill = process.kill.bind(process);
+  try {
+    const shutdown = createShutdown({
+      runs,
+      jobs: { cancelAll: () => {} },
+      close: async () => {},
+      exit: () => { order.push("exit"); },
+      log: () => {},
+    });
+    process.kill = ((pid: number, signal?: string | number) => {
+      if (signal === "SIGKILL") order.push(`SIGKILL ${pid}`);
+      return realKill(pid, signal);
+    }) as typeof process.kill;
+    shutdown(143);
+    const until = Date.now() + 2000;
+    while (!order.includes("exit") && Date.now() < until) await sleep(5);
+  } finally {
+    process.kill = realKill;
+    for (const pid of pids) killQuietly(pid);
+    await sleep(100);
+    for (const { fake } of started) fake.dispose();
+  }
+
+  assert.deepEqual(timeouts, [SHUTDOWN_TABLE_TIMEOUT_MS], "one bounded read, before the polite signal");
+  const exitAt = order.indexOf("exit");
+  for (const { handle } of started) {
+    const killedAt = order.indexOf(`SIGKILL ${-handle.pid!}`);
+    assert.ok(killedAt !== -1 && killedAt < exitAt, `run ${handle.pid} was not forced before the exit: ${order.join(", ")}`);
+  }
 });
 
 test("AC-3 exits at once when nothing is running", async () => {

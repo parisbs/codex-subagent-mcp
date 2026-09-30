@@ -6,6 +6,8 @@ export interface StopOptions {
   graceMs: number;
   /** How long to wait for the runs to stop before giving up on confirming it. */
   deadlineMs: number;
+  /** How long the one process-table read may take before it is abandoned. */
+  tableTimeoutMs?: number;
 }
 
 /**
@@ -19,15 +21,15 @@ export interface StopOptions {
  */
 export interface ActiveRunsOptions {
   /** Reads the process table; replaceable so tests can make it slow. */
-  readProcessTable?: () => ProcessEntry[];
+  readProcessTable?: (timeoutMs?: number) => ProcessEntry[];
 }
 
 export class ActiveRuns {
   private readonly runs = new Set<RunHandle>();
-  private readonly readProcessTable: () => ProcessEntry[];
+  private readonly readProcessTable: (timeoutMs?: number) => ProcessEntry[];
 
   constructor(options: ActiveRunsOptions = {}) {
-    this.readProcessTable = options.readProcessTable ?? readProcessTable;
+    this.readProcessTable = options.readProcessTable ?? ((timeoutMs) => readProcessTable({ timeoutMs }));
   }
 
   track(handle: RunHandle): RunHandle {
@@ -44,7 +46,7 @@ export class ActiveRuns {
    * Stops every run with the given grace and waits for them, up to the deadline.
    * Resolves with the process ids that could not be confirmed stopped in time.
    */
-  async stopAll({ graceMs, deadlineMs }: StopOptions): Promise<number[]> {
+  async stopAll({ graceMs, deadlineMs, tableTimeoutMs }: StopOptions): Promise<number[]> {
     const pending = [...this.runs];
     if (pending.length === 0) return [];
 
@@ -57,11 +59,13 @@ export class ActiveRuns {
       timer = setTimeout(resolve, deadlineMs);
     });
     // Every run's forced stage is due at the same instant, counted like the
-    // deadline from the request, and each stage reads the process table once
-    // for all of them. Counted per run, the reads (about 30 ms each on macOS)
-    // pushed a later run's SIGKILL past the exit, so it was never sent (#112).
+    // deadline from the request. Counted per run, the process-table reads
+    // (about 30 ms each on macOS) pushed a later run's SIGKILL past the exit,
+    // so it was never sent (#112). The table is read once, for all runs, before
+    // the polite signal and with a bound below the grace, and not again before
+    // SIGKILL: that read took 130 ms on CI and moved the exit with it (#116).
     const killAt = Date.now() + graceMs;
-    const processTables = { polite: readOnce(this.readProcessTable), forced: readOnce(this.readProcessTable) };
+    const processTables = { polite: readOnce(() => this.readProcessTable(tableTimeoutMs)), forced: null };
     for (const handle of pending) handle.cancel({ graceMs, killAt, processTables });
 
     const stopped = new Set<RunHandle>();
