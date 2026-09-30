@@ -351,7 +351,7 @@ defaults are safe, and you can tighten them in layers:
   `codex_delegate` and `codex_follow_up`, the two that spend usage.
 - **Ceilings on the server**, such as `CODEX_SUBAGENT_MAX_SANDBOX` and `CODEX_SUBAGENT_MAX_EFFORT`,
   which no argument can get past.
-- **A version range** such as `codex-subagent-mcp@^0.3.0`, so new behaviour arrives when you choose.
+- **A version range** such as `codex-subagent-mcp@^0.4.0`, so new behaviour arrives when you choose.
 - **Your own rules in `CLAUDE.md`**, for when Claude should delegate at all.
 
 **[docs/CONTROL.md](docs/CONTROL.md)** shows how to set each one, what the server already does on its
@@ -427,8 +427,8 @@ with actual understanding and they stay yours. See
 | `codex_doctor` | Check the Codex CLI installation and report how to fix it. |
 | `list_codex_models` | List available models and their reasoning-effort levels. |
 | `codex_recommend` | Suggest a model and effort for a described task. |
-| `codex_delegate` | Run a task, blocking or in the background. |
-| `codex_follow_up` | Continue a previous delegation using its `thread_id`. |
+| `codex_delegate` | Run a task, blocking or in the background, optionally returning JSON that matches a schema. |
+| `codex_follow_up` | Continue a previous delegation using its `thread_id`, with or without a schema. |
 | `codex_job_status` | Check a background delegation. |
 | `codex_job_result` | Read a finished background delegation's output. |
 | `codex_job_cancel` | Stop a running background delegation. |

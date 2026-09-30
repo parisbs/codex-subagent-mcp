@@ -265,29 +265,28 @@ and performs network reachability probes, so it cannot sit on a preflight path.
 
 ## 0.4.0 — Structured results, and runs that stop when told to
 
-`codex exec --output-schema <FILE>` constrains the model's final response to a JSON Schema. Today
-the orchestrator receives prose and has to re-read it. An optional `output_schema` parameter would
-let a delegation return, for example, a list of findings with file, line and severity — parseable
-without a second model call.
+A delegation can return JSON instead of prose: an optional `output_schema` constrains the turn's
+final message through `codex exec --output-schema`, so the orchestrator can act on a list of findings
+or a verdict without a second model call
+([#28](https://github.com/parisbs/codex-subagent-mcp/issues/28)). The schema travels in a private
+temporary file that lives exactly as long as the run's processes.
 
-Requires writing the schema to a temporary file and cleaning it up, including when the run is
-killed — a path this project now knows it gets wrong in some orderings.
+That needed runs that actually stop, and they did not. Cancelling stopped the Codex process but not
+what it started, and a descendant holding its pipes kept the result from settling
+([#96](https://github.com/parisbs/codex-subagent-mcp/issues/96)); the real CLI runs each command in a
+process group of its own and leaves it running on the signal the server sent
+([#107](https://github.com/parisbs/codex-subagent-mcp/issues/107)). Shutdown now fits inside the half
+second Claude Code allows before killing the server, and forces every stuck run before it exits
+whatever the machine's speed ([#40](https://github.com/parisbs/codex-subagent-mcp/issues/40),
+[#112](https://github.com/parisbs/codex-subagent-mcp/issues/112),
+[#116](https://github.com/parisbs/codex-subagent-mcp/issues/116)).
 
-[#28](https://github.com/parisbs/codex-subagent-mcp/issues/28)
-
-The same release fixes what that sentence refers to. Cancelling a run stops the Codex process but
-not what it started, and a descendant holding its pipes keeps the result from settling until the
-timeout ([#96](https://github.com/parisbs/codex-subagent-mcp/issues/96)). Shutdown exits before its
-children stop and ignores the host closing stdin; measured against Claude Code, the host kills the
-server about half a second after its first signal, so cleanup has to fit inside that
-([#40](https://github.com/parisbs/codex-subagent-mcp/issues/40)).
-
-It also takes the registry step ADR 10 decided on and never took: an `mcpName`, a `server.json`, and
-a manually triggered publication once the npm release is approved
-([#97](https://github.com/parisbs/codex-subagent-mcp/issues/97)). And it re-verifies the server
-against the current Codex CLI, with a scheduled CI check that validates every argv shape and the
-catalog against each new release without credentials, since the CLI now ships several releases a
-week ([#98](https://github.com/parisbs/codex-subagent-mcp/issues/98),
+It also takes the registry step ADR 10 decided on: an `mcpName`, a `server.json`, and a manually run
+publication once the npm release is approved
+([#97](https://github.com/parisbs/codex-subagent-mcp/issues/97)). And the server is re-verified
+against Codex CLI 0.159.2, with a daily CI check that runs every argv shape against the newest
+release without credentials
+([#98](https://github.com/parisbs/codex-subagent-mcp/issues/98),
 [#99](https://github.com/parisbs/codex-subagent-mcp/issues/99)).
 
 ## 0.5.0 — Cost and configuration

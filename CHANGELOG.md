@@ -11,6 +11,53 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
+Structured results, and runs that stop when told to. A delegation can now return JSON that matches a
+schema instead of prose. The rest of the release is about stopping: cancelling, timing out or
+shutting down used to stop the Codex process and leave what it had started running, and shutdown
+could exit before its children stopped. Measured against the real CLI, each of those left work
+running on the user's quota. A minor because `output_schema` is a new optional parameter; nothing in
+it is breaking.
+
+### Added
+
+- `codex_delegate` and `codex_follow_up` accept `output_schema`, a JSON Schema for the turn's final
+  message, which then comes back as JSON, exactly as Codex wrote it, in a delimited block. OpenAI's
+  structured outputs apply (`"additionalProperties": false` on every object, every property listed in
+  `required`); a schema the API rejects fails with its reason and that hint. A run that fails for any
+  other reason shows its output as partial, never as the structured result. The schema travels in a
+  private temporary file that is removed when the run's processes have stopped. See
+  [docs/TOOLS.md](docs/TOOLS.md#structured-results). ([#28])
+- The server is described for the official MCP Registry as `io.github.parisbs/codex-subagent-mcp`
+  (`mcpName` in `package.json`, and `server.json`), and each release is listed there once it is live
+  on npm. ([#97])
+- `codex_doctor` says when the installed Codex CLI is newer than the newest version this server was
+  verified against. ([#98])
+
+### Fixed
+
+- Cancelling, timing out or shutting down now stops the commands Codex was running, not only Codex.
+  Each command runs in a process group of its own, and on the signal the server used, Codex exited
+  and left them running. ([#96], [#107])
+- A cancelled delegation settles within about six seconds even when a command holds its output open,
+  and is reported as cancelled rather than by its exit code. ([#96])
+- When the client stops the server or closes its stdin, every running delegation and the commands it
+  started are stopped, and the server exits within about a third of a second, inside the half second
+  Claude Code allows before killing it. Before, Codex kept running after the server was gone. With
+  several stuck runs, all of them are forced to stop, not only the first, whatever the machine's
+  speed. ([#40], [#112], [#116])
+- After a cancel, `codex_job_status` says when Codex is still stopping, and reading the result in that
+  window explains it instead of reporting an unknown error. ([#108])
+
+### Verified against
+
+- Codex CLI 0.159.2 on macOS, with a real delegation, follow-up, background run, cancellation and
+  shutdown. The argv this server builds is also checked against 0.154.0, the oldest supported
+  release, and every day against the newest one, without credentials. ([#99])
+- Build, tests and startup on Linux (Node 22, 24, 26), Windows (Node 22, 24) and macOS (Node 24). A
+  real delegation has still never been run on Windows or Linux.
+
 ## [0.3.0] - 2026-09-17
 
 Defaults that survive a fresh install, and results that mean what they say. A day of measuring real
@@ -240,8 +287,18 @@ behaviour a caller can see; each such change is marked below.
 [#24]: https://github.com/parisbs/codex-subagent-mcp/issues/24
 [#25]: https://github.com/parisbs/codex-subagent-mcp/issues/25
 [#26]: https://github.com/parisbs/codex-subagent-mcp/issues/26
+[#28]: https://github.com/parisbs/codex-subagent-mcp/issues/28
 [#38]: https://github.com/parisbs/codex-subagent-mcp/issues/38
 [#39]: https://github.com/parisbs/codex-subagent-mcp/issues/39
+[#40]: https://github.com/parisbs/codex-subagent-mcp/issues/40
+[#41]: https://github.com/parisbs/codex-subagent-mcp/issues/41
+[#42]: https://github.com/parisbs/codex-subagent-mcp/issues/42
+[#43]: https://github.com/parisbs/codex-subagent-mcp/issues/43
+[#48]: https://github.com/parisbs/codex-subagent-mcp/issues/48
+[#51]: https://github.com/parisbs/codex-subagent-mcp/issues/51
+[#52]: https://github.com/parisbs/codex-subagent-mcp/issues/52
+[#53]: https://github.com/parisbs/codex-subagent-mcp/issues/53
+[#54]: https://github.com/parisbs/codex-subagent-mcp/issues/54
 [#55]: https://github.com/parisbs/codex-subagent-mcp/issues/55
 [#56]: https://github.com/parisbs/codex-subagent-mcp/issues/56
 [#66]: https://github.com/parisbs/codex-subagent-mcp/issues/66
@@ -256,16 +313,14 @@ behaviour a caller can see; each such change is marked below.
 [#81]: https://github.com/parisbs/codex-subagent-mcp/issues/81
 [#82]: https://github.com/parisbs/codex-subagent-mcp/issues/82
 [#83]: https://github.com/parisbs/codex-subagent-mcp/issues/83
-[#41]: https://github.com/parisbs/codex-subagent-mcp/issues/41
-[#42]: https://github.com/parisbs/codex-subagent-mcp/issues/42
-[#43]: https://github.com/parisbs/codex-subagent-mcp/issues/43
-[#48]: https://github.com/parisbs/codex-subagent-mcp/issues/48
-[#51]: https://github.com/parisbs/codex-subagent-mcp/issues/51
-[#52]: https://github.com/parisbs/codex-subagent-mcp/issues/52
-[#53]: https://github.com/parisbs/codex-subagent-mcp/issues/53
-[#54]: https://github.com/parisbs/codex-subagent-mcp/issues/54
-[#55]: https://github.com/parisbs/codex-subagent-mcp/issues/55
-[#56]: https://github.com/parisbs/codex-subagent-mcp/issues/56
+[#96]: https://github.com/parisbs/codex-subagent-mcp/issues/96
+[#97]: https://github.com/parisbs/codex-subagent-mcp/issues/97
+[#98]: https://github.com/parisbs/codex-subagent-mcp/issues/98
+[#99]: https://github.com/parisbs/codex-subagent-mcp/issues/99
+[#107]: https://github.com/parisbs/codex-subagent-mcp/issues/107
+[#108]: https://github.com/parisbs/codex-subagent-mcp/issues/108
+[#112]: https://github.com/parisbs/codex-subagent-mcp/issues/112
+[#116]: https://github.com/parisbs/codex-subagent-mcp/issues/116
 
 ## [0.1.0] - 2026-09-11
 
@@ -315,7 +370,8 @@ First public release.
   outside the working directory, credentials included. The README explains the mitigation.
 - Background jobs live in memory and do not survive a server restart.
 
-[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/parisbs/codex-subagent-mcp/releases/tag/v0.1.0
