@@ -18,6 +18,16 @@ const PROBE_TIMEOUT_MS = 10_000;
  */
 export const VERIFIED_CODEX_VERSION = "0.154.0";
 
+/**
+ * The newest Codex CLI verified with a real, authenticated run (`/smoke-test`).
+ *
+ * Separate from the floor above on purpose: raising the floor would warn every
+ * user of an older, still-working release. The CI compatibility check
+ * (`scripts/check-codex-compat.ts`) compares each new release against this and
+ * says when a smoke test is due.
+ */
+export const NEWEST_VERIFIED_CODEX_VERSION = "0.154.0";
+
 export type DiagnosisStatus =
   | "ok"
   | "missing"

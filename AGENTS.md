@@ -75,6 +75,14 @@ subcommands and between versions. Two traps already found the hard way, both cov
 Check with `codex exec --help`, `codex exec resume --help`, `codex features list`, and
 `codex debug models`.
 
+`.github/workflows/codex-compat.yml` does part of this every day against the newest release, with no
+credentials: every argv shape `buildCodexArgs` can produce is run with `--help` appended, which makes
+the CLI reject an argv it would not accept without running anything. A removed flag serves as the
+negative control; if the CLI ever accepts it, the check fails rather than trust the rest. A new
+option in `src/codex/args.ts` must be added to `argvShapes` in `scripts/check-codex-compat.ts`, or
+`test/codex-compat.test.ts` fails. `NEWEST_VERIFIED_CODEX_VERSION` moves only after `/smoke-test`
+passes on that release.
+
 **Never degrade to a plausible-looking answer when the CLI is unavailable.** Every tool that reaches
 the CLI runs the preflight first and fails with installation steps (the job tools read this server's
 own memory and do not). Returning `FALLBACK_MODELS` as if the catalog had
