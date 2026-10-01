@@ -61,7 +61,8 @@ condition are not the same job. Here they are separate dials: the *model* sets r
 gets the capable one thinking for as long as it needs.
 
 The server runs on your machine and drives the Codex CLI you already have installed; it holds no
-credentials of its own. Prompts reach OpenAI through Codex, exactly as when you run `codex` yourself.
+credentials of its own. Prompts reach OpenAI through Codex, exactly as when you run `codex`
+yourself.
 
 See [How it compares](docs/COMPARISON.md) for a versioned comparison with other Codex MCP servers.
 
