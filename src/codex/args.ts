@@ -19,6 +19,9 @@ export interface CodexInvocation {
   ephemeral?: boolean;
   /** Codex MCP entries that point back at this server, switched off for this run. */
   disabledMcpServers?: string[];
+  disabledPlugins?: string[];
+  disableAllPlugins?: boolean;
+  disableApps?: boolean;
   /** Absolute path of a JSON Schema file for `--output-schema` (#28). */
   outputSchemaPath?: string;
 }

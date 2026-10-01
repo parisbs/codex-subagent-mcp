@@ -66,6 +66,12 @@ let fakeVersion = "codex-cli 0.154.0";
 let mcpList = "[]";
 let mcpListError: Error | undefined;
 let mcpListCwds: (string | undefined)[] = [];
+let pluginList = '{"installed":[],"available":[]}';
+let pluginListError: Error | undefined;
+let pluginListCwds: (string | undefined)[] = [];
+let pendingRuns: Promise<unknown>[] = [];
+let spawnBarrier = Promise.withResolvers<void>();
+let spawnedChildren: (EventEmitter & Record<string, unknown>)[] = [];
 
 /** Directories where the CLI reports a catalog of its own, as a trusted project can. */
 let catalogByCwd = new Map<string, unknown>();
@@ -83,6 +89,11 @@ const fakeExecFile = async (
     mcpListCwds.push(options?.cwd);
     if (mcpListError) throw mcpListError;
     return { stdout: mcpList, stderr: "" };
+  }
+  if (args[0] === "plugin") {
+    pluginListCwds.push(options?.cwd);
+    if (pluginListError) throw pluginListError;
+    return { stdout: pluginList, stderr: "" };
   }
   if (args[0] === "debug") {
     const local = options?.cwd === undefined ? undefined : catalogByCwd.get(options.cwd);
@@ -111,6 +122,8 @@ cp.spawn = ((_file: string, args: string[], options?: { cwd?: string }) => {
     signalCode: null,
     kill: () => true,
   });
+  spawnedChildren.push(child);
+  spawnBarrier.resolve();
   const { events, exitCode, hold } = nextRun;
   setImmediate(() => {
     const stdout = child["stdout"] as PassThrough;
@@ -142,9 +155,14 @@ async function withServer<T>(
     call: (name: string, args: unknown) => Promise<unknown>,
     codexHome: ReturnType<typeof createCodexHome>,
     runs: ReturnType<typeof createServer>["runs"],
+    jobs: ReturnType<typeof createServer>["jobs"],
+    controller: AbortController,
   ) => Promise<T>,
 ): Promise<T> {
   const keys = [
+    "CODEX_SUBAGENT_MCP_SERVERS",
+    "CODEX_SUBAGENT_PLUGINS",
+    "CODEX_SUBAGENT_APPS",
     "CODEX_SUBAGENT_ALLOWED_MODELS",
     "CODEX_SUBAGENT_MAX_EFFORT",
     "CODEX_SUBAGENT_DEFAULT_MODEL",
@@ -176,6 +194,12 @@ async function withServer<T>(
   mcpList = "[]";
   mcpListError = undefined;
   mcpListCwds = [];
+  pluginList = '{"installed":[],"available":[]}';
+  pluginListError = undefined;
+  pluginListCwds = [];
+  pendingRuns = [];
+  spawnedChildren = [];
+  spawnBarrier = Promise.withResolvers<void>();
   // The catalog and the preflight are cached per directory; a test must not
   // inherit the entries another test's directory left behind.
   resetCatalogCache();
@@ -184,7 +208,13 @@ async function withServer<T>(
   nextRun = { events: [{ type: "item.completed", item: { type: "agent_message", text: "Done." } }], exitCode: 0 };
   const { server, jobs, runs } = createServer();
   const tools = server as unknown as ToolServer;
-  const extra = { signal: new AbortController().signal, sendNotification: async () => {} };
+  const track = runs.track.bind(runs);
+  runs.track = (handle) => {
+    pendingRuns.push(handle.result);
+    return track(handle);
+  };
+  const controller = new AbortController();
+  const extra = { signal: controller.signal, sendNotification: async () => {} };
 
   const call = async (name: string, args: unknown): Promise<unknown> => {
     const tool = tools._registeredTools[name];
@@ -193,7 +223,7 @@ async function withServer<T>(
   };
 
   try {
-    return await body(call, codexHome, runs);
+    return await body(call, codexHome, runs, jobs, controller);
   } finally {
     codexHome.dispose();
     jobs.cancelAll();
@@ -828,8 +858,8 @@ test("shows configuration notices without counting them as errors", async () => 
   });
 });
 
-test("keeps a delegation from calling this server again through Codex's own MCP config", async () => {
-  await withServer({}, async (call) => {
+test("AC-3 (#64) keeps a delegation from calling this server again through Codex's own MCP config", async () => {
+  await withServer({ CODEX_SUBAGENT_MCP_SERVERS: "all" }, async (call) => {
     mcpList = JSON.stringify([
       { name: "codex-subagent", transport: { type: "stdio", command: "npx", args: ["-y", "codex-subagent-mcp"] } },
       { name: "docs", transport: { type: "stdio", command: "node", args: ["/opt/docs-mcp/index.js"] } },
@@ -859,8 +889,8 @@ test("lists MCP servers in the run directory for delegations and follow-ups", as
   });
 });
 
-test("runs when the MCP listing fails and reports that the recursion guard was not applied", async () => {
-  await withServer({}, async (call) => {
+test("AC-3 (#64) runs when the MCP listing fails and reports that the recursion guard was not applied", async () => {
+  await withServer({ CODEX_SUBAGENT_MCP_SERVERS: "all" }, async (call) => {
     mcpListError = new Error("listing unavailable");
     const result = (await call("codex_delegate", {
       prompt: "anything",
@@ -1469,3 +1499,339 @@ test("AC-10 presents a background job's structured result, and fails one whose r
     assert.equal(((await call("codex_job_result", { job_id: bad })) as ToolResult).isError, true);
   });
 });
+
+// #64: real handlers, fake CLI, and completion synchronized on the tracked run.
+const INHERIT_ENV = {
+  CODEX_SUBAGENT_MCP_SERVERS: "docs,self,missing",
+  CODEX_SUBAGENT_PLUGINS: "docs@market,disabled@market,missing@market",
+  CODEX_SUBAGENT_APPS: "on",
+};
+function inheritedListings(): void {
+  mcpList = JSON.stringify([{ name: "docs" }, { name: "other" },
+    { name: "self", transport: { command: "codex-subagent" } }]);
+  pluginList = JSON.stringify({ installed: [
+    { pluginId: "docs@market", installed: true, enabled: true },
+    { pluginId: "browser@market", installed: true, enabled: true },
+    { pluginId: "disabled@market", installed: true, enabled: false },
+  ], available: [] });
+}
+function inheritanceOverrides(args: string[]): string[] {
+  const values = args.filter((arg) => /^(mcp_servers\.|plugins\.|features\.(plugins|apps)=)/.test(arg));
+  for (const value of values) assert.equal(args[args.indexOf(value) - 1], "--config", value);
+  return values.sort();
+}
+const DEFAULT_OVERRIDES = ["mcp_servers.docs.enabled=false", "mcp_servers.other.enabled=false",
+  "mcp_servers.self.enabled=false", "features.plugins=false", "features.apps=false"].sort();
+const LIST_OVERRIDES = ["mcp_servers.other.enabled=false", "mcp_servers.self.enabled=false",
+  'plugins."browser@market".enabled=false'].sort();
+async function finishInheritedRuns(): Promise<void> {
+  await Promise.allSettled(pendingRuns);
+  // Flush the registry's chained result callbacks, with no clock-based polling.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+function inheritanceLine(result: unknown): string {
+  const lines = textOf(result).split(/\r?\n/).filter((line) => /MCP/i.test(line) && /plugins/i.test(line) && /apps/i.test(line));
+  assert.equal(lines.length, 1, textOf(result));
+  return lines[0]!;
+}
+function assertAllowedLine(result: unknown): string {
+  const line = inheritanceLine(result);
+  assert.ok(line.includes('"docs"'), line);
+  assert.ok(line.includes('"docs@market"'), line);
+  assert.match(line, /apps.*(?:on|all|allowed)/i);
+  for (const name of ["other", "self", "missing", "browser@market", "disabled@market", "missing@market"])
+    assert.ok(!line.includes(JSON.stringify(name)), line);
+  return line;
+}
+
+for (const [ac, label, env, expected] of [
+  ["AC-1", "defaults", {}, DEFAULT_OVERRIDES],
+  ["AC-2 AC-5 AC-6", "allow-lists and apps on", INHERIT_ENV, LIST_OVERRIDES],
+  ["AC-3 AC-5 AC-6", "all and apps on", { CODEX_SUBAGENT_MCP_SERVERS: "all", CODEX_SUBAGENT_PLUGINS: "all", CODEX_SUBAGENT_APPS: "on" }, ["mcp_servers.self.enabled=false"]],
+  ["AC-6", "explicit apps off", { ...INHERIT_ENV, CODEX_SUBAGENT_APPS: "off" }, [...LIST_OVERRIDES, "features.apps=false"].sort()],
+] as const) {
+  test(`${ac} (#64) applies exact ${label} overrides through delegate and follow-up`, async () => {
+    await withServer(env, async (call) => {
+      inheritedListings();
+      for (const [tool, mode] of [["codex_delegate", "blocking"], ["codex_delegate", "background"], ["codex_follow_up", undefined]]) {
+        const result = await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) });
+        assert.notEqual((result as ToolResult).isError, true, textOf(result));
+        await finishInheritedRuns();
+      }
+      assert.equal(spawnedArgs.length, 3);
+      for (const args of spawnedArgs) assert.deepEqual(inheritanceOverrides(args), expected);
+    });
+  });
+}
+
+for (const [label, output, error] of [
+  ["failure", "[]", new Error("MCP listing unavailable")],
+  ["timeout", "[]", Object.assign(new Error("MCP listing timed out"), { killed: true })],
+  ["invalid JSON", "not json", undefined], ["non-array", "{}", undefined],
+  ["unreadable name", '[{"name":"docs"},{}]', undefined],
+] as const) {
+  test(`AC-4 (#64) refuses MCP ${label} before any delegation or background job`, async () => {
+    for (const policy of [undefined, "docs"]) {
+      await withServer({ CODEX_SUBAGENT_MCP_SERVERS: policy }, async (call, _home, _runs, jobs) => {
+        mcpList = output; mcpListError = error;
+        const results = [];
+        for (const [tool, mode] of [["codex_delegate", "blocking"], ["codex_delegate", "background"], ["codex_follow_up", undefined]]) {
+          results.push(await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) }));
+        }
+        await finishInheritedRuns();
+        assert.equal(spawnedArgs.length, 0, "no exec or resume may start");
+        assert.deepEqual(jobs.list(), [], "a refused call must not allocate even a failed job");
+        for (const result of results) {
+          assert.equal((result as ToolResult).isError, true, textOf(result));
+          const text = textOf(result);
+          assert.match(text, /codex mcp list --json/);
+          assert.match(text, /CODEX_SUBAGENT_MCP_SERVERS/);
+          assert.match(text, /all/);
+          assert.match(text, error ? new RegExp(error.message) : /JSON|array|name/i);
+        }
+      });
+    }
+  });
+}
+
+for (const [label, output, error] of [
+  ["failure", "", new Error("plugin listing unavailable")], ["malformed", "{}", undefined],
+] as const) {
+  test(`AC-5 AC-9 (#64) plugin listing ${label} disables all and is reported through both tools`, async () => {
+    await withServer(INHERIT_ENV, async (call) => {
+      inheritedListings(); pluginList = output; pluginListError = error;
+      for (const [tool, mode] of [["codex_delegate", "blocking"], ["codex_delegate", "background"], ["codex_follow_up", undefined]]) {
+        let result = await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) });
+        assert.notEqual((result as ToolResult).isError, true, textOf(result));
+        await finishInheritedRuns();
+        if (mode === "background") {
+          const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(result))?.[1];
+          assert.ok(jobId);
+          result = await call("codex_job_result", { job_id: jobId });
+          assert.notEqual((result as ToolResult).isError, true, textOf(result));
+        }
+        assert.deepEqual(inheritanceOverrides(spawnedArgs.at(-1)!),
+          ["mcp_servers.other.enabled=false", "mcp_servers.self.enabled=false", "features.plugins=false"].sort());
+        assert.match(inheritanceLine(result), /plugin.*(?:failed|unavailable|invalid|malformed|could not|installed)/i);
+      }
+    });
+  });
+}
+
+for (const [variable, value] of [["MCP_SERVERS", "all,docs"], ["PLUGINS", "none,docs@market"], ["APPS", "yes"]]) {
+  test(`AC-7 (#64) ${variable} misconfiguration blocks every CLI tool and doctor reports it`, async () => {
+    await withServer({ [`CODEX_SUBAGENT_${variable}`]: value }, async (call) => {
+      for (const [tool, args] of [
+        ["list_codex_models", {}], ["codex_recommend", { task_description: "anything" }],
+        ["codex_delegate", { prompt: "anything", model: "cheap-model" }],
+        ["codex_delegate", { prompt: "anything", model: "cheap-model", mode: "background" }],
+        ["codex_follow_up", { prompt: "continue", model: "cheap-model", thread_id: "thread" }],
+      ] as const) {
+        const result = await call(tool, args);
+        assert.equal((result as ToolResult).isError, true, `${tool}: ${textOf(result)}`);
+        assert.match(textOf(result), /misconfigured/i);
+        assert.ok(textOf(result).includes(`CODEX_SUBAGENT_${variable}`));
+      }
+      assert.deepEqual(probedCwds, [], "invalid server configuration must precede CLI probes");
+      assert.deepEqual(spawnedArgs, []);
+      const doctor = await call("codex_doctor", {});
+      assert.equal((doctor as ToolResult).isError, true);
+      assert.match(textOf(doctor), /misconfigured/i);
+      assert.ok(textOf(doctor).includes(`CODEX_SUBAGENT_${variable}`));
+    });
+  });
+}
+
+for (const mode of ["blocking", "background"]) {
+  test(`AC-8 (#64) preserves restrictions across delegate parameter combinations in ${mode} mode`, async () => {
+    await withServer({ ...INHERIT_ENV, CODEX_SUBAGENT_MAX_SANDBOX: "danger-full-access" }, async (call, home) => {
+      inheritedListings();
+      for (const sandbox of ["read-only", "workspace-write", "danger-full-access"])
+        for (const auto_approve of [false, true])
+          for (const use_worktree of [false, true])
+            for (const add_dirs of [undefined, [home.path]])
+              for (const working_dir of [undefined, tmpdir()]) {
+                const result = await call("codex_delegate", { prompt: "anything", model: "cheap-model", mode,
+                  sandbox, auto_approve, use_worktree, add_dirs, working_dir });
+                assert.notEqual((result as ToolResult).isError, true, textOf(result));
+                await finishInheritedRuns();
+              }
+      assert.equal(spawnedArgs.length, 48);
+      for (const args of spawnedArgs) assert.deepEqual(inheritanceOverrides(args), LIST_OVERRIDES);
+      assert.equal(mcpListCwds.length, 48);
+      assert.deepEqual(pluginListCwds, mcpListCwds);
+      assert.deepEqual(mcpListCwds.map((cwd) => cwd ?? process.cwd()), spawnedCwds.map((cwd) => cwd ?? process.cwd()));
+    });
+  });
+}
+
+test("AC-8 (#64) preserves follow-up restrictions with overrides and a recovered thread", async () => {
+  await withServer({ ...INHERIT_ENV, CODEX_SUBAGENT_MAX_SANDBOX: "danger-full-access" }, async (call, home) => {
+    inheritedListings();
+    home.write({ threadId: "inherited-recovered", day: "2026-09-17", lines: [SESSION_META_LINE,
+      turnContextLine({ cwd: home.path, model: "cheap-model", effort: "low" })] });
+    for (const sandbox of ["read-only", "workspace-write", "danger-full-access"])
+      for (const working_dir of [undefined, tmpdir()]) {
+        const result = await call("codex_follow_up", { thread_id: "inherited-recovered", prompt: "continue", sandbox, working_dir, auto_approve: false });
+        assert.notEqual((result as ToolResult).isError, true, textOf(result));
+      }
+    assert.equal(spawnedCwds[0], home.path);
+    assert.equal(spawnedArgs.length, 6);
+    for (const args of spawnedArgs) assert.deepEqual(inheritanceOverrides(args), LIST_OVERRIDES);
+    assert.deepEqual(mcpListCwds, spawnedCwds);
+    assert.deepEqual(pluginListCwds, spawnedCwds);
+  });
+});
+
+test("AC-8 (#64) still refuses auto-approve on follow-ups before any spawn", async () => {
+  await withServer(INHERIT_ENV, async (call) => {
+    const result = await call("codex_follow_up", { thread_id: "thread", prompt: "continue", model: "cheap-model", auto_approve: true });
+    assert.equal((result as ToolResult).isError, true);
+    assert.match(textOf(result), /auto_approve is not supported/);
+    assert.deepEqual(spawnedArgs, []);
+  });
+});
+
+for (const mode of ["blocking", "background", "follow-up"] as const) {
+  for (const outcome of ["success", "exit failure", "turn failure", "spawn failure", "cancelled", "timeout"] as const) {
+    test(`AC-9 (#64) reports allowed tools for ${mode} ${outcome}`, async (t) => {
+      await withServer(INHERIT_ENV, async (call, _home, _runs, jobs, controller) => {
+        inheritedListings();
+        const held = ["spawn failure", "cancelled", "timeout"].includes(outcome);
+        nextRun = { events: outcome === "turn failure" ? [{ type: "turn.failed", error: { message: "usage exhausted" } }] : [ANSWER],
+          exitCode: outcome === "exit failure" ? 1 : 0, hold: held };
+        if (outcome === "timeout") t.mock.timers.enable({ apis: ["setTimeout"] });
+        const pending = call(mode === "follow-up" ? "codex_follow_up" : "codex_delegate", {
+          prompt: "anything", model: "cheap-model", thread_id: "thread", timeout_seconds: 1,
+          ...(mode === "background" ? { mode } : {}),
+        });
+        let jobId: string | undefined;
+        if (mode === "background") {
+          const started = await pending;
+          jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(started))?.[1];
+          assert.ok(jobId, textOf(started));
+        }
+        if (held) {
+          await spawnBarrier.promise;
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          const child = spawnedChildren[0]!;
+          if (outcome === "cancelled") {
+            if (jobId) await call("codex_job_cancel", { job_id: jobId });
+            else controller.abort();
+          } else if (outcome === "timeout") {
+            t.mock.timers.tick(1000);
+          } else {
+            child.emit("error", new Error("spawn unavailable"));
+          }
+          child["exitCode"] = outcome === "spawn failure" ? 1 : 0;
+          child.emit("close", child["exitCode"]);
+        }
+        await finishInheritedRuns();
+        const result = jobId ? await call("codex_job_result", { job_id: jobId }) : await pending;
+        if (outcome === "success") assert.notEqual((result as ToolResult).isError, true, textOf(result));
+        else assert.equal((result as ToolResult).isError, true, textOf(result));
+        if (outcome === "cancelled") assert.match(textOf(result), /cancelled/i);
+        if (outcome === "timeout") assert.match(textOf(result), /timed out|exceeded its timeout/i);
+        const line = assertAllowedLine(result);
+        if (jobId) {
+          assert.deepEqual(jobs.result(jobId).inherited, { mcpServers: ["docs"], plugins: ["docs@market"], apps: true,
+            listingErrors: { mcp: null, plugins: null } });
+          assert.equal(inheritanceLine(await call("codex_job_result", { job_id: jobId })), line);
+        }
+      });
+    });
+  }
+}
+
+test("AC-9 (#64) blocking and background results carry the same allowed-tools line", async () => {
+  await withServer(INHERIT_ENV, async (call) => {
+    inheritedListings();
+    const blocking = await call("codex_delegate", { prompt: "anything", model: "cheap-model" });
+    const started = await call("codex_delegate", { prompt: "anything", model: "cheap-model", mode: "background" });
+    await finishInheritedRuns();
+    const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(started))?.[1];
+    assert.ok(jobId);
+    const background = await call("codex_job_result", { job_id: jobId });
+    assert.equal(assertAllowedLine(blocking), assertAllowedLine(background));
+  });
+});
+
+test("AC-3 AC-9 (#64) background results retain a failed MCP listing and unapplied recursion guard", async () => {
+  await withServer({ CODEX_SUBAGENT_MCP_SERVERS: "all" }, async (call, _home, _runs, jobs) => {
+    mcpListError = new Error("MCP listing unavailable");
+    const started = await call("codex_delegate", { prompt: "anything", model: "cheap-model", mode: "background" });
+    await finishInheritedRuns();
+    const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(started))?.[1];
+    assert.ok(jobId, textOf(started));
+    const result = await call("codex_job_result", { job_id: jobId });
+    assert.notEqual((result as ToolResult).isError, true);
+    const line = inheritanceLine(result);
+    assert.match(line, /MCP listing unavailable/);
+    assert.match(textOf(result), /recursion guard.*(?:not|unapplied|could not)/i);
+    assert.equal(jobs.result(jobId).inherited?.listingErrors.mcp, "MCP listing unavailable");
+  });
+});
+
+for (const directory of ["same", "different"] as const) {
+  test(`AC-12 (#64) applies and reports fresh listings in ${directory} directories at each call start`, async () => {
+    await withServer({ CODEX_SUBAGENT_MCP_SERVERS: "first,second", CODEX_SUBAGENT_PLUGINS: "first@market,second@market" },
+      async (call, home, _runs, jobs) => {
+        const setListings = (name: string) => {
+          mcpList = JSON.stringify([{ name }, { name: `denied-${name}` }]);
+          pluginList = JSON.stringify({ installed: [
+            { pluginId: `${name}@market`, installed: true, enabled: true },
+            { pluginId: `denied-${name}@market`, installed: true, enabled: true },
+          ] });
+        };
+        setListings("first");
+        nextRun = { events: [ANSWER], exitCode: 0, hold: true };
+        const started = await call("codex_delegate", { prompt: "anything", model: "cheap-model", mode: "background", working_dir: tmpdir() });
+        const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(started))?.[1];
+        assert.ok(jobId);
+        await spawnBarrier.promise;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        setListings("second");
+        nextRun = { events: [ANSWER], exitCode: 0 };
+        const secondDir = directory === "same" ? tmpdir() : home.path;
+        const second = await call("codex_follow_up", { thread_id: "thread", prompt: "continue", model: "cheap-model", working_dir: secondDir });
+        spawnedChildren[0]!["exitCode"] = 0;
+        spawnedChildren[0]!.emit("close", 0);
+        await finishInheritedRuns();
+        const first = await call("codex_job_result", { job_id: jobId });
+        assert.equal(spawnedArgs.length, 2);
+        for (const [index, name, result] of [[0, "first", first], [1, "second", second]] as const) {
+          assert.notEqual((result as ToolResult).isError, true, textOf(result));
+          assert.deepEqual(inheritanceOverrides(spawnedArgs[index]!), [`mcp_servers.denied-${name}.enabled=false`,
+            `plugins."denied-${name}@market".enabled=false`, "features.apps=false"].sort());
+          const line = inheritanceLine(result);
+          assert.ok(line.includes(JSON.stringify(name)), line);
+          assert.ok(line.includes(JSON.stringify(`${name}@market`)), line);
+          assert.ok(!line.includes(JSON.stringify(name === "first" ? "second" : "first")), line);
+        }
+        assert.deepEqual(mcpListCwds, [tmpdir(), secondDir]);
+        assert.deepEqual(pluginListCwds, [tmpdir(), secondDir]);
+        assert.deepEqual(jobs.result(jobId).inherited?.mcpServers, ["first"]);
+      });
+  });
+}
+
+for (const policy of ["none", "all"]) {
+  test(`AC-9 (#64) reports exact ${policy} allowances including apps off`, async () => {
+    await withServer({ CODEX_SUBAGENT_MCP_SERVERS: policy, CODEX_SUBAGENT_PLUGINS: policy }, async (call) => {
+      inheritedListings();
+      const result = await call("codex_delegate", { prompt: "anything", model: "cheap-model" });
+      const line = inheritanceLine(result);
+      assert.match(line, /apps.*(?:off|none|disabled)/i);
+      if (policy === "none") {
+        assert.match(line, /MCP.*none.*plugins.*none/i);
+        for (const name of ["docs", "other", "self", "docs@market", "browser@market"])
+          assert.ok(!line.includes(JSON.stringify(name)), line);
+      } else {
+        for (const name of ["docs", "other", "docs@market", "browser@market"])
+          assert.ok(line.includes(JSON.stringify(name)), line);
+        for (const name of ["self", "disabled@market"])
+          assert.ok(!line.includes(JSON.stringify(name)), line);
+      }
+    });
+  });
+}

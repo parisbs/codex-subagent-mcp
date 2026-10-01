@@ -6,6 +6,8 @@
  * reasoning effort is the value of the `model_reasoning_effort` config key.
  */
 
+import type { InheritanceReport } from "./codex/inherited.js";
+
 /**
  * Every reasoning effort the Codex CLI recognises, ordered from cheapest to
  * most expensive. Which subset a given model accepts is declared per-model in
@@ -120,6 +122,7 @@ export interface AppliedSettings {
 export type StructuredResult = { ok: true; json: string } | { ok: false; error: string };
 
 export interface DelegationResult {
+  inherited: InheritanceReport | null;
   finalMessage: string;
   threadId: string | null;
   model: string | null;

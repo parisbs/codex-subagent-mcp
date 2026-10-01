@@ -5,6 +5,8 @@ import {
   type SandboxMode,
 } from "./types.js";
 
+export type InheritPolicy = { kind: "none" } | { kind: "all" } | { kind: "list"; names: string[] };
+
 /**
  * User configuration, read from the environment.
  *
@@ -20,6 +22,9 @@ import {
  * cannot widen the latter.
  */
 export interface ServerConfig {
+  mcpServers: InheritPolicy;
+  plugins: InheritPolicy;
+  apps: boolean;
   /** Used when the caller specifies no model. Unset means: refuse and suggest. */
   defaultModel: string | null;
   /** Used when the caller specifies no effort. Unset means: the model's own default. */
@@ -127,6 +132,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
 
   return {
     config: {
+      mcpServers: { kind: "all" },
+      plugins: { kind: "all" },
+      apps: true,
       defaultModel,
       defaultEffort,
       allowedModels,

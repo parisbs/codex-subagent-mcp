@@ -147,3 +147,69 @@ test("does not imply a model from a multi-entry allow-list", () => {
   const { config } = loadConfig({ [`${P}ALLOWED_MODELS`]: "gpt-5.6-luna, gpt-5.6-terra" });
   assert.equal(impliedModel(config), null);
 });
+
+// #64: inheritance is configured outside the tool arguments.
+test("AC-1 (#64) defaults all inherited tools to none", () => {
+  const { config, errors } = loadConfig({});
+  assert.deepEqual(errors, []);
+  assert.deepEqual(config.mcpServers, { kind: "none" });
+  assert.deepEqual(config.plugins, { kind: "none" });
+  assert.equal(config.apps, false);
+});
+
+for (const [variable, field, ac] of [
+  ["MCP_SERVERS", "mcpServers", "AC-2 AC-3"],
+  ["PLUGINS", "plugins", "AC-5"],
+] as const) {
+  test(`${ac} (#64) parses ${variable} keywords and case-sensitive lists`, () => {
+    for (const [raw, expected] of [
+      [" none ", { kind: "none" }],
+      [" all\n", { kind: "all" }],
+      [" alpha@market, ,Beta,alpha@market,Beta,beta, ", { kind: "list", names: ["alpha@market", "Beta", "beta"] }],
+      ["ALL,None", { kind: "list", names: ["ALL", "None"] }],
+    ] as const) {
+      const loaded = loadConfig({ [`${P}${variable}`]: raw });
+      assert.deepEqual(loaded.errors, [], raw);
+      assert.deepEqual(loaded.config[field], expected, raw);
+    }
+  });
+
+  test(`AC-1 (#64) treats blank ${variable} as unset and ignores empty list entries`, () => {
+    for (const raw of ["", " \t\n"]) {
+      const loaded = loadConfig({ [`${P}${variable}`]: raw });
+      assert.deepEqual(loaded.errors, []);
+      assert.deepEqual(loaded.config[field], { kind: "none" });
+    }
+    const loaded = loadConfig({ [`${P}${variable}`]: " , , " });
+    assert.deepEqual(loaded.errors, []);
+    // Either normal form denotes an empty allow-list.
+    assert.ok(loaded.config[field].kind === "none" ||
+      (loaded.config[field].kind === "list" && loaded.config[field].names.length === 0));
+  });
+
+  test(`AC-7 (#64) rejects ${variable} keywords mixed with names`, () => {
+    for (const raw of ["all,docs", "docs,none", "none,all", "all,all", "none,none", "all,", ",none"]) {
+      const { errors } = loadConfig({ [`${P}${variable}`]: raw });
+      assert.equal(errors.length, 1, raw);
+      assert.ok(errors[0]!.includes(`${P}${variable}`));
+      assert.ok(errors[0]!.includes(raw));
+    }
+  });
+}
+
+test("AC-6 (#64) parses trimmed apps on and off and blank as unset", () => {
+  for (const [raw, expected] of [[" on\n", true], [" off ", false], ["", false], [" \t", false]] as const) {
+    const loaded = loadConfig({ [`${P}APPS`]: raw });
+    assert.deepEqual(loaded.errors, []);
+    assert.equal(loaded.config.apps, expected, JSON.stringify(raw));
+  }
+});
+
+test("AC-7 (#64) rejects every apps value outside on and off", () => {
+  for (const raw of ["all", "none", "ON", "OFF", "true", "docs", "on,off", "on,"]) {
+    const { errors } = loadConfig({ [`${P}APPS`]: raw });
+    assert.equal(errors.length, 1, raw);
+    assert.match(errors[0]!, /CODEX_SUBAGENT_APPS/);
+    assert.ok(errors[0]!.includes(raw));
+  }
+});

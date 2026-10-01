@@ -42,6 +42,7 @@ function result(overrides: Partial<DelegationResult>): DelegationResult {
     timedOut: false,
     cancelled: false,
     structured: null,
+    inherited: null,
     stderr: "",
     ...overrides,
   };

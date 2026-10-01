@@ -199,6 +199,15 @@ export function checkCompatibility(input: {
   return { version, failures, notes };
 }
 
+/** Runs the compatibility probes with a fresh, empty CODEX_HOME (#64). */
+export function checkCompatibilityInEmptyHome(input: {
+  version: string;
+  newestVerified: string;
+  run: (args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => CliRun;
+}): Report {
+  throw new Error("not implemented");
+}
+
 /** Why a path is not the native CLI, or null when it is. */
 export function shimProblem(path: string): string | null {
   const name = basename(path.replace(/\\/g, "/")).toLowerCase();
