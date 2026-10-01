@@ -19,6 +19,16 @@ const execFileAsync = promisify(execFile);
 
 const LIST_TIMEOUT_MS = 10_000;
 
+/**
+ * The MCP servers a run's configuration defines, without the ones plugins provide.
+ *
+ * Verified against codex-cli 0.159.2: `codex mcp list` also reports plugin servers, and
+ * `-c mcp_servers.<name>.enabled=false` on one of those creates an entry with no transport, so
+ * Codex refuses to start ("invalid transport"). With plugins off the listing holds only the
+ * servers that can be turned off by name; a plugin's servers follow the plugin policy.
+ */
+export const MCP_LIST_ARGS = ["mcp", "list", "--json", "--config", "features.plugins=false"];
+
 export type McpInventory = { ok: true; names: string[] } | { ok: false; error: string };
 export type PluginInventory = { ok: true; enabled: string[] } | { ok: false; error: string };
 
@@ -206,7 +216,7 @@ export async function inspectInherited(options: {
   };
 
   const [mcpListing, pluginListing] = await Promise.all([
-    list(["mcp", "list", "--json"]),
+    list(MCP_LIST_ARGS),
     list(["plugin", "list", "--json"]),
   ]);
   const mcp = mcpListing.ok ? parseMcpInventory(mcpListing.stdout) : mcpListing;

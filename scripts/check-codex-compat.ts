@@ -25,7 +25,7 @@ import { pathToFileURL } from "node:url";
 
 import { buildCodexArgs, type CodexInvocation } from "../src/codex/args.ts";
 import { parseCatalog } from "../src/codex/catalog.ts";
-import { parsePluginInventory } from "../src/codex/inherited.ts";
+import { MCP_LIST_ARGS, parsePluginInventory } from "../src/codex/inherited.ts";
 import { NEWEST_VERIFIED_CODEX_VERSION, compareVersions, parseVersion } from "../src/codex/doctor.ts";
 import { SANDBOX_MODES } from "../src/types.ts";
 
@@ -192,6 +192,18 @@ export function checkCompatibility(input: {
   } catch (error) {
     failures.push(
       `Codex CLI ${version}: \`codex mcp list --json\` is unusable for the recursion guard: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // The listing ADR 16 relies on runs with plugins off; the CLI must accept that override there.
+  const configServersRun = run(MCP_LIST_ARGS);
+  try {
+    if (configServersRun.status !== 0) throw new Error(errorLine(configServersRun));
+    if (!Array.isArray(JSON.parse(configServersRun.stdout))) throw new Error("the output is not a JSON array");
+  } catch (error) {
+    failures.push(
+      `Codex CLI ${version}: \`codex ${MCP_LIST_ARGS.join(" ")}\` is unusable for turning MCP servers off: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );
   }
