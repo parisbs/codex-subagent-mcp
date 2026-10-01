@@ -221,7 +221,7 @@ Everything is optional, and set through environment variables on the MCP server:
 | --- | --- | --- | --- |
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Unset: refused with a suggestion | Model when a call specifies none. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Model's default | Effort when a call specifies none. |
-| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Unrestricted | Anything else is refused; a single entry acts as the default model. |
+| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Unrestricted | Anything else is refused; a single entry acts as the default model. An empty entry (`a,,b`, a trailing comma) is a configuration error. |
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `read-only` | Sandbox when a call specifies none; cannot exceed the ceiling. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `workspace-write` | Calls above it are refused; `danger-full-access` needs explicit opt-in. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Unrestricted | Higher effort is lowered to a supported level, or refused if none fits. |
