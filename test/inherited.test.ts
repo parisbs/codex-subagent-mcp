@@ -211,7 +211,13 @@ test("AC-12 (#64) inspects both commands in each run directory without caching",
       plugins: { ok: true, enabled: [`docs-${index}@market`] }, selfNames: [`self-${index}`],
     });
     const pair = calls.slice(index * 2);
-    assert.deepEqual(pair.map((call) => call.args).sort(), [["mcp", "list", "--json"], ["plugin", "list", "--json"]]);
+    // Amended on 2026-10-01: the MCP listing runs with plugins off. `codex mcp list` also reports
+    // the servers plugins provide, and turning one of those off by name makes Codex refuse to
+    // start ("invalid transport", codex-cli 0.159.2); they are governed by the plugin policy.
+    assert.deepEqual(pair.map((call) => call.args).sort(), [
+      ["mcp", "list", "--json", "--config", "features.plugins=false"],
+      ["plugin", "list", "--json"],
+    ]);
     for (const call of pair) {
       assert.equal(call.file, process.execPath);
       assert.equal(call.cwd, cwd);
