@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { ENV_PREFIX, type InheritPolicy } from "../config.js";
+import { addressableInConfigPath } from "./args.js";
 import { findSelfReferences } from "./mcp.js";
 import { resolveCodexExecutable } from "./resolve.js";
 
@@ -38,6 +39,8 @@ export interface InheritanceReport {
   plugins: string[] | "all";
   apps: boolean;
   listingErrors: { mcp: string | null; plugins: string | null };
+  /** What could not be applied as configured, and what was done instead. Present only when not empty. */
+  problems?: string[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -91,7 +94,11 @@ export function parsePluginInventory(json: string): PluginInventory {
     if (!isRecord(entry) || typeof id !== "string" || id.length === 0) {
       return { ok: false, error: `codex plugin list --json listed a plugin without a readable id (entry ${index})` };
     }
-    if (entry.installed === true && entry.enabled === true) enabled.push(id);
+    // A plugin whose state cannot be read might be running; the listing is unreadable instead.
+    if (typeof entry.installed !== "boolean" || typeof entry.enabled !== "boolean") {
+      return { ok: false, error: `codex plugin list --json listed ${JSON.stringify(id)} without a readable state` };
+    }
+    if (entry.installed && entry.enabled) enabled.push(id);
   }
   return { ok: true, enabled: unique(enabled) };
 }
@@ -124,17 +131,37 @@ export function resolveInheritance(input: {
     };
   }
 
+  const problems: string[] = [];
+
   // This server is always turned off, whatever the policy: the recursion guard.
   const isSelf = (name: string): boolean => selfNames.includes(name);
   let disabledMcpServers: string[];
   let allowedMcp: string[] | "all";
   if (!mcp.ok) {
-    disabledMcpServers = [...selfNames];
+    disabledMcpServers = selfNames.filter(addressableInConfigPath);
     allowedMcp = "all";
   } else {
     const keep = (name: string): boolean =>
       !isSelf(name) && (mcpServers.kind === "all" || (mcpServers.kind === "list" && mcpServers.names.includes(name)));
-    disabledMcpServers = mcp.names.filter((name) => !keep(name));
+    const toDisable = mcp.names.filter((name) => !keep(name));
+    const unaddressable = toDisable.filter((name) => !addressableInConfigPath(name) && !isSelf(name));
+    if (unaddressable.length > 0) {
+      return {
+        ok: false,
+        reason:
+          `Codex's MCP configuration has ${unaddressable.map((name) => JSON.stringify(name)).join(", ")}, ` +
+          "which this delegation must not inherit but which cannot be turned off for one run: Codex cannot " +
+          'address a name with a dot or "=" in a config override. The delegation was not started. Rename ' +
+          `the server, or allow it by name in ${ENV_PREFIX}MCP_SERVERS (or set it to all).`,
+      };
+    }
+    disabledMcpServers = toDisable.filter(addressableInConfigPath);
+    for (const name of toDisable.filter((name) => !addressableInConfigPath(name))) {
+      problems.push(
+        `this server's own Codex entry ${JSON.stringify(name)} cannot be turned off for one run (a dot or "=" ` +
+          "in its name), so the recursion guard was not applied",
+      );
+    }
     allowedMcp = mcp.names.filter(keep);
   }
 
@@ -148,8 +175,20 @@ export function resolveInheritance(input: {
     disableAllPlugins = true;
     allowedPlugins = [];
   } else {
-    disabledPlugins = pluginInventory.enabled.filter((id) => !plugins.names.includes(id));
-    allowedPlugins = pluginInventory.enabled.filter((id) => plugins.names.includes(id));
+    const toDisable = pluginInventory.enabled.filter((id) => !plugins.names.includes(id));
+    const unaddressable = toDisable.filter((id) => !addressableInConfigPath(id));
+    if (unaddressable.length > 0) {
+      // One plugin cannot be singled out, so none is kept: fail closed.
+      disableAllPlugins = true;
+      allowedPlugins = [];
+      problems.push(
+        `plugin ${unaddressable.map((id) => JSON.stringify(id)).join(", ")} cannot be turned off by name ` +
+          '(a dot or "=" in its id), so every plugin was turned off',
+      );
+    } else {
+      disabledPlugins = toDisable;
+      allowedPlugins = pluginInventory.enabled.filter((id) => plugins.names.includes(id));
+    }
   }
 
   return {
@@ -163,6 +202,7 @@ export function resolveInheritance(input: {
       plugins: allowedPlugins,
       apps,
       listingErrors: { mcp: mcp.ok ? null : mcp.error, plugins: pluginInventory.ok ? null : pluginInventory.error },
+      ...(problems.length > 0 ? { problems } : {}),
     },
   };
 }
@@ -183,6 +223,7 @@ export function formatInheritance(report: InheritanceReport): string {
   if (report.listingErrors.plugins !== null) {
     notes.push(`the plugin listing failed (${oneLine(report.listingErrors.plugins)})`);
   }
+  for (const problem of report.problems ?? []) notes.push(oneLine(problem));
   return (
     `Allowed from Codex: MCP servers ${names(report.mcpServers)}; plugins ${names(report.plugins)}; ` +
     `apps ${report.apps ? "on" : "off"}.` +
