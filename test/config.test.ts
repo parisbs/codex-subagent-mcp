@@ -165,7 +165,7 @@ for (const [variable, field, ac] of [
     for (const [raw, expected] of [
       [" none ", { kind: "none" }],
       [" all\n", { kind: "all" }],
-      [" alpha@market, ,Beta,alpha@market,Beta,beta, ", { kind: "list", names: ["alpha@market", "Beta", "beta"] }],
+      [" alpha@market , Beta,alpha@market,Beta,beta ", { kind: "list", names: ["alpha@market", "Beta", "beta"] }],
       ["ALL,None", { kind: "list", names: ["ALL", "None"] }],
     ] as const) {
       const loaded = loadConfig({ [`${P}${variable}`]: raw });
@@ -174,17 +174,24 @@ for (const [variable, field, ac] of [
     }
   });
 
-  test(`AC-1 (#64) treats blank ${variable} as unset and ignores empty list entries`, () => {
+  test(`AC-1 (#64) treats blank ${variable} as unset`, () => {
     for (const raw of ["", " \t\n"]) {
       const loaded = loadConfig({ [`${P}${variable}`]: raw });
       assert.deepEqual(loaded.errors, []);
       assert.deepEqual(loaded.config[field], { kind: "none" });
     }
-    const loaded = loadConfig({ [`${P}${variable}`]: " , , " });
-    assert.deepEqual(loaded.errors, []);
-    // Either normal form denotes an empty allow-list.
-    assert.ok(loaded.config[field].kind === "none" ||
-      (loaded.config[field].kind === "list" && loaded.config[field].names.length === 0));
+  });
+
+  // Amended on 2026-10-01: an empty entry is a mistake to report, not a
+  // separator to skip. A value of only commas usually means a template whose
+  // variables expanded to nothing.
+  test(`AC-7 (#64) rejects ${variable} lists with an empty entry`, () => {
+    for (const raw of [",", " , , ", "docs,,api", "docs,", ",docs", "docs, ,api"]) {
+      const { errors } = loadConfig({ [`${P}${variable}`]: raw });
+      assert.equal(errors.length, 1, raw);
+      assert.ok(errors[0]!.includes(`${P}${variable}`), raw);
+      assert.ok(errors[0]!.includes(raw), raw);
+    }
   });
 
   test(`AC-7 (#64) rejects ${variable} keywords mixed with names`, () => {
