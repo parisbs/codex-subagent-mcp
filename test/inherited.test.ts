@@ -280,3 +280,21 @@ test("AC-5 (#64) turns every plugin off when one it must turn off cannot be addr
   assert.equal(allowed.disableAllPlugins, false);
   assert.deepEqual(allowed.report.plugins, ["docs@market", "dot.ted@market"]);
 });
+
+for (const [label, state] of [
+  ["installed missing", { enabled: true }], ["installed as text", { installed: "true", enabled: true }],
+  ["enabled missing", { installed: true }], ["enabled as a number", { installed: true, enabled: 1 }],
+  ["enabled null", { installed: true, enabled: null }],
+] as const) {
+  test(`AC-8 (#129) a plugin entry with ${label} makes the listing unreadable and disables all plugins`, () => {
+    const pluginInventory = parsePluginInventory(JSON.stringify({
+      installed: [{ pluginId: "docs@market", installed: true, enabled: true }, { pluginId: "other@market", ...state }],
+      available: [],
+    }));
+    assert.equal(pluginInventory.ok, false);
+    const result = resolved({ plugins: list("docs@market"), pluginInventory });
+    assert.equal(result.disableAllPlugins, true);
+    assert.deepEqual(result.report.plugins, []);
+    assert.notEqual(result.report.listingErrors.plugins, null);
+  });
+}

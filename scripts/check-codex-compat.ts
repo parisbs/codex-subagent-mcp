@@ -237,6 +237,20 @@ export function checkCompatibility(input: {
   return { version, failures, notes };
 }
 
+/**
+ * Applies the inheritance overrides this server builds in a scratch CODEX_HOME that defines MCP
+ * servers, a trusted project and a plugin from a local marketplace, and reads the result back
+ * through the CLI's own listings (#129). `--help` proves an override is accepted, not that it loads
+ * or turns off the entry it names.
+ */
+export function checkOverrideReadback(input: {
+  version: string;
+  run: (args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => CliRun;
+}): Report {
+  void input;
+  throw new Error("not implemented");
+}
+
 /** Runs the compatibility probes with a fresh, empty CODEX_HOME (#64). */
 export function checkCompatibilityInEmptyHome(input: {
   version: string;
