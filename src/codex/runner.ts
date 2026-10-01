@@ -513,6 +513,7 @@ export function runCodex(options: RunOptions): RunHandle {
       cleanup();
 
       const base = {
+        inherited: null,
         finalMessage: agentMessages.at(-1) ?? "",
         threadId,
         model: invocation.model ?? null,

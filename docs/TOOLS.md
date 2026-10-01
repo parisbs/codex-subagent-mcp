@@ -30,6 +30,9 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
+| `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. This server is always off, whatever the value. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
+| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. A plugin list that cannot be checked turns every plugin off. |
+| `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
 
 Two rules govern all of this, and are explained in
 [ADR 12](adr/0012-mechanism-not-policy.md) and
@@ -46,6 +49,13 @@ outside the repository, but a call can never exceed `CODEX_SUBAGENT_MAX_SANDBOX`
 Ceilings differ by kind on purpose. A sandbox above the ceiling is refused, because the caller asked
 for write access for a reason and running read-only anyway would fail the task silently. An effort
 above the ceiling is clamped, because less deliberation makes the task worse rather than impossible.
+
+**Inherited tools are off unless allowed** ([ADR 16](adr/0016-turn-off-inherited-tools.md)). Codex's
+sandbox confines shell commands, not MCP or plugin tools, which run as their own processes with the
+user's permissions; under `read-only`, a tool that declares itself read-only runs without approval.
+The three variables above therefore start at nothing. A list is names separated by single commas:
+`none` and `all` stand alone, and an empty entry is an error rather than something to skip. Each
+result states what the run was allowed, on its own line, with every name quoted.
 
 Invalid values are reported on the first tool call, not at startup — a server that refuses to start
 cannot explain why.
@@ -150,7 +160,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `acceptance_criteria` | string[] | — | Conditions that must hold for the task to be done. |
 | `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Passing an empty string is an error rather than the same as omitting it, since a directory nobody chose is not a safe fallback. Codex also reads a trusted project's `.codex/config.toml` from here. |
 | `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
-| `auto_approve` | boolean | `false` | Codex approves its own commands. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
+| `auto_approve` | boolean | `false` | Codex approves its own commands, and also the tools of any MCP server, plugin or app the user allowed, which run outside the sandbox. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. |
 | `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |

@@ -6,6 +6,11 @@ import {
 } from "./types.js";
 
 /**
+ * Which inherited MCP servers or plugins a delegation keeps (ADR 16): none, all, or the named ones.
+ */
+export type InheritPolicy = { kind: "none" } | { kind: "all" } | { kind: "list"; names: string[] };
+
+/**
  * User configuration, read from the environment.
  *
  * The guiding rule is that this server provides mechanism and the user provides
@@ -20,6 +25,12 @@ import {
  * cannot widen the latter.
  */
 export interface ServerConfig {
+  /** The MCP servers from the user's and the project's Codex config a delegation keeps. */
+  mcpServers: InheritPolicy;
+  /** The installed Codex plugins a delegation keeps. */
+  plugins: InheritPolicy;
+  /** Whether a delegation keeps Codex's apps (connectors to external services). */
+  apps: boolean;
   /** Used when the caller specifies no model. Unset means: refuse and suggest. */
   defaultModel: string | null;
   /** Used when the caller specifies no effort. Unset means: the model's own default. */
@@ -65,6 +76,34 @@ function readList(value: string | undefined): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+/**
+ * Reads an inheritance policy (ADR 16). Stricter than `readList` on purpose: these variables remove
+ * a protection, so a value that has to be guessed at is reported instead. `none` and `all` stand
+ * alone, a list is names separated by single commas, and an empty entry is a mistake — a value of
+ * only commas usually means a template whose variables expanded to nothing.
+ */
+function readInheritPolicy(name: string, raw: string | undefined, errors: string[]): InheritPolicy {
+  const value = raw?.trim() ?? "";
+  if (value === "" || value === "none") return { kind: "none" };
+  if (value === "all") return { kind: "all" };
+  const entries = value.split(",").map((entry) => entry.trim());
+  if (entries.some((entry) => entry.length === 0)) {
+    errors.push(
+      `${ENV_PREFIX}${name} is "${raw}", which has an empty entry. List names separated by single ` +
+        "commas, or use none or all on its own.",
+    );
+    return { kind: "none" };
+  }
+  if (entries.some((entry) => entry === "none" || entry === "all")) {
+    errors.push(
+      `${ENV_PREFIX}${name} is "${raw}", which mixes none or all with other entries. Use none or all ` +
+        "on its own, or list names only.",
+    );
+    return { kind: "none" };
+  }
+  return { kind: "list", names: [...new Set(entries)] };
 }
 
 /**
@@ -116,6 +155,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     );
   }
 
+  const mcpServers = readInheritPolicy("MCP_SERVERS", env[`${ENV_PREFIX}MCP_SERVERS`], errors);
+  const plugins = readInheritPolicy("PLUGINS", env[`${ENV_PREFIX}PLUGINS`], errors);
+  const rawApps = env[`${ENV_PREFIX}APPS`];
+  const apps = rawApps?.trim() ?? "";
+  if (apps !== "" && apps !== "on" && apps !== "off") {
+    errors.push(`${ENV_PREFIX}APPS is "${rawApps}", which is not one of: on, off.`);
+  }
+
   const effectiveMaxSandbox = maxSandbox ?? "workspace-write";
   const effectiveDefaultSandbox = defaultSandbox ?? "read-only";
   if (sandboxRank(effectiveDefaultSandbox) > sandboxRank(effectiveMaxSandbox)) {
@@ -127,6 +174,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
 
   return {
     config: {
+      // Nothing inherited unless the user allows it: Codex's sandbox does not confine these (ADR 16).
+      mcpServers,
+      plugins,
+      apps: apps === "on",
       defaultModel,
       defaultEffort,
       allowedModels,

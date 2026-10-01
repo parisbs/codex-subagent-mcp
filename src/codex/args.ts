@@ -19,22 +19,63 @@ export interface CodexInvocation {
   ephemeral?: boolean;
   /** Codex MCP entries that point back at this server, switched off for this run. */
   disabledMcpServers?: string[];
+  /** Installed Codex plugins switched off for this run (ADR 16). */
+  disabledPlugins?: string[];
+  /** Switches every Codex plugin off for this run (ADR 16). */
+  disableAllPlugins?: boolean;
+  /** Switches Codex's apps off for this run (ADR 16). */
+  disableApps?: boolean;
   /** Absolute path of a JSON Schema file for `--output-schema` (#28). */
   outputSchemaPath?: string;
 }
 
 /**
- * Switches off Codex MCP entries for one run, so a delegation cannot call this server again.
+ * Whether a name can be addressed in a `-c` path.
+ *
+ * Verified against codex-cli 0.159.2: the CLI splits the path on dots and the override on its first
+ * `=`, and reads TOML quotes literally, so a quoted key names an entry whose name includes the
+ * quotes — for an MCP server, one with no transport, and Codex refuses to start. A raw segment
+ * works for anything else, spaces, quotes, backslashes and `@` included; a name with a dot or `=`
+ * cannot be addressed at all, and callers must fail closed instead (ADR 16).
+ */
+export function addressableInConfigPath(name: string): boolean {
+  return name.length > 0 && !/[.=]/.test(name);
+}
+
+function configPathArg(table: string, name: string): string {
+  if (!addressableInConfigPath(name)) {
+    throw new Error(
+      `${table} entry ${JSON.stringify(name)} cannot be turned off for one run: Codex cannot address a ` +
+        "name with a dot or \"=\" in a config override.",
+    );
+  }
+  return `${table}.${name}.enabled=false`;
+}
+
+/**
+ * Switches off Codex MCP entries for one run, so a delegation cannot call this server again, nor
+ * any server the user did not allow (ADR 16).
  *
  * Verified against codex-cli 0.154.0: `-c mcp_servers.<name>.enabled=false` keeps the entry from
- * starting, on `exec` and on `exec resume`. A name outside the bare-key characters is quoted, as a
- * TOML dotted key requires.
+ * starting, on `exec` and on `exec resume`.
  */
 function disableMcpServerArgs(names: string[] | undefined): string[] {
-  return (names ?? []).flatMap((name) => [
-    "--config",
-    `mcp_servers.${/^[A-Za-z0-9_-]+$/.test(name) ? name : JSON.stringify(name)}.enabled=false`,
-  ]);
+  return (names ?? []).flatMap((name) => ["--config", configPathArg("mcp_servers", name)]);
+}
+
+/**
+ * Switches off the plugins and apps a run would inherit from the user's Codex setup (ADR 16).
+ *
+ * Verified against codex-cli 0.159.2: `features.plugins=false` and `features.apps=false` give the
+ * model the same input as `--disable plugins --disable apps`, and `plugins.<id>.enabled=false`
+ * (raw, see `addressableInConfigPath`) turns one plugin off. Config overrides, unlike the flags,
+ * are accepted by `exec resume` as well.
+ */
+function inheritanceArgs(invocation: CodexInvocation): string[] {
+  const args = (invocation.disabledPlugins ?? []).flatMap((id) => ["--config", configPathArg("plugins", id)]);
+  if (invocation.disableAllPlugins) args.push("--config", "features.plugins=false");
+  if (invocation.disableApps) args.push("--config", "features.apps=false");
+  return args;
 }
 
 /**
@@ -142,6 +183,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...inheritanceArgs(invocation));
   args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
@@ -176,6 +218,7 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...inheritanceArgs(invocation));
   args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;

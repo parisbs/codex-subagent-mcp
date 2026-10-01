@@ -235,7 +235,9 @@ test("switches off Codex MCP entries that point back at this server, on exec and
   assert.equal(exec[0], "exec");
   assert.ok(exec.includes("mcp_servers.codex-subagent.enabled=false"));
   assert.equal(exec[exec.indexOf("mcp_servers.codex-subagent.enabled=false") - 1], "--config");
-  assert.ok(exec.includes('mcp_servers."my server".enabled=false'));
+  // Amended for #64 on 2026-10-01: codex-cli 0.159.2 does not read TOML quotes in a `-c` path, so
+  // a quoted key names a server with literal quotes and Codex refuses to start.
+  assert.ok(exec.includes("mcp_servers.my server.enabled=false"));
   assert.ok(resume.includes("mcp_servers.codex-subagent.enabled=false"));
   assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).some((arg) => arg.startsWith("mcp_servers.")));
 });
@@ -265,3 +267,49 @@ test("AC-9 adds no --output-schema when the turn has no schema", () => {
   assert.ok(!buildCodexArgs({ kind: "exec", sandbox: "read-only" }).includes("--output-schema"));
   assert.ok(!buildCodexArgs({ kind: "resume", threadId: "t", sandbox: "read-only" }).includes("--output-schema"));
 });
+
+for (const kind of ["exec", "resume"] as const) {
+  test(`AC-1 AC-5 AC-6 (#64) passes each inheritance override as a complete config pair on ${kind}`, () => {
+    const args = buildCodexArgs({
+      kind, threadId: "thread", sandbox: "read-only", disabledMcpServers: ["docs"],
+      disabledPlugins: ["browser@market"], disableAllPlugins: true, disableApps: true,
+    });
+    const expected = ["mcp_servers.docs.enabled=false", "plugins.browser@market.enabled=false",
+      "features.plugins=false", "features.apps=false"];
+    for (const value of expected) {
+      assert.equal(args.filter((arg) => arg === value).length, 1, value);
+      assert.equal(args[args.indexOf(value) - 1], "--config", value);
+    }
+    assert.deepEqual(args.filter((arg) => /^(mcp_servers\.|plugins\.|features\.(plugins|apps)=)/.test(arg)).sort(), expected.sort());
+  });
+
+  for (const category of ["MCP", "plugin"] as const) {
+    // Amended on 2026-10-01: the CLI splits a `-c` path on dots and reads quotes literally
+    // (codex-cli 0.159.2), so names go in raw, and a name with a dot or `=` cannot be addressed.
+    test(`AC-2 AC-5 (#64) passes hostile ${category} names raw on ${kind}`, () => {
+      const names = ['quote"name', "back\\slash", "with space", "at@sign", "bare_key-1"];
+      const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only",
+        ...(category === "MCP" ? { disabledMcpServers: names } : { disabledPlugins: names }),
+      });
+      const prefix = category === "MCP" ? "mcp_servers" : "plugins";
+      const expected = names.map((name) => `${prefix}.${name}.enabled=false`);
+      assert.deepEqual(args.filter((arg) => arg.startsWith(`${prefix}.`)), expected);
+      for (const value of expected) assert.equal(args[args.indexOf(value) - 1], "--config");
+    });
+
+    test(`AC-2 AC-5 (#64) refuses a ${category} name it cannot address on ${kind}`, () => {
+      for (const name of ["dot.name", "eq=sign"]) {
+        assert.throws(() => buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only",
+          ...(category === "MCP" ? { disabledMcpServers: [name] } : { disabledPlugins: [name] }),
+        }), (error: Error) => error.message.includes(name), name);
+      }
+    });
+  }
+
+  test(`AC-3 AC-5 AC-6 (#64) omits inheritance overrides unless requested on ${kind}`, () => {
+    for (const extra of [{}, { disabledMcpServers: [], disabledPlugins: [], disableAllPlugins: false, disableApps: false }]) {
+      const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only", ...extra });
+      assert.deepEqual(args.filter((arg) => /^(mcp_servers\.|plugins\.|features\.(plugins|apps)=)/.test(arg)), []);
+    }
+  });
+}

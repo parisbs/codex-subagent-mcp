@@ -41,6 +41,18 @@ for every platform.
 | Network access | no | **no** | yes |
 | **Read outside the working directory** | **yes** | **yes** | yes |
 
+**The table covers shell commands only.** Measured on codex-cli 0.159.2, macOS, on 2026-09-30 (#64):
+an MCP tool runs as its own process, outside the sandbox, with the user's full permissions, network
+included. Under `read-only` a tool that is not marked read-only is refused by the approval policy,
+not the sandbox; a tool that declares itself read-only (the MCP `readOnlyHint` annotation, which its
+author chooses) runs without approval and wrote a file outside the working directory; with
+`--approve-for-me` (`auto_approve`) any tool runs. The same holds for the servers that Codex plugins
+provide and for Codex's apps. A delegation therefore inherits no MCP server, plugin or app unless the
+user allows it with `CODEX_SUBAGENT_MCP_SERVERS`, `CODEX_SUBAGENT_PLUGINS` or `CODEX_SUBAGENT_APPS`
+([ADR 16](docs/adr/0016-turn-off-inherited-tools.md)); a project that Codex trusts can register MCP
+servers in its own `.codex/config.toml`, and those are turned off too. Allowing one is allowing code
+that runs unsandboxed.
+
 Two limits inside `workspace-write` are worth stating, because they are not obvious and they shape
 what a write-enabled delegation can actually do. Measured on codex-cli 0.154.0, macOS:
 

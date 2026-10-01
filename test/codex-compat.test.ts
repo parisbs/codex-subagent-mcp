@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
+import { VERIFIED_CODEX_VERSION } from "../src/codex/doctor.ts";
+
 import {
   NEGATIVE_CONTROL,
   argvShapes,
   checkCompatibility,
+  checkCompatibilityInEmptyHome,
   findCodexBinary,
   shimProblem,
   type CliRun,
@@ -39,6 +42,7 @@ function healthyCli(overrides: (args: string[]) => CliRun | undefined = () => un
     if (overridden) return overridden;
     if (args[0] === "debug") return ok(CATALOG);
     if (args[0] === "mcp") return ok("[]");
+    if (args[0] === "plugin") return ok('{"installed":[],"available":[]}');
     if (args[0] === "features") return ok("worktrees  stable  true\n");
     if (args.includes("--full-auto")) {
       return { status: 2, stdout: "", stderr: "error: unexpected argument '--full-auto' found\n" };
@@ -151,4 +155,71 @@ test("AC-11 (#28) exercises --output-schema on exec and on resume, each on its o
     shapes.some((shape) => (kind === "resume") === (shape.argv[1] === "resume") && shape.argv.includes("--output-schema"));
   assert.ok(withSchema("exec"), "no exec shape passes --output-schema");
   assert.ok(withSchema("resume"), "no resume shape passes --output-schema");
+});
+
+for (const kind of ["exec", "resume"] as const) {
+  test(`AC-10 (#64) exercises all four inheritance overrides on ${kind}`, () => {
+    const shapes = argvShapes("m", tmpdir()).filter((shape) => (shape.argv[1] === "resume") === (kind === "resume"));
+    for (const pattern of [/^features\.plugins=false$/, /^features\.apps=false$/,
+      /^plugins\.[^".]+\.enabled=false$/, /^mcp_servers\..+\.enabled=false$/]) {
+      assert.ok(shapes.some(({ argv }) => argv.some((arg, i) => pattern.test(arg) && argv[i - 1] === "--config")),
+        `no ${kind} shape exercises ${pattern}`);
+    }
+  });
+}
+
+test("AC-10 (#64) checks both empty-home listing commands", () => {
+  const { run, calls } = healthyCli();
+  assert.deepEqual(check(run).failures, []);
+  assert.equal(calls.filter((args) => args.join(" ") === "mcp list --json").length, 1);
+  assert.equal(calls.filter((args) => args.join(" ") === "plugin list --json").length, 1);
+});
+
+test("AC-10 (#64) runs the compatibility probes with an actually empty isolated CODEX_HOME", () => {
+  const { run, calls } = healthyCli();
+  const homes = new Set<string>();
+  const report = checkCompatibilityInEmptyHome({ version: "0.159.2", newestVerified: "0.159.2",
+    run: (args, options) => {
+      const home = options.env.CODEX_HOME;
+      assert.ok(home);
+      assert.notEqual(home, process.env.CODEX_HOME);
+      assert.deepEqual(readdirSync(home), []);
+      assert.ok(options.cwd);
+      homes.add(home);
+      return run(args);
+    },
+  });
+  assert.deepEqual(report.failures, []);
+  assert.equal(homes.size, 1);
+  assert.ok(calls.some((args) => args.join(" ") === "mcp list --json"));
+  assert.ok(calls.some((args) => args.join(" ") === "plugin list --json"));
+  const source = readFileSync(new URL("../scripts/check-codex-compat.ts", import.meta.url), "utf8");
+  assert.match(source.slice(source.indexOf("function main(")), /checkCompatibilityInEmptyHome\(/,
+    "the CLI entry point must use the tested empty-home boundary");
+});
+
+test("AC-10 (#64) rejects failed or malformed plugin compatibility listings", () => {
+  for (const listing of [
+    { status: 1, stdout: "", stderr: "plugin unavailable" },
+    ok("not json"), ok("[]"), ok('{}'), ok('{"installed":{}}'),
+  ]) {
+    const { run } = healthyCli((args) => args[0] === "plugin" ? listing : undefined);
+    assert.ok(check(run).failures.some((failure) => /plugin list/.test(failure)), JSON.stringify(listing));
+  }
+});
+
+test("AC-10 (#64) workflow checks the newest release and the minimum supported version on every platform", () => {
+  const source = readFileSync(new URL("../.github/workflows/codex-compat.yml", import.meta.url), "utf8");
+  const active = source.split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n");
+  assert.match(active, /os:\s*\[ubuntu-latest, windows-latest, macos-latest\]/);
+  assert.match(active, /scripts\/check-codex-compat\.ts/);
+  // The newest release is still resolved at run time.
+  assert.match(active, /npm view @openai\/codex version|@openai\/codex@latest/);
+  // The minimum comes from the preflight's own constant, so raising the floor
+  // in doctor.ts moves the check with it; it is never written in the workflow.
+  assert.match(active, /\bVERIFIED_CODEX_VERSION\b/);
+  assert.ok(
+    !active.includes(VERIFIED_CODEX_VERSION),
+    `the minimum version ${VERIFIED_CODEX_VERSION} is hardcoded in the workflow`,
+  );
 });

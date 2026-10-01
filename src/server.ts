@@ -22,9 +22,14 @@ import {
   type Diagnosis,
 } from "./codex/doctor.js";
 import type { CodexEvent } from "./codex/events.js";
-import { selfRegisteredServers } from "./codex/mcp.js";
+import {
+  formatInheritance,
+  inspectInherited,
+  resolveInheritance,
+  type InheritanceReport,
+} from "./codex/inherited.js";
 import { serialiseOutputSchema } from "./codex/schema.js";
-import { readTurnContext, recoverThreadSettings } from "./codex/rollout.js";
+import { compareApplied, readTurnContext, recoverThreadSettings } from "./codex/rollout.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
@@ -343,7 +348,9 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
     );
   }
 
-  if (result.timedOut) {
+  if (result.notStarted) {
+    lines.push(result.notStarted, "");
+  } else if (result.timedOut) {
     lines.push(
       "The delegation was terminated because it exceeded its timeout. Partial output follows.",
       "",
@@ -413,6 +420,9 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
   if (result.threadId) {
     meta.push(`thread_id=${result.threadId}`);
   }
+  // On a line of its own, with every name quoted: a name can contain the
+  // metadata line's separators (ADR 16).
+  if (result.inherited) lines.push("", formatInheritance(result.inherited));
   lines.push("", meta.join(" | "));
 
   if (result.threadId) {
@@ -616,6 +626,68 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
     return withTurnUsage;
   };
 
+  /**
+   * What a run in `cwd` may inherit from the user's Codex setup (ADR 16), read when the call starts
+   * and never cached: a server or plugin added mid-session must not be missed.
+   */
+  const inheritanceFor = async (cwd: string | undefined) => {
+    const inventory = await inspectInherited({ ...(cwd ? { cwd } : {}) });
+    return resolveInheritance({
+      mcpServers: config.mcpServers,
+      plugins: config.plugins,
+      apps: config.apps,
+      mcp: inventory.mcp,
+      pluginInventory: inventory.plugins,
+      selfNames: inventory.selfNames,
+    });
+  };
+
+  /**
+   * Attaches what the run was allowed to its result, and turns a run that never started into a
+   * result too, so the report survives in background jobs, which keep only results (#64, AC-9).
+   */
+  const settle = (
+    pending: Promise<DelegationResult>,
+    invocation: CodexInvocation,
+    inherited: InheritanceReport,
+    cancelled: () => boolean,
+  ): Promise<DelegationResult> =>
+    pending.then(
+      (result) => ({ ...result, inherited }),
+      async (error: unknown): Promise<DelegationResult> => {
+        const message = error instanceof Error ? error.message : String(error);
+        const requested = {
+          model: invocation.model ?? null,
+          reasoningEffort: invocation.reasoningEffort ?? null,
+          sandbox: invocation.sandbox,
+          workingDir: invocation.workingDir ?? process.cwd(),
+        };
+        return {
+          inherited,
+          notStarted: message,
+          finalMessage: "",
+          threadId: null,
+          ...requested,
+          applied: await compareApplied(requested, { context: null, reason: "Codex did not start" }),
+          commandCount: 0,
+          commands: [],
+          fileChanges: [],
+          agentMessages: [],
+          errors: [],
+          warnings: [],
+          turnFailure: null,
+          turnUsage: null,
+          threadUsage: null,
+          durationMs: 0,
+          exitCode: null,
+          timedOut: false,
+          cancelled: cancelled(),
+          structured: null,
+          stderr: "",
+        };
+      },
+    );
+
   /** Refuses every call while the environment is misconfigured. */
   const requireValidConfig = (): void => {
     if (configErrors.length === 0) return;
@@ -673,7 +745,9 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           "",
           formatDiagnosis(diagnosis),
         ];
-        return textResult(lines.join("\n"), !isUsable(diagnosis));
+        // A server that refuses every delegation is not working, however
+        // healthy the installation is.
+        return textResult(lines.join("\n"), !isUsable(diagnosis) || configErrors.length > 0);
       } catch (error) {
         return errorResult(error);
       }
@@ -873,11 +947,12 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           structuredOutput: outputSchema !== undefined,
         });
 
-        const recursionGuard = await selfRegisteredServers({ cwd: args.working_dir });
-        if (recursionGuard.error) {
+        const inheritance = await inheritanceFor(args.working_dir);
+        if (!inheritance.ok) return textResult(inheritance.reason, true);
+        if (inheritance.report.listingErrors.mcp) {
           notes.push(
             `The recursion guard could not be applied for this run because Codex's MCP ` +
-              `configuration could not be listed: ${recursionGuard.error}`,
+              `configuration could not be listed: ${inheritance.report.listingErrors.mcp}`,
           );
         }
 
@@ -892,7 +967,10 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           useWorktree: args.use_worktree ?? false,
           webSearch: args.web_search ?? false,
           skipGitRepoCheck: args.skip_git_repo_check ?? false,
-          disabledMcpServers: recursionGuard.names,
+          disabledMcpServers: inheritance.disabledMcpServers,
+          disabledPlugins: inheritance.disabledPlugins,
+          disableAllPlugins: inheritance.disableAllPlugins,
+          disableApps: inheritance.disableApps,
         };
 
         const timeoutSeconds = args.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS;
@@ -910,8 +988,8 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
             reasoningEffort: effort,
             controller,
             run: (hooks) =>
-              runs
-                .track(
+              settle(
+                runs.track(
                   runCodex({
                     invocation,
                     prompt,
@@ -920,8 +998,11 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
                     onEvent: hooks.onEvent,
                     outputSchema,
                   }),
-                )
-                .result.then((result) => rememberThread(result, threadSettings)),
+                ).result,
+                invocation,
+                inheritance.report,
+                () => controller.signal.aborted,
+              ).then((result) => rememberThread(result, threadSettings)),
           });
 
           return textResult(
@@ -961,7 +1042,10 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
             outputSchema,
           }),
         );
-        const result = rememberThread(await handle.result, threadSettings);
+        const result = rememberThread(
+          await settle(handle.result, invocation, inheritance.report, () => extra.signal.aborted),
+          threadSettings,
+        );
         return textResult(renderResult(result, notes, config), isFailure(result));
       } catch (error) {
         return errorResult(error);
@@ -1103,11 +1187,12 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         }
         const skipGitRepoCheck = previous?.skipGitRepoCheck ?? false;
 
-        const recursionGuard = await selfRegisteredServers({ cwd: workingDir });
-        if (recursionGuard.error) {
+        const inheritance = await inheritanceFor(workingDir);
+        if (!inheritance.ok) return textResult(inheritance.reason, true);
+        if (inheritance.report.listingErrors.mcp) {
           notes.push(
             `The recursion guard could not be applied for this run because Codex's MCP ` +
-              `configuration could not be listed: ${recursionGuard.error}`,
+              `configuration could not be listed: ${inheritance.report.listingErrors.mcp}`,
           );
         }
 
@@ -1119,7 +1204,10 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           sandbox,
           ...(workingDir ? { workingDir } : {}),
           skipGitRepoCheck,
-          disabledMcpServers: recursionGuard.names,
+          disabledMcpServers: inheritance.disabledMcpServers,
+          disabledPlugins: inheritance.disabledPlugins,
+          disableAllPlugins: inheritance.disableAllPlugins,
+          disableApps: inheritance.disableApps,
         };
 
         const progressToken = extra._meta?.progressToken;
@@ -1145,7 +1233,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           },
         }));
 
-        const result = rememberThread(await handle.result, {
+        const result = rememberThread(await settle(handle.result, invocation, inheritance.report, () => extra.signal.aborted), {
           model,
           reasoningEffort: effort,
           ...(workingDir ? { workingDir } : {}),

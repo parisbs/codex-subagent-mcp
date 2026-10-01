@@ -25,6 +25,7 @@ import { pathToFileURL } from "node:url";
 
 import { buildCodexArgs, type CodexInvocation } from "../src/codex/args.ts";
 import { parseCatalog } from "../src/codex/catalog.ts";
+import { MCP_LIST_ARGS, parseMcpInventory, parsePluginInventory } from "../src/codex/inherited.ts";
 import { NEWEST_VERIFIED_CODEX_VERSION, compareVersions, parseVersion } from "../src/codex/doctor.ts";
 import { SANDBOX_MODES } from "../src/types.ts";
 
@@ -80,6 +81,12 @@ export function argvShapes(model: string, dir: string): Shape[] {
     skipGitRepoCheck: true,
     disabledMcpServers: ["codex-subagent", "name with spaces"],
   };
+  // What ADR 16 turns off: one plugin by id, every plugin, and apps.
+  const inheritance: Partial<CodexInvocation> = {
+    disabledPlugins: ["browser@openai-bundled"],
+    disableAllPlugins: true,
+    disableApps: true,
+  };
 
   return [
     ...SANDBOX_MODES.map((sandbox) => exec(`sandbox ${sandbox}`, { sandbox })),
@@ -91,9 +98,11 @@ export function argvShapes(model: string, dir: string): Shape[] {
     exec("skip git repo check", { skipGitRepoCheck: true }),
     exec("ephemeral", { ephemeral: true }),
     exec("recursion guard", { disabledMcpServers: ["codex-subagent", "name with spaces"] }),
+    exec("inherited tools off", { disabledMcpServers: ["docs"], ...inheritance }),
     exec("output schema", { outputSchemaPath }),
     exec("everything a delegation can combine", {
       ...full,
+      ...inheritance,
       sandbox: "workspace-write",
       useWorktree: true,
       webSearch: true,
@@ -104,12 +113,14 @@ export function argvShapes(model: string, dir: string): Shape[] {
     resume("model and effort", { model, reasoningEffort: "low" }),
     resume("worktree", { useWorktree: true }),
     resume("output schema", { outputSchemaPath }),
+    resume("inherited tools off", { disabledMcpServers: ["docs"], ...inheritance }),
     resume("everything a follow-up can combine", {
       model,
       reasoningEffort: "low",
       sandbox: "workspace-write",
       skipGitRepoCheck: true,
       disabledMcpServers: ["codex-subagent"],
+      ...inheritance,
       outputSchemaPath,
     }),
   ];
@@ -177,10 +188,37 @@ export function checkCompatibility(input: {
   const mcpRun = run(["mcp", "list", "--json"]);
   try {
     if (mcpRun.status !== 0) throw new Error(errorLine(mcpRun));
-    if (!Array.isArray(JSON.parse(mcpRun.stdout))) throw new Error("the output is not a JSON array");
+    const inventory = parseMcpInventory(mcpRun.stdout);
+    if (!inventory.ok) throw new Error(inventory.error);
   } catch (error) {
     failures.push(
       `Codex CLI ${version}: \`codex mcp list --json\` is unusable for the recursion guard: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // The listing ADR 16 relies on runs with plugins off; the CLI must accept that override there.
+  const configServersRun = run(MCP_LIST_ARGS);
+  try {
+    if (configServersRun.status !== 0) throw new Error(errorLine(configServersRun));
+    const inventory = parseMcpInventory(configServersRun.stdout);
+    if (!inventory.ok) throw new Error(inventory.error);
+  } catch (error) {
+    failures.push(
+      `Codex CLI ${version}: \`codex ${MCP_LIST_ARGS.join(" ")}\` is unusable for turning MCP servers off: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // ADR 16 turns plugins off by id, so the listing has to keep its shape.
+  const pluginRun = run(["plugin", "list", "--json"]);
+  try {
+    if (pluginRun.status !== 0) throw new Error(errorLine(pluginRun));
+    const inventory = parsePluginInventory(pluginRun.stdout);
+    if (!inventory.ok) throw new Error(inventory.error);
+  } catch (error) {
+    failures.push(
+      `Codex CLI ${version}: \`codex plugin list --json\` is unusable for turning plugins off: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );
   }
@@ -197,6 +235,29 @@ export function checkCompatibility(input: {
   }
 
   return { version, failures, notes };
+}
+
+/** Runs the compatibility probes with a fresh, empty CODEX_HOME (#64). */
+export function checkCompatibilityInEmptyHome(input: {
+  version: string;
+  newestVerified: string;
+  run: (args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => CliRun;
+}): Report {
+  // An empty home: no login, no user config, no MCP servers, no plugins.
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-compat-home-"));
+  const dir = mkdtempSync(join(tmpdir(), "codex-compat-dir-"));
+  try {
+    const env = { ...process.env, CODEX_HOME: codexHome };
+    return checkCompatibility({
+      version: input.version,
+      newestVerified: input.newestVerified,
+      dir,
+      run: (args) => input.run(args, { cwd: dir, env }),
+    });
+  } finally {
+    rmSync(codexHome, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Why a path is not the native CLI, or null when it is. */
@@ -235,7 +296,7 @@ function writeSummary(report: Report, binary: string): void {
     "",
     ...(report.failures.length > 0
       ? ["### Failures", "", ...report.failures.map((failure) => `- ${failure.replace(/\n/g, "\n  ")}`), ""]
-      : ["Every argv shape was accepted, the negative control was rejected, and the catalog and MCP listing parsed.", ""]),
+      : ["Every argv shape was accepted, the negative control was rejected, and the catalog, MCP and plugin listings parsed.", ""]),
     ...report.notes.map((note) => `- ${note}`),
   ];
   const text = lines.join("\n");
@@ -260,16 +321,13 @@ function main(): void {
     process.exit(1);
   }
 
-  const codexHome = mkdtempSync(join(tmpdir(), "codex-compat-home-"));
-  const dir = mkdtempSync(join(tmpdir(), "codex-compat-dir-"));
-  const run = (args: string[]): CliRun => {
+  const run = (args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }): CliRun => {
     const result = spawnSync(binary, args, {
       shell: false,
       encoding: "utf8",
       timeout: 60_000,
-      cwd: dir,
-      // An empty home: no login, no user config, no MCP servers.
-      env: { ...process.env, CODEX_HOME: codexHome },
+      cwd: options.cwd,
+      env: options.env,
     });
     return {
       status: result.status,
@@ -282,24 +340,26 @@ function main(): void {
     };
   };
 
+  // `--version` reads no configuration, but runs in an empty home all the same.
+  const versionHome = mkdtempSync(join(tmpdir(), "codex-compat-version-"));
+  let versionRun: CliRun;
   try {
-    const versionRun = run(["--version"]);
-    const version = parseVersion(versionRun.stdout);
-    if (!version) {
-      console.error(
-        `check-codex-compat: could not read a version from ${binary} --version ` +
-          `(exit ${versionRun.status}): ${errorLine(versionRun)}`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-    const report = checkCompatibility({ version, newestVerified: NEWEST_VERIFIED_CODEX_VERSION, dir, run });
-    writeSummary(report, binary);
-    process.exitCode = report.failures.length > 0 ? 1 : 0;
+    versionRun = run(["--version"], { cwd: versionHome, env: { ...process.env, CODEX_HOME: versionHome } });
   } finally {
-    rmSync(codexHome, { recursive: true, force: true });
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(versionHome, { recursive: true, force: true });
   }
+  const version = parseVersion(versionRun.stdout);
+  if (!version) {
+    console.error(
+      `check-codex-compat: could not read a version from ${binary} --version ` +
+        `(exit ${versionRun.status}): ${errorLine(versionRun)}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const report = checkCompatibilityInEmptyHome({ version, newestVerified: NEWEST_VERIFIED_CODEX_VERSION, run });
+  writeSummary(report, binary);
+  process.exitCode = report.failures.length > 0 ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

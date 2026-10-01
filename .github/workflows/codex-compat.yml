@@ -17,6 +17,7 @@ on:
       - "src/codex/args.ts"
       - "src/codex/catalog.ts"
       - "src/codex/doctor.ts"
+      - "src/codex/inherited.ts"
       - "scripts/check-codex-compat.ts"
       - ".github/workflows/codex-compat.yml"
   workflow_dispatch:
@@ -35,12 +36,15 @@ concurrency:
 
 jobs:
   compat:
-    name: Codex CLI on ${{ matrix.os }}
+    name: Codex CLI ${{ matrix.release }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        # The newest release (or the one requested) and the oldest this server
+        # supports: an argv the floor rejects breaks every user still on it (#64).
+        release: [latest, minimum]
     steps:
       - uses: actions/checkout@v7
 
@@ -54,12 +58,19 @@ jobs:
 
       # Installed into a scratch prefix, not globally: the check runs the
       # platform package's native binary, never the npm wrapper or a .cmd shim.
+      # The minimum is the preflight's own floor, read from src/codex/doctor.ts so
+      # that raising it there moves this check with it.
       - name: Install the Codex CLI
         shell: bash
         env:
           REQUESTED: ${{ inputs.version }}
+          RELEASE: ${{ matrix.release }}
         run: |
-          version="${REQUESTED:-$(npm view @openai/codex version)}"
+          if [[ "$RELEASE" == "minimum" ]]; then
+            version="$(node --import tsx -e 'import("./src/codex/doctor.ts").then((m) => console.log(m.VERIFIED_CODEX_VERSION))')"
+          else
+            version="${REQUESTED:-$(npm view @openai/codex version)}"
+          fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Not a Codex CLI version: $version" >&2
             exit 1
