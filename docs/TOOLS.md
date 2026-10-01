@@ -20,16 +20,16 @@ claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -e C
 Kept on one line on purpose: a trailing `\` continues a line only in POSIX shells, not in PowerShell
 or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 
-| Variable | Effect |
-| --- | --- |
-| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
-| `CODEX_HOME` | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings are looked up. Unset means `~/.codex`. |
-| `CODEX_SUBAGENT_DEFAULT_MODEL` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
-| `CODEX_SUBAGENT_DEFAULT_EFFORT` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
-| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. |
-| `CODEX_SUBAGENT_DEFAULT_SANDBOX` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
-| `CODEX_SUBAGENT_MAX_SANDBOX` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
-| `CODEX_SUBAGENT_MAX_EFFORT` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
+| Variable | Values | Effect |
+| --- | --- | --- |
+| `CODEX_BIN` | Executable path | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
+| `CODEX_HOME` | Directory path | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings are looked up. Unset means `~/.codex`. |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
+| `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
+| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. |
+| `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
+| `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
+| `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
 
 Two rules govern all of this, and are explained in
 [ADR 12](adr/0012-mechanism-not-policy.md) and
@@ -123,6 +123,14 @@ and reconciles it against the live catalog.
 | `task_description` | string | required | What the task involves, in a sentence or two. |
 | `priority` | `quality` \| `balanced` \| `latency` \| `cost` | `balanced` | Biases the effort up or down. |
 | `working_dir` | string | the server's working directory | Absolute directory whose Codex configuration and model catalog are used. A trusted project can define its own catalog, so pass the directory the delegation would use. |
+
+When no default model is set, the tool descriptions tell Claude to call `codex_recommend` first,
+announce the suggested model and effort alongside the delegation, then call `codex_delegate` with
+both explicit. This is guidance to a model, not enforcement.
+
+The recommendation routes mechanical edits to a fast model at `low`, everyday work to a balanced
+one at `medium`, multi-file migrations to an agentic workhorse at `high`, and hard reasoning
+problems to the most capable model at `xhigh` or `ultra`. It is advice you can ignore.
 
 ---
 

@@ -1,19 +1,47 @@
 # codex-subagent-mcp
 
 [![CI](https://github.com/parisbs/codex-subagent-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/parisbs/codex-subagent-mcp/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/codex-subagent-mcp)](https://www.npmjs.com/package/codex-subagent-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 An MCP server that lets **Claude Code delegate coding tasks to OpenAI's Codex CLI** running on the
-same machine — multi-model orchestration, locally, with the model and reasoning depth chosen per
-task.
+same machine, with the model and reasoning depth chosen per task. Claude stays the orchestrator.
+Codex becomes a subagent it can call.
 
-Claude stays the orchestrator. Codex becomes a subagent it can call.
+An independent project. Not affiliated with, endorsed by, or supported by OpenAI or Anthropic.
 
-> **This runs another agent on your machine.** Codex can read local files and run commands with the
-> permissions you grant it. Read the [security model](SECURITY.md) before enabling writes or
-> unsandboxed runs.
+## Quick start
 
-> An independent project. Not affiliated with, endorsed by, or supported by OpenAI or Anthropic.
+Requires **Node.js 22+** and the **[Codex CLI](https://developers.openai.com/codex/cli)** installed,
+on `PATH`, and signed in.
+
+```bash
+claude mcp add codex-subagent -- npx -y codex-subagent-mcp
+```
+
+Ask Claude to run `codex_doctor` if anything is missing. See **[docs/INSTALL.md](docs/INSTALL.md)**
+for platform setup, Claude Desktop and other installation options, and [Safety](#safety) before
+enabling writes.
+
+## What you get
+
+- You pick the model and the reasoning effort per task, from the catalog your Codex CLI reports
+  live.
+- Read-only by default, with a sandbox ceiling no tool call can exceed.
+- Every result states what Codex actually applied (model, effort, sandbox, directory), not only what
+  was asked.
+- Optional `output_schema` returns JSON that matches your schema, for results Claude can act on
+  directly.
+- Cancelling, timing out or shutting down stops Codex and every command it started.
+
+A real read-only delegation asking for the package name, captured 2026-09-30:
+
+```text
+codex-subagent-mcp
+Commands run (1 total):
+- [exit 0] /bin/zsh -lc "sed -n '1,80p' package.json"
+model=gpt-5.6-luna | effort=low | sandbox=read-only | working_dir=/Users/you/project | applied=confirmed | duration=8s | tokens=in 35701 (cached 28160, uncached 7541) / out 88 (reasoning 9) | thread_id=01a0f419-9fd2-79e2-8248-91436f04e297
+```
 
 ## Why this exists
 
@@ -32,188 +60,22 @@ condition are not the same job. Here they are separate dials: the *model* sets r
 *reasoning effort* sets how long it deliberates. Cheap work goes to a fast model; a hard problem
 gets the capable one thinking for as long as it needs.
 
-Everything stays on your machine. The server drives the Codex CLI you already have installed and
-holds no credentials of its own.
+The server runs on your machine and drives the Codex CLI you already have installed; it holds no
+credentials of its own. Prompts reach OpenAI through Codex, exactly as when you run `codex` yourself.
 
 See [How it compares](docs/COMPARISON.md) for a versioned comparison with other Codex MCP servers.
 
-## Requirements
-
-- **Node.js 22 or newer.**
-- **The [Codex CLI](https://developers.openai.com/codex/cli)**, installed, on `PATH`, and signed in.
-
-You do not have to check this by hand. Run the `codex_doctor` tool — or just ask Claude to — and it
-reports what is missing and the exact commands for your platform. Every tool that reaches the CLI
-runs the same check first, so you never get a bare `spawn ENOENT`. Nothing is ever installed on your behalf.
-
-If you do not have the Codex CLI yet, install it without npm:
-
-```bash
-# macOS — recommended
-brew install --cask codex
-```
-
-```bash
-# macOS / Linux — standalone installer
-curl -fsSL https://chatgpt.com/codex/install.sh | sh
-```
-
-```powershell
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
-```
-
-Then run `codex` once to sign in, and confirm with `codex login status`. On Windows, open a new
-terminal first so the updated `PATH` is picked up.
-
-Codex's sandbox depends on the platform, so two notes from OpenAI's documentation:
-
-- **Linux and WSL2** — Codex sandboxes commands with `bubblewrap`. Install it with your package
-  manager before the first delegation. Without it Codex falls back to a bundled helper that needs
-  unprivileged user namespaces, which some distributions restrict. See
-  [sandboxing](https://learn.chatgpt.com/docs/sandboxing).
-- **Windows** — Codex runs natively, without WSL, and uses its own Windows sandbox. Windows 11 is
-  recommended; Windows 10 version 1809 or newer is the practical minimum. See the
-  [Windows sandbox](https://learn.chatgpt.com/docs/windows/windows-sandbox) documentation.
-
-<details>
-<summary>Why not install the Codex CLI with npm?</summary>
-
-The npm package is not the program: `bin/codex.js` is a Node wrapper that spawns the real Rust
-binary. That has two consequences.
-
-**Every invocation pays a Node startup.** Measured on macOS: about 80 ms through the wrapper against
-about 20 ms calling the binary directly. This server spawns the CLI once per tool call, so the cost
-recurs — though it is still noise next to a delegation that runs for seconds.
-
-**A global npm install lives inside the active Node version.** Under a version manager such as nvm
-it lands in `~/.nvm/versions/node/<version>/lib/node_modules`, so switching Node versions takes
-`codex` off `PATH` until you reinstall it. This is the bigger problem in practice.
-
-On Windows there is a third, harder consequence: a global npm install produces a `codex.cmd` batch
-shim, which cannot be launched without a command shell — and this server never uses one. It detects
-that case and says so, but the installer avoids it entirely. See
-[ADR 11](docs/adr/0011-resolve-the-executable-without-a-shell.md).
-
-Switching is two commands, and your sign-in survives because credentials live in Codex's home
-directory — `~/.codex`, or `%USERPROFILE%\.codex` on native Windows — not in the npm package:
-
-```bash
-# macOS
-npm uninstall -g @openai/codex && brew install --cask codex
-```
-
-```bash
-# Linux
-npm uninstall -g @openai/codex && curl -fsSL https://chatgpt.com/codex/install.sh | sh
-```
-
-```powershell
-# Windows (PowerShell) — two lines, because Windows PowerShell rejects `&&`
-npm uninstall -g @openai/codex
-powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
-```
-
-</details>
-
-## Install
-
-```bash
-claude mcp add codex-subagent -- npx -y codex-subagent-mcp
-```
-
-That works in both the Claude Code CLI and the desktop app; they share the same configuration.
-
-Clients that browse the [official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.parisbs/codex-subagent-mcp)
-list version 0.4.0 under `io.github.parisbs/codex-subagent-mcp` (verified 2026-09-30).
-That entry installs the same `codex-subagent-mcp` npm package.
-
-<details>
-<summary>Other ways to install</summary>
-
-**Global install**, if you prefer not to go through `npx`:
-
-```bash
-npm install -g codex-subagent-mcp
-```
-
-Then point Claude Code at the `codex-subagent` binary.
-
-**Claude Desktop** has no equivalent command. Add an entry to `mcpServers` in
-`claude_desktop_config.json` and restart the app:
-
-```json
-{
-  "mcpServers": {
-    "codex-subagent": {
-      "command": "npx",
-      "args": ["-y", "codex-subagent-mcp"]
-    }
-  }
-}
-```
-
-**Settings → Developer → Edit Config** opens the file and creates it if it does not exist. Its
-documented locations are `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS
-and `%APPDATA%\Claude\claude_desktop_config.json` on Windows. The Linux desktop app is in beta, and its
-documentation does not say where the file lives. If the server does not appear after a restart, the
-MCP logs are in `~/Library/Logs/Claude` on macOS and `%APPDATA%\Claude\logs` on Windows. See
-[Connect to local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers).
-
-**From a clone**, for development:
-
-```bash
-git clone https://github.com/parisbs/codex-subagent-mcp.git
-cd codex-subagent-mcp && npm ci && npm run build
-```
-
-The repository ships a `.mcp.json`, so running Claude Code from the project root picks the server up.
-
-Set `CODEX_BIN` if your Codex executable is not called `codex` or is not on `PATH`. On Windows, point
-it at the real `codex.exe`: a `.cmd` or `.bat` shim is refused rather than run through a shell.
-
-</details>
-
-## First steps
-
-Ask Claude to check the installation:
-
-> Check that the Codex subagent is set up correctly.
-
-You should see `status: ok`, a version, and `signed in: yes`. Then see what you can delegate to:
-
-> What Codex models are available, and what are they each good for?
-
-Then try a real one. With the built-in default this is read-only, so Codex investigates and reports
-without touching anything:
-
-> Have Codex look at this repository and explain how the build is wired together.
-
-If you have not set a default model, the tool descriptions tell Claude to call `codex_recommend`
-first, to give you the suggested model and effort in the same message in which it says it is going
-to delegate, and then to call `codex_delegate` with both values explicit. Those descriptions are
-guidance to a model rather than a rule it cannot break, and a delegation that reaches this server
-with no model at all is refused rather than guessed at. The recommendation is advice, not a decision
-on your behalf. To skip that step on later delegations, set `CODEX_SUBAGENT_DEFAULT_MODEL` once as shown in
-[Choosing a model](#choosing-a-model).
-
 ## Using it
-
-Delegations run **read-only by default**: Codex investigates and reports, but cannot modify files.
-Letting it write is a deliberate call argument or a default you set in the server environment.
 
 ### Write a bounded delegation
 
 A delegation gets expensive when repeated commands keep adding output to the context carried into
 later requests. Name the exact question, likely files, stopping condition and evidence the answer
-must contain; choose higher effort for ambiguity rather than by habit. **[Writing a delegation](docs/DELEGATING.md)**
-gives the measured cost model, ranked rules and weak-versus-strong examples using the real tool
-parameters. Background goes in `context` and a persona or extra rules in `system_instructions`, both
-layered on the built-in quality contract; see the [tool reference](docs/TOOLS.md#codex_delegate).
-
-The examples below are the four situations where delegating beats doing it in the main conversation.
-Each one has been run against the real Codex CLI — writing them is how two defects in this server
-were found and fixed.
+must contain; choose higher effort for ambiguity rather than by habit.
+**[Writing a delegation](docs/DELEGATING.md)** gives the measured cost model, ranked rules and
+weak-versus-strong examples using the real tool parameters. Background goes in `context` and a
+persona or extra rules in `system_instructions`, both layered on the built-in quality contract; see
+the [tool reference](docs/TOOLS.md#codex_delegate).
 
 ### Get a second opinion from a different model family
 
@@ -222,19 +84,16 @@ The value here is not a second run — it is a different set of blind spots.
 > Ask Codex to review `src/server.ts` for correctness problems, focusing on error paths. Use a high
 > reasoning effort and tell it to report each finding with the line and why it matters.
 
-Claude picks the model, passes your file as the focus, and returns the findings. This is how the
-`terminate()` defect in this repository's own runner was found: a delegated review spotted that two
+A delegated review like this found the `terminate()` defect in this repository's own runner: two
 code paths could each arm a timer while only one was ever cleared.
 
 ### Investigate without spending your context
 
-Forty files go into the delegation; one answer comes back.
+Forty files go into the delegation; one answer comes back. Codex runs its own searches and reads
+whatever it needs; your conversation receives the conclusion.
 
 > Have Codex trace how a reasoning effort travels from the MCP tool call down to the arguments
 > handed to the Codex CLI, and report just the call chain.
-
-Codex runs its own searches and reads whatever it needs. Your conversation receives the conclusion,
-not the search results.
 
 ### Run long work in the background while you keep going
 
@@ -255,34 +114,30 @@ is not.
 
 ### Keep the thread going
 
-Follow-ups reuse the context Codex already has, so they cost a fraction of the original:
-
 > Ask Codex to expand on its second finding.
 
-The follow-up runs on the same model, effort and directory as the original. Codex itself does not
-keep those when a session resumes, so the server restates them for every thread it started.
+Follow-ups reuse Codex's context, so they cost a fraction of the original. The server restates the
+same model, effort and directory on every follow-up because Codex itself does not keep them on
+resume.
 
 ### Let it write, when you mean it
 
 > Have Codex apply its first two suggestions. Let it edit files, but keep it inside a git worktree
 > so my working tree stays clean.
 
-That last clause matters: `use_worktree` sends the run's own edits to a managed git worktree under
-`~/.codex/worktrees/` instead of your checkout, and the result lists the files it touched with the
-path where each landed — up to a thousand distinct files, after which it says how many it left out.
-It is not a second sandbox: what a run may write outside that worktree is still decided by the
-sandbox and by `add_dirs`. Worktrees rely on an experimental Codex feature, which the server turns on for
-that invocation only — it never changes your Codex configuration.
+`use_worktree` sends the run's edits to `~/.codex/worktrees/`; results list the files it touched and
+where each landed, up to a thousand distinct files, then report the omitted count. The server does
+not clean worktrees up: they may hold unapplied work. The experimental feature is enabled only for
+that invocation; your Codex configuration is unchanged. See [Safety](#safety) for the write
+boundary.
 
 Whatever the sandbox, a delegation that writes reports what it wrote:
 
-```
+```text
 Files changed (2):
 - [edit] src/codex/runner.ts
 - [add] test/runner.test.ts
 ```
-
-Before you start enabling writes as a habit, read the next section. It is short.
 
 ## Safety
 
@@ -292,15 +147,15 @@ writes.
 ### What protects you
 
 Delegations are **read-only by default**. Writing requires an explicit `sandbox: "workspace-write"`
-or a user-set default, and `use_worktree` sends the run's edits to a managed git worktree instead of
-your checkout — while the sandbox and `add_dirs`, not the worktree, are what bound where it can
-write at all. Unsandboxed runs are unavailable unless you explicitly opt into that ceiling.
+or a user-set default. `use_worktree` sends edits to a managed git worktree instead of your
+checkout; the sandbox and `add_dirs` bound where it can write at all. Unsandboxed runs are
+unavailable unless you explicitly opt into that ceiling.
 
-The confinement is not a promise from the model — it is the operating system's own sandbox: Seatbelt
-on macOS, `bubblewrap` on Linux and WSL2, and a native sandbox on Windows. The table was measured on
-macOS against Codex CLI 0.154.0. Linux and Windows have not been measured here, and on Windows OpenAI's
-documentation notes that sandboxed commands can fail to read some directories, so reads may be
-stricter there:
+The confinement is the operating system's own sandbox: Seatbelt on macOS, `bubblewrap` on Linux and
+WSL2, and a native sandbox on Windows. The table was measured on macOS;
+[SECURITY.md](SECURITY.md#what-the-sandbox-does-and-does-not-cover) records the measurement details.
+Linux and Windows have not been measured here, and OpenAI's Windows documentation notes that
+sandboxed commands can fail to read some directories, so reads may be stricter there:
 
 | | `read-only` | `workspace-write` | `danger-full-access` |
 | --- | --- | --- | --- |
@@ -309,123 +164,90 @@ stricter there:
 | Network access | no | no | yes |
 | **Read outside the working directory** | **yes** | **yes** | yes |
 
-There is also no shell anywhere in the path: the CLI is spawned with an argv array and the prompt is
-written to its stdin, never interpolated into a command string. Shell metacharacters in a prompt are
-inert.
+There is no shell in the server's invocation path: the CLI is spawned with an argv array and the
+prompt is written to its stdin, never interpolated into a command string. Shell metacharacters in a
+prompt are inert.
 
 ### What does not protect you
 
-**Reads are not confined.** That last row is not a typo. Codex can read anything your user account
-can, in every mode — your SSH keys, your cloud credentials. That was measured on macOS, and it is the
-safe assumption on every platform. Network access is blocked so it cannot
-send them anywhere, but its report comes back to you, and that is a channel.
+**Reads are not confined.** Codex can read anything your user account can, in every mode — your SSH
+keys, your cloud credentials. That was measured on macOS, and it is the safe assumption on every
+platform. Sandboxed network access is blocked so it cannot send them anywhere, but its report comes
+back to you, and that is a channel.
 
-**A prompt is untrusted input, and Codex acts on it.** This is prompt injection, and it is the risk
-that matters here. If you build a delegation from content you did not write — an issue body, a web
-page, a log, a file from someone else's repository — that content can carry instructions. With
+**A prompt is untrusted input, and Codex acts on it.** Content you did not write — an issue body, a
+web page, a log, a file from someone else's repository — can carry instructions. With
 `workspace-write` it can direct Codex to modify your repository; even read-only it can direct Codex
 to read something sensitive and put it in the answer. The sandbox bounds *where* Codex can write. It
-does not judge *what* it should write, or why it was asked.
+does not judge *what* it should write, or why it was asked. This is prompt injection, and it is the
+risk that matters here.
 
 **The result is not sanitised.** What comes back is text from a model that just read your files.
-Treat it as data, not as instructions.
+Treat it as data, not as instructions; review what a delegation did rather than assuming it did what
+you asked.
 
 ### Reducing the risk
 
 - Leave the built-in default alone. Read-only handles investigation, review and diagnosis, which is
   most delegation.
-- If you never want writes from this server, cap it: `CODEX_SUBAGENT_MAX_SANDBOX=read-only`. A
-  ceiling cannot be argued past by anything in the conversation, which is what makes it different
-  from a default. Register it outside the repository (Claude Code's default `local` scope, `--scope
-  user`, or Claude Desktop's config), not in a project `.mcp.json` that a write-enabled delegation
-  could edit. See [Configuration](docs/TOOLS.md#configuration).
-- When you do enable writes, add `use_worktree` so changes land somewhere you can inspect before
-  they touch your branch.
+- If you never want writes, cap it: `CODEX_SUBAGENT_MAX_SANDBOX=read-only`. No conversation can
+  argue past a ceiling. Register it outside the repository (Claude Code's default `local` scope,
+  `--scope user`, or Claude Desktop's config), not in a project `.mcp.json` that a write-enabled
+  delegation could edit. See [Configuration](docs/TOOLS.md#configuration).
+- When you enable writes, add `use_worktree` so changes land somewhere you can inspect before they
+  touch your branch.
 - Do not assemble delegation prompts from untrusted content when you intend to act on the answer.
 - If this threat matters seriously to you, run Codex under an account or container with no access to
   your secrets. That solves it at the root instead of bounding it.
 
-[SECURITY.md](SECURITY.md) has the full threat model, what a `deny_read` policy could add, and how to
-report a vulnerability.
-
-## Staying in control
-
-Claude decides when to delegate, and every delegation sends its prompt to OpenAI and spends your
-Codex usage — in any conversation where the server is available, not only programming ones. The
-defaults are safe, and you can tighten them in layers:
-
-- **Your client's permission prompt.** Let the inspection tools run freely, and keep confirming
-  `codex_delegate` and `codex_follow_up`, the two that spend usage.
-- **Ceilings on the server**, such as `CODEX_SUBAGENT_MAX_SANDBOX` and `CODEX_SUBAGENT_MAX_EFFORT`,
-  which no argument can get past.
-- **A version range** such as `codex-subagent-mcp@^0.4.0`, so new behaviour arrives when you choose.
-- **Your own rules in `CLAUDE.md`**, for when Claude should delegate at all.
-
-**[docs/CONTROL.md](docs/CONTROL.md)** shows how to set each one, what the server already does on its
-own, and what no setting can guarantee.
-
-## Choosing a model
-
-Read live from your installed CLI, so this list tracks whatever you have. As of Codex CLI 0.159.2:
-
-| Slug | Positioning | Reasoning efforts | Default |
-| --- | --- | --- | --- |
-| `gpt-6.1-sol` | Latest workhorse for coding and everyday work | low … ultra | low |
-| `gpt-6-astra` | Frontier intelligence for the most demanding work | low … ultra | low |
-| `gpt-6-sol` | Previous generation workhorse | low … ultra | medium |
-| `gpt-6-luna` | Fast and affordable, for easier tasks | low … max | medium |
-| `gpt-5.6-sol` | Older generation workhorse | low … ultra | low |
-| `gpt-5.6-terra` | Older balanced model for straightforward work | low … ultra | medium |
-| `gpt-5.6-luna` | Older fast and efficient model | low … max | medium |
-| `gpt-5.5` | Legacy coding model | low … xhigh | medium |
-
-Model and reasoning effort are **independent**. The model sets raw capability; the effort — `low`,
-`medium`, `high`, `xhigh`, `max`, `ultra` — sets how long it deliberates before acting. `ultra`
-additionally delegates subtasks automatically.
-
-**The server does not choose for you.** Which model a task deserves depends on your budget and on
-how costly a wrong answer is, and a regular expression over a prompt cannot know either. Ask for a
-delegation without naming a model and it refuses — but the refusal carries the recommendation it
-would have made, so you decide in one more exchange instead of paying for a guess.
-
-If you would rather not be asked, set a default once and it stops asking:
-
-```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -- npx -y codex-subagent-mcp
-```
-
-For advice rather than a decision, ask:
-
-> Which Codex model should handle migrating this repo's tests to vitest?
-
-That routes mechanical edits to the fast model at `low`, everyday work to the balanced one at
-`medium`, multi-file migrations to the agentic workhorse at `high`, and hard reasoning problems to
-the most capable model at `xhigh` or `ultra`. It is a suggestion you can ignore, and it stays within
-the model allow-list and effort ceiling you configure. An effort the chosen model does not support is
-adjusted to the closest level it does, with a note saying so.
+[SECURITY.md](SECURITY.md) has the full threat model, what a `deny_read` policy could add, and how
+to report a vulnerability.
 
 ## Configuration
 
 Everything is optional, and set through environment variables on the MCP server:
 
-| Variable | Effect |
-| --- | --- |
-| `CODEX_SUBAGENT_DEFAULT_MODEL` | Stops the server asking which model to use. |
-| `CODEX_SUBAGENT_DEFAULT_EFFORT` | Reasoning effort when a call specifies none. |
-| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated allow-list. Anything else is refused. |
-| `CODEX_SUBAGENT_DEFAULT_SANDBOX` | Sandbox when a call specifies none. Defaults to `read-only` and cannot exceed the ceiling. |
-| `CODEX_SUBAGENT_MAX_SANDBOX` | Ceiling on what a delegation may do. Defaults to `workspace-write`; it must be set to `danger-full-access` explicitly before unsandboxed calls are allowed. |
-| `CODEX_SUBAGENT_MAX_EFFORT` | Ceiling on reasoning effort. Useful for keeping `ultra` off the table. A call above it is lowered to a level the model supports, or refused if the model has none that low. |
-| `CODEX_BIN` | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
+| Variable | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Unset: refused with a suggestion | Model when a call specifies none. |
+| `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Model's default | Effort when a call specifies none. |
+| `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Unrestricted | Anything else is refused; a single entry acts as the default model. |
+| `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `read-only` | Sandbox when a call specifies none; cannot exceed the ceiling. |
+| `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `workspace-write` | Calls above it are refused; `danger-full-access` needs explicit opt-in. |
+| `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Unrestricted | Higher effort is lowered to a supported level, or refused if none fits. |
+| `CODEX_BIN` | Executable path | `codex` on `PATH` | Override CLI resolution; see [Installation](docs/INSTALL.md). |
 
-The sandbox settings express policy you choose outside the repository: a default saves repeated
-arguments, while the ceiling is the boundary no call can cross. See [Safety](#safety) for why the
-built-in ceiling stops at `workspace-write`.
+A model supports a subset of efforts; an unsupported effort is adjusted to the closest supported one
+with a note. See **[docs/TOOLS.md#configuration](docs/TOOLS.md#configuration)** for full semantics
+and [Safety](#safety) for the sandbox boundary.
 
-Your own escalation rules belong in your `CLAUDE.md`, in plain language, where Claude applies them
-with actual understanding and they stay yours. See
-[ADR 12](docs/adr/0012-mechanism-not-policy.md) for why they are not built into this server, and
-[ADR 14](docs/adr/0014-user-controlled-sandbox-defaults.md) for the sandbox policy split.
+Claude decides when to delegate; each run sends its prompt to OpenAI and spends your Codex usage, in
+any conversation where the server is available. **[docs/CONTROL.md](docs/CONTROL.md)** covers client
+permission prompts, server ceilings, version ranges and your own `CLAUDE.md` escalation rules. Those
+rules stay yours; see [ADR 12](docs/adr/0012-mechanism-not-policy.md) and
+[ADR 14](docs/adr/0014-user-controlled-sandbox-defaults.md) for the policy split.
+
+## Choosing a model
+
+Use `list_codex_models` for the live catalog from your installed CLI. Model and reasoning effort are
+**independent**: the model sets raw capability; the effort sets how long it deliberates. `ultra`
+additionally delegates subtasks automatically.
+
+**The server does not choose for you.** A task's model depends on your budget and how costly a wrong
+answer is. Without a model in the call or configuration, it refuses with a recommendation for you to
+decide on.
+
+With no default, tool descriptions tell Claude to call `codex_recommend` first, announce the
+suggested model and effort, then delegate with both explicit. This is guidance to a model, not
+enforcement. For advice, ask: “Which Codex model should handle migrating this repo's tests to
+vitest?” The suggestion respects your model allow-list and effort ceiling; see
+[the recommendation reference](docs/TOOLS.md#codex_recommend).
+
+To skip that step on later delegations, set a default from `list_codex_models` once:
+
+```bash
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -- npx -y codex-subagent-mcp
+```
 
 ## Tools
 
@@ -445,13 +267,9 @@ Full parameter reference: **[docs/TOOLS.md](docs/TOOLS.md)**.
 ## FAQ
 
 **Does this cost money?**
-It uses your existing Codex quota, the same as running `codex` yourself. This server adds nothing.
-Higher reasoning efforts consume more; `codex_recommend` exists partly so you do not spend `ultra`
-on work that `low` would have handled.
-
-**Can it modify my files?**
-Not by default. Delegations run read-only unless you explicitly ask for write access, and
-`use_worktree` keeps even those changes out of your working tree.
+It uses your existing Codex quota, as running `codex` yourself does. This server adds nothing and
+has no visibility into the cost. Higher efforts consume more, and `ultra` also delegates subtasks;
+`codex_recommend` helps avoid spending `ultra` on `low` work.
 
 **Why drive the CLI instead of calling the OpenAI API?**
 Delegated coding is not a single completion — it is an agentic loop with a sandbox, an approval
@@ -463,33 +281,28 @@ Either. Claude Code gets a one-line install; Claude Desktop needs a manual confi
 
 **It says Codex is not installed, but `codex` works in my terminal.**
 Most likely Windows with a global npm install, which produces a `codex.cmd` batch shim that cannot
-be launched without a command shell. `codex_doctor` reports this as `unsupported-shim` and offers two
-fixes. On macOS and Linux, check whether a Node version manager moved `codex` off `PATH`.
+be launched without a command shell. `codex_doctor` reports this as `unsupported-shim` and offers
+two fixes. On macOS and Linux, check whether a Node version manager moved `codex` off `PATH`.
 
 **Does it work on Windows and Linux?**
 CI builds, tests and starts the server on Windows, macOS and Linux on every change, and checks that
 the Codex CLI is resolved correctly on each. A real delegation has only been verified on macOS — the
 CI runners have no Codex installation or credentials. Reports from Windows and Linux are welcome.
 On Windows, install the Codex CLI with the PowerShell installer rather than npm; on Linux, install
-`bubblewrap` for Codex's sandbox. See [Requirements](#requirements).
-
-**Can Codex read files outside the directory I point it at?**
-Yes, in every sandbox mode — the sandbox restricts writes and network access, not reads. See
-[Safety](#safety) for what that means in practice and what to do about it.
-
-**Where do worktree changes end up?**
-Under `~/.codex/worktrees/`, and the delegation result gives you the full path of each file it
-touched, up to a thousand distinct files. The server does not clean those worktrees up: they may hold work you have not applied yet.
+`bubblewrap` for Codex's sandbox. See [Installation](docs/INSTALL.md#requirements).
 
 ## Documentation
 
+- **[docs/INSTALL.md](docs/INSTALL.md)** — installation, platform notes and troubleshooting.
+- **[docs/CONTROL.md](docs/CONTROL.md)** — permissions, ceilings and when Claude delegates.
 - **[docs/DELEGATING.md](docs/DELEGATING.md)** — how to scope a delegation, with measured costs and
   worked prompts.
 - **[docs/TOOLS.md](docs/TOOLS.md)** — every tool and parameter.
 - **[docs/COMPARISON.md](docs/COMPARISON.md)** — versioned comparisons with other Codex MCP servers.
 - **[docs/adr/](docs/adr/)** — why the design is what it is, decision by decision.
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — what is planned, and what is deliberately out of scope.
-- **[Issues](https://github.com/parisbs/codex-subagent-mcp/issues)** — what is actually open right now.
+- **[Issues](https://github.com/parisbs/codex-subagent-mcp/issues)** — what is actually open right
+  now.
 - **[docs/VERSIONING.md](docs/VERSIONING.md)** — what counts as a breaking change here.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed in each release, and the Codex CLI version it
   was verified against.
@@ -499,23 +312,15 @@ touched, up to a thousand distinct files. The server does not clean those worktr
 
 **Not an official product.** This is an independent, community project. It is not affiliated with,
 endorsed by, sponsored by or supported by OpenAI or Anthropic. "Codex", "ChatGPT" and "OpenAI" are
-trademarks of OpenAI; "Claude" and "Claude Code" are trademarks of Anthropic. They are used here only
-to describe what this software interoperates with, which is nominative use — no claim is made to any
-of them. Neither company is responsible for this software, and problems with it should be reported
-here rather than to them.
+trademarks of OpenAI; "Claude" and "Claude Code" are trademarks of Anthropic. They are used here
+only to describe what this software interoperates with, which is nominative use — no claim is made
+to any of them. Neither company is responsible for this software, and problems with it should be
+reported here rather than to them.
 
 **No warranty.** The software is provided "as is", without warranty of any kind, as stated in
 [LICENSE](LICENSE). You use it at your own risk.
 
-**It runs an agent on your machine.** This server spawns the Codex CLI as a child process. Depending
-on the sandbox you allow, that process can read your files, run shell commands and modify your
-working tree. Read [Safety](#safety) before enabling writes, and review what a delegation did rather
-than assuming it did what you asked.
-
-**It spends your quota.** Delegations consume your own OpenAI Codex usage, at whatever rate your
-account is billed. Higher reasoning efforts consume more, and `ultra` delegates subtasks of its own.
-This project has no visibility into that cost and does not cap it beyond the limits you configure
-yourself.
+Read [Safety](#safety) before enabling writes; delegations spend your own Codex usage.
 
 ## License
 
