@@ -28,3 +28,4 @@ readable even after the choice changes. There is no exception for facts that bec
 | [0013](0013-confirm-applied-settings.md) | Confirm what Codex applied instead of re-implementing its configuration | Accepted |
 | [0014](0014-user-controlled-sandbox-defaults.md) | Make sandbox defaults user-controlled and unsandboxed access opt-in | Accepted |
 | [0015](0015-agents-md-and-immutable-records.md) | Keep agent instructions in AGENTS.md and records immutable | Accepted |
+| [0016](0016-turn-off-inherited-tools.md) | Turn off the MCP servers, plugins and apps a delegation inherits | Accepted |
