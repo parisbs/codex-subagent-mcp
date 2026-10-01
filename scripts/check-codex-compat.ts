@@ -25,7 +25,7 @@ import { pathToFileURL } from "node:url";
 
 import { buildCodexArgs, type CodexInvocation } from "../src/codex/args.ts";
 import { parseCatalog } from "../src/codex/catalog.ts";
-import { MCP_LIST_ARGS, parsePluginInventory } from "../src/codex/inherited.ts";
+import { MCP_LIST_ARGS, parseMcpInventory, parsePluginInventory } from "../src/codex/inherited.ts";
 import { NEWEST_VERIFIED_CODEX_VERSION, compareVersions, parseVersion } from "../src/codex/doctor.ts";
 import { SANDBOX_MODES } from "../src/types.ts";
 
@@ -188,7 +188,8 @@ export function checkCompatibility(input: {
   const mcpRun = run(["mcp", "list", "--json"]);
   try {
     if (mcpRun.status !== 0) throw new Error(errorLine(mcpRun));
-    if (!Array.isArray(JSON.parse(mcpRun.stdout))) throw new Error("the output is not a JSON array");
+    const inventory = parseMcpInventory(mcpRun.stdout);
+    if (!inventory.ok) throw new Error(inventory.error);
   } catch (error) {
     failures.push(
       `Codex CLI ${version}: \`codex mcp list --json\` is unusable for the recursion guard: ` +
@@ -200,7 +201,8 @@ export function checkCompatibility(input: {
   const configServersRun = run(MCP_LIST_ARGS);
   try {
     if (configServersRun.status !== 0) throw new Error(errorLine(configServersRun));
-    if (!Array.isArray(JSON.parse(configServersRun.stdout))) throw new Error("the output is not a JSON array");
+    const inventory = parseMcpInventory(configServersRun.stdout);
+    if (!inventory.ok) throw new Error(inventory.error);
   } catch (error) {
     failures.push(
       `Codex CLI ${version}: \`codex ${MCP_LIST_ARGS.join(" ")}\` is unusable for turning MCP servers off: ` +
