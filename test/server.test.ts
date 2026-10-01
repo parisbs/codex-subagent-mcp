@@ -1523,7 +1523,7 @@ function inheritanceOverrides(args: string[]): string[] {
 const DEFAULT_OVERRIDES = ["mcp_servers.docs.enabled=false", "mcp_servers.other.enabled=false",
   "mcp_servers.self.enabled=false", "features.plugins=false", "features.apps=false"].sort();
 const LIST_OVERRIDES = ["mcp_servers.other.enabled=false", "mcp_servers.self.enabled=false",
-  'plugins."browser@market".enabled=false'].sort();
+  "plugins.browser@market.enabled=false"].sort();
 async function finishInheritedRuns(): Promise<void> {
   await Promise.allSettled(pendingRuns);
   // Flush the registry's chained result callbacks, with no clock-based polling.
@@ -1802,7 +1802,7 @@ for (const directory of ["same", "different"] as const) {
         for (const [index, name, result] of [[0, "first", first], [1, "second", second]] as const) {
           assert.notEqual((result as ToolResult).isError, true, textOf(result));
           assert.deepEqual(inheritanceOverrides(spawnedArgs[index]!), [`mcp_servers.denied-${name}.enabled=false`,
-            `plugins."denied-${name}@market".enabled=false`, "features.apps=false"].sort());
+            `plugins.denied-${name}@market.enabled=false`, "features.apps=false"].sort());
           const line = inheritanceLine(result);
           assert.ok(line.includes(JSON.stringify(name)), line);
           assert.ok(line.includes(JSON.stringify(`${name}@market`)), line);

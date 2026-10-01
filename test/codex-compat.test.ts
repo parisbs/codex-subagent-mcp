@@ -161,7 +161,7 @@ for (const kind of ["exec", "resume"] as const) {
   test(`AC-10 (#64) exercises all four inheritance overrides on ${kind}`, () => {
     const shapes = argvShapes("m", tmpdir()).filter((shape) => (shape.argv[1] === "resume") === (kind === "resume"));
     for (const pattern of [/^features\.plugins=false$/, /^features\.apps=false$/,
-      /^plugins\.".+"\.enabled=false$/, /^mcp_servers\..+\.enabled=false$/]) {
+      /^plugins\.[^".]+\.enabled=false$/, /^mcp_servers\..+\.enabled=false$/]) {
       assert.ok(shapes.some(({ argv }) => argv.some((arg, i) => pattern.test(arg) && argv[i - 1] === "--config")),
         `no ${kind} shape exercises ${pattern}`);
     }

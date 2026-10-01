@@ -237,3 +237,46 @@ test("AC-4 AC-5 (#64) inspection preserves both listing failures without throwin
     assert.equal(calls.length, 2);
   } finally { failures = {}; }
 });
+
+// Amended on 2026-10-01: codex-cli 0.159.2 splits a `-c` path on dots and on the first `=`, so a
+// server or plugin whose name holds either cannot be turned off for one run. Fail closed.
+test("AC-1 AC-2 AC-4 (#64) refuses when an MCP server it must turn off cannot be addressed by name", () => {
+  for (const name of ["dot.name", "eq=sign"]) {
+    for (const mcpServers of [none, list("docs")]) {
+      const result = resolveInheritance({ ...base(), mcpServers, mcp: { ok: true, names: ["docs", name] } });
+      assert.equal(result.ok, false, name);
+      if (!result.ok) {
+        assert.ok(result.reason.includes(JSON.stringify(name)), result.reason);
+        assert.match(result.reason, /CODEX_SUBAGENT_MCP_SERVERS/);
+      }
+    }
+    // Kept on, it needs no override at all.
+    const allowed = resolved({ mcpServers: list(name), mcp: { ok: true, names: [name] } });
+    assert.deepEqual(allowed.disabledMcpServers, []);
+    assert.deepEqual(allowed.report.mcpServers, [name]);
+  }
+});
+
+test("AC-2 AC-3 (#64) reports the recursion guard as unapplied when this server's name cannot be addressed", () => {
+  const result = resolved({ mcpServers: all, mcp: { ok: true, names: ["docs", "codex.subagent"] }, selfNames: ["codex.subagent"] });
+  assert.deepEqual(result.disabledMcpServers, []);
+  assert.deepEqual(result.report.mcpServers, ["docs"]);
+  const line = formatInheritance(result.report);
+  assert.ok(line.includes(JSON.stringify("codex.subagent")), line);
+  assert.match(line, /recursion guard.*(?:not|unapplied|could not)/i);
+});
+
+test("AC-5 (#64) turns every plugin off when one it must turn off cannot be addressed by name", () => {
+  const result = resolved({ plugins: list("docs@market"),
+    pluginInventory: { ok: true, enabled: ["docs@market", "dot.ted@market"] } });
+  assert.equal(result.disableAllPlugins, true);
+  assert.deepEqual(result.disabledPlugins, []);
+  assert.deepEqual(result.report.plugins, []);
+  const line = formatInheritance(result.report);
+  assert.ok(line.includes(JSON.stringify("dot.ted@market")), line);
+  // Allowed, it needs no override and nothing changes.
+  const allowed = resolved({ plugins: list("docs@market", "dot.ted@market"),
+    pluginInventory: { ok: true, enabled: ["docs@market", "dot.ted@market"] } });
+  assert.equal(allowed.disableAllPlugins, false);
+  assert.deepEqual(allowed.report.plugins, ["docs@market", "dot.ted@market"]);
+});
