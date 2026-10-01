@@ -94,8 +94,8 @@ This changes a default in a way that changes what happens, so it is breaking und
 an MCP server, a plugin or an app must allow it explicitly.
 
 A failure to list MCP servers now refuses a delegation, unless `all` is allowed, instead of running
-it with the recursion guard unapplied. That is a new way to fail, and the message must say how to allow `all` or fix the
-listing.
+it with the recursion guard unapplied. That is a new way to fail, and the message must say how to
+allow `all` or fix the listing.
 
 `auto_approve` remains a way to run allowed tools without approval. With nothing allowed by
 default, that only matters once a user allows something, and the documentation must say so.
