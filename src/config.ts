@@ -70,19 +70,30 @@ export function effortRank(effort: ReasoningEffort): number {
   return REASONING_EFFORTS.indexOf(effort);
 }
 
-function readList(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+/**
+ * Reads a comma-separated list of names. Blank or unset means no list. An empty entry is reported
+ * rather than dropped: for an allow-list, dropping it can leave no names, which means no
+ * restriction, so a value meant to restrict (`,`, or a template whose variables expanded to
+ * nothing) would silently allow everything (#128). Tools refuse while the error stands.
+ */
+function readList(name: string, raw: string | undefined, errors: string[]): string[] {
+  const value = raw?.trim() ?? "";
+  if (value === "") return [];
+  const entries = value.split(",").map((entry) => entry.trim());
+  if (entries.some((entry) => entry.length === 0)) {
+    errors.push(
+      `${ENV_PREFIX}${name} is "${raw}", which has an empty entry. List names separated by single ` +
+        "commas.",
+    );
+  }
+  return entries.filter((entry) => entry.length > 0);
 }
 
 /**
- * Reads an inheritance policy (ADR 16). Stricter than `readList` on purpose: these variables remove
- * a protection, so a value that has to be guessed at is reported instead. `none` and `all` stand
- * alone, a list is names separated by single commas, and an empty entry is a mistake — a value of
- * only commas usually means a template whose variables expanded to nothing.
+ * Reads an inheritance policy (ADR 16). These variables remove a protection, so a value that has to
+ * be guessed at is reported instead. `none` and `all` stand alone, a list is names separated by
+ * single commas, and an empty entry is a mistake — a value of only commas usually means a template
+ * whose variables expanded to nothing.
  */
 function readInheritPolicy(name: string, raw: string | undefined, errors: string[]): InheritPolicy {
   const value = raw?.trim() ?? "";
@@ -134,7 +145,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
   const defaultSandbox = readEnum("DEFAULT_SANDBOX", SANDBOX_MODES);
   const maxEffort = readEnum("MAX_EFFORT", REASONING_EFFORTS);
   const defaultEffort = readEnum("DEFAULT_EFFORT", REASONING_EFFORTS);
-  const allowedModels = readList(env[`${ENV_PREFIX}ALLOWED_MODELS`]);
+  const allowedModels = readList("ALLOWED_MODELS", env[`${ENV_PREFIX}ALLOWED_MODELS`], errors);
   const defaultModel = env[`${ENV_PREFIX}DEFAULT_MODEL`]?.trim() || null;
 
   if (

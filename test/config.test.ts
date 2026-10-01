@@ -220,3 +220,29 @@ test("AC-7 (#64) rejects every apps value outside on and off", () => {
     assert.ok(errors[0]!.includes(raw));
   }
 });
+
+// Every tool refuses while the error stands (server test); the list keeps only the names given.
+for (const value of [",", "a,,b", "a,", ",a", " , "]) {
+  test(`AC-1 (#128) an allow-list with an empty entry (${JSON.stringify(value)}) is a configuration error`, () => {
+    const { config, errors } = loadConfig({ [`${P}ALLOWED_MODELS`]: value });
+    assert.equal(errors.length, 1);
+    assert.match(errors[0] ?? "", /CODEX_SUBAGENT_ALLOWED_MODELS .*empty entry/);
+    assert.deepEqual(config.allowedModels, value.split(",").map((e) => e.trim()).filter(Boolean));
+  });
+}
+
+for (const value of [undefined, "", "   "]) {
+  test(`AC-2 (#128) an unset or blank allow-list (${JSON.stringify(value)}) still allows every model`, () => {
+    const { config, errors } = loadConfig({ [`${P}ALLOWED_MODELS`]: value });
+    assert.deepEqual(errors, []);
+    assert.deepEqual(config.allowedModels, []);
+    assert.equal(checkModel("gpt-6-astra", config).ok, true);
+  });
+}
+
+test("AC-3 (#128) names separated by single commas, spaces around them, are read as before", () => {
+  const { config, errors } = loadConfig({ [`${P}ALLOWED_MODELS`]: " gpt-5.6-luna ,gpt-5.6-terra " });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(config.allowedModels, ["gpt-5.6-luna", "gpt-5.6-terra"]);
+  assert.equal(checkModel("gpt-6-astra", config).ok, false);
+});

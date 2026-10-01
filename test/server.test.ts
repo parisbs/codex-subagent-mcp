@@ -1835,3 +1835,24 @@ for (const policy of ["none", "all"]) {
     });
   });
 }
+
+test("AC-1 (#128) an ALLOWED_MODELS empty entry blocks every CLI tool and doctor reports it", async () => {
+  await withServer({ CODEX_SUBAGENT_ALLOWED_MODELS: "," }, async (call) => {
+    for (const [tool, args] of [
+      ["list_codex_models", {}], ["codex_recommend", { task_description: "anything" }],
+      ["codex_delegate", { prompt: "anything", model: "cheap-model" }],
+      ["codex_delegate", { prompt: "anything", model: "cheap-model", mode: "background" }],
+      ["codex_follow_up", { prompt: "continue", model: "cheap-model", thread_id: "thread" }],
+    ] as const) {
+      const result = await call(tool, args);
+      assert.equal((result as ToolResult).isError, true, `${tool}: ${textOf(result)}`);
+      assert.match(textOf(result), /misconfigured/i);
+      assert.ok(textOf(result).includes("CODEX_SUBAGENT_ALLOWED_MODELS"));
+    }
+    assert.deepEqual(probedCwds, []);
+    assert.deepEqual(spawnedArgs, []);
+    const doctor = await call("codex_doctor", {});
+    assert.equal((doctor as ToolResult).isError, true);
+    assert.ok(textOf(doctor).includes("CODEX_SUBAGENT_ALLOWED_MODELS"));
+  });
+});
