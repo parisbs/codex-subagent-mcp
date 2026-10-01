@@ -165,6 +165,13 @@ sandboxed commands can fail to read some directories, so reads may be stricter t
 | Network access | no | no | yes |
 | **Read outside the working directory** | **yes** | **yes** | yes |
 
+The sandbox confines the commands Codex runs in its shell. It does not confine MCP or plugin tools:
+those run as their own processes with your account's full permissions, network included, and under
+`read-only` a tool that declares itself read-only runs without approval (measured on codex-cli
+0.159.2; [ADR 16](docs/adr/0016-turn-off-inherited-tools.md)). So a delegation inherits **no MCP
+server, plugin or app** from your Codex setup unless you allow it in the server configuration, and
+every result ends with a line saying what the run was allowed.
+
 There is no shell in the server's invocation path: the CLI is spawned with an argv array and the
 prompt is written to its stdin, never interpolated into a command string. Shell metacharacters in a
 prompt are inert.
@@ -197,6 +204,8 @@ you asked.
   delegation could edit. See [Configuration](docs/TOOLS.md#configuration).
 - When you enable writes, add `use_worktree` so changes land somewhere you can inspect before they
   touch your branch.
+- Allow MCP servers, plugins or apps in delegations only when a task needs them, and by name. An
+  allowed one runs outside the sandbox, and with `auto_approve` its tools need no approval at all.
 - Do not assemble delegation prompts from untrusted content when you intend to act on the answer.
 - If this threat matters seriously to you, run Codex under an account or container with no access to
   your secrets. That solves it at the root instead of bounding it.
@@ -216,6 +225,9 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `read-only` | Sandbox when a call specifies none; cannot exceed the ceiling. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `workspace-write` | Calls above it are refused; `danger-full-access` needs explicit opt-in. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Unrestricted | Higher effort is lowered to a supported level, or refused if none fits. |
+| `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | `none` | MCP servers from Codex's config a delegation keeps; this server is always off. |
+| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | `none` | Installed Codex plugins a delegation keeps, with the MCP servers they provide. |
+| `CODEX_SUBAGENT_APPS` | `on`, `off` | `off` | Whether a delegation keeps Codex's apps (connectors to external services). |
 | `CODEX_BIN` | Executable path | `codex` on `PATH` | Override CLI resolution; see [Installation](docs/INSTALL.md). |
 
 A model supports a subset of efforts; an unsupported effort is adjusted to the closest supported one

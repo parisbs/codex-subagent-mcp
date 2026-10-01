@@ -61,6 +61,27 @@
           "format": "string"
         },
         {
+          "name": "CODEX_SUBAGENT_MCP_SERVERS",
+          "description": "MCP servers from Codex's config a delegation keeps: none (default), all, or comma-separated names.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_PLUGINS",
+          "description": "Installed Codex plugins a delegation keeps: none (default), all, or comma-separated name@marketplace ids.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_APPS",
+          "description": "Whether a delegation keeps Codex's apps (connectors to external services): off (default) or on.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
           "name": "CODEX_BIN",
           "description": "Path to the Codex executable, if it is not codex on PATH. On Windows it must be codex.exe, not a .cmd shim.",
           "isRequired": false,
