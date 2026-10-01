@@ -70,6 +70,7 @@ export function schemaRejectionHint(result: DelegationResult): string | null {
  * tools and the background job registry must never disagree about this.
  */
 export function describeFailure(result: DelegationResult): string | null {
+  if (result.notStarted) return result.notStarted;
   const breach = describeSandboxBreach(result);
   if (breach) return breach;
   if (result.timedOut) {

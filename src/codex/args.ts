@@ -19,8 +19,11 @@ export interface CodexInvocation {
   ephemeral?: boolean;
   /** Codex MCP entries that point back at this server, switched off for this run. */
   disabledMcpServers?: string[];
+  /** Installed Codex plugins switched off for this run (ADR 16). */
   disabledPlugins?: string[];
+  /** Switches every Codex plugin off for this run (ADR 16). */
   disableAllPlugins?: boolean;
+  /** Switches Codex's apps off for this run (ADR 16). */
   disableApps?: boolean;
   /** Absolute path of a JSON Schema file for `--output-schema` (#28). */
   outputSchemaPath?: string;
@@ -38,6 +41,24 @@ function disableMcpServerArgs(names: string[] | undefined): string[] {
     "--config",
     `mcp_servers.${/^[A-Za-z0-9_-]+$/.test(name) ? name : JSON.stringify(name)}.enabled=false`,
   ]);
+}
+
+/**
+ * Switches off the plugins and apps a run would inherit from the user's Codex setup (ADR 16).
+ *
+ * Verified against codex-cli 0.159.2: `features.plugins=false` and `features.apps=false` give the
+ * model the same input as `--disable plugins --disable apps`, and `plugins."<id>".enabled=false`
+ * removes one plugin. Config overrides, unlike the flags, are accepted by `exec resume` as well.
+ * A plugin id contains `@`, so its key is always a quoted TOML string.
+ */
+function inheritanceArgs(invocation: CodexInvocation): string[] {
+  const args = (invocation.disabledPlugins ?? []).flatMap((id) => [
+    "--config",
+    `plugins.${JSON.stringify(id)}.enabled=false`,
+  ]);
+  if (invocation.disableAllPlugins) args.push("--config", "features.plugins=false");
+  if (invocation.disableApps) args.push("--config", "features.apps=false");
+  return args;
 }
 
 /**
@@ -145,6 +166,7 @@ function buildExecArgs(invocation: CodexInvocation): string[] {
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   if (invocation.ephemeral) args.push("--ephemeral");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...inheritanceArgs(invocation));
   args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
@@ -179,6 +201,7 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
+  args.push(...inheritanceArgs(invocation));
   args.push(...outputSchemaArgs(invocation.outputSchemaPath));
 
   return args;
