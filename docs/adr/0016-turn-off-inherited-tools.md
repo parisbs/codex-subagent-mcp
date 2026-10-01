@@ -1,6 +1,6 @@
 # 16. Turn off the MCP servers, plugins and apps a delegation inherits
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
