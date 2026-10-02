@@ -359,6 +359,15 @@ The strongest controls remain the ones the user already has: the client's permis
 server's ceilings, and their own instructions to Claude. [CONTROL.md](CONTROL.md) explains how to use
 them.
 
+## Under consideration: task intents
+
+Not tied to a release. Whether the server should offer explicit task intents, such as `review` or
+`investigate`, depends on data the project does not have yet: which delegations repeat and what they
+cost ([#29](https://github.com/parisbs/codex-subagent-mcp/issues/29)), and a review comparison
+larger than one trial ([#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)). The design
+constraints found so far and the criterion for deciding are in
+[#136](https://github.com/parisbs/codex-subagent-mcp/issues/136), which may close as `wontfix`.
+
 ## Not planned: a triage skill, or a Claude Code plugin
 
 Both were on this roadmap and have been removed, for the reason in ADR 12.
