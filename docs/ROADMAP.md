@@ -289,7 +289,27 @@ release without credentials
 ([#98](https://github.com/parisbs/codex-subagent-mcp/issues/98),
 [#99](https://github.com/parisbs/codex-subagent-mcp/issues/99)).
 
-## 0.5.0 — Cost and configuration
+## 0.5.0 — Delegations that inherit nothing they were not given
+
+Codex's sandbox confines the shell commands a delegation runs, and nothing else. Measured on Codex
+CLI 0.159.2, the MCP servers, plugins and apps a delegation inherits from the user's Codex setup run
+as their own processes with the user's permissions: a tool that declares itself read-only runs
+without approval even under `read-only`, and `auto_approve` lets any tool run. A trusted repository
+can add servers of its own. So a delegation now starts with none of them unless the user allows them
+in the server's configuration, outside the reach of tool arguments, and every result says what it was
+allowed ([#64](https://github.com/parisbs/codex-subagent-mcp/issues/64),
+[ADR 16](adr/0016-turn-off-inherited-tools.md)).
+
+Building it showed that a `-c` override written the documented way, with a quoted key, named an
+entry with literal quotes: the plugin it meant stayed on, and a server name with a space stopped
+Codex from starting. `--help` cannot see that, so the daily CI check now applies the overrides in a
+scratch Codex home and reads the result back through the CLI's own listings, on every platform and
+on both the oldest supported release and the newest
+([#129](https://github.com/parisbs/codex-subagent-mcp/issues/129)). The model allow-list now rejects
+an empty entry instead of letting a list with no names allow everything
+([#128](https://github.com/parisbs/codex-subagent-mcp/issues/128)).
+
+## 0.6.0 — Cost and configuration
 
 Every result already reports the tokens the CLI counted — input, cached, output and reasoning. What
 does not exist is any view across delegations, so there is no way to notice a pattern such as `xhigh`
@@ -328,8 +348,8 @@ a delegation calling this server again) and to four ideas that need design or ev
   ([#62](https://github.com/parisbs/codex-subagent-mcp/issues/62)).
 - Refusing to run in a directory nobody chose, once its real impact on everyday use is measured
   ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)).
-- Turning off Codex plugins and features a delegation inherits from the user's own setup, once it is
-  verified what they can do under `codex exec`
+- Turning off Codex plugins and features a delegation inherits from the user's own setup. Verified
+  and shipped in 0.5.0: see that section
   ([#64](https://github.com/parisbs/codex-subagent-mcp/issues/64)).
 - Asking the user directly before expensive runs through MCP elicitation, if clients actually show it
   ([#65](https://github.com/parisbs/codex-subagent-mcp/issues/65)). So far they do not reliably: the

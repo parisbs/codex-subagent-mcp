@@ -11,6 +11,54 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-01
+
+Delegations that inherit nothing they were not given. Codex's sandbox confines the shell commands a
+delegation runs, not the MCP servers, plugins and apps it inherits from the user's Codex setup:
+measured on Codex CLI 0.159.2, a tool that declares itself read-only runs unsandboxed and without
+approval even under `read-only`, and with `auto_approve` any tool runs. A delegation now starts with
+none of them unless the user allows them. A minor because, on 0.x, breaking changes ship in one;
+three changes below are breaking.
+
+### Changed
+
+- **Breaking:** a delegation no longer inherits the MCP servers, plugins and apps of the user's Codex
+  setup. Allow them in the server's own configuration with `CODEX_SUBAGENT_MCP_SERVERS` and
+  `CODEX_SUBAGENT_PLUGINS` (`none`, the default, `all`, or a comma-separated list) and
+  `CODEX_SUBAGENT_APPS` (`off` or `on`); no tool argument can relax them. Every result states what
+  the run was allowed. See [ADR 16](docs/adr/0016-turn-off-inherited-tools.md). ([#64])
+- **Breaking:** a delegation is refused, with the reason, when Codex's MCP servers cannot be listed,
+  unless `CODEX_SUBAGENT_MCP_SERVERS=all`. It used to run with the recursion guard unapplied. ([#64])
+- **Breaking:** an empty entry in `CODEX_SUBAGENT_ALLOWED_MODELS` (a trailing comma, `a,,b`, only
+  commas) is a configuration error that blocks the tools that reach the CLI. It used to be dropped,
+  and a list left with no names allowed every model. ([#128])
+- `codex_doctor` reports an invalid server configuration as an error instead of a clean bill of
+  health. ([#64])
+- The npm package is about 40% smaller: it no longer ships source maps or type declarations, which
+  were never a documented API. ([#124])
+
+### Fixed
+
+- Delegations failed to start when this server was registered in Codex under a name containing a
+  space: the recursion guard named the entry with literal quotes, which Codex does not read as
+  quoting. ([#64])
+
+### Verified against
+
+- Codex CLI 0.160.0 on macOS, with a real delegation, follow-up, background run and timeout, and a
+  run allowing one real MCP server and one real plugin. Every day, without credentials, the overrides
+  that turn inherited tools off are also applied and read back through the CLI's own listings on
+  Linux, Windows and macOS, against 0.154.0, the oldest supported release, and the newest one.
+  ([#129])
+- Build, tests and startup on Linux (Node 22, 24, 26), Windows (Node 22, 24) and macOS (Node 24). A
+  real delegation has still never been run on Windows or Linux.
+
+### Known limitations
+
+- `codex plugin list --json` keeps listing remote plugins as enabled after an override turns them
+  off, although the run honours it. That listing cannot show what a delegation had; the line in each
+  result can. ([#129])
+
 ## [0.4.0] - 2026-09-30
 
 Structured results, and runs that stop when told to. A delegation can now return JSON that matches a
@@ -301,6 +349,7 @@ behaviour a caller can see; each such change is marked below.
 [#54]: https://github.com/parisbs/codex-subagent-mcp/issues/54
 [#55]: https://github.com/parisbs/codex-subagent-mcp/issues/55
 [#56]: https://github.com/parisbs/codex-subagent-mcp/issues/56
+[#64]: https://github.com/parisbs/codex-subagent-mcp/issues/64
 [#66]: https://github.com/parisbs/codex-subagent-mcp/issues/66
 [#72]: https://github.com/parisbs/codex-subagent-mcp/issues/72
 [#74]: https://github.com/parisbs/codex-subagent-mcp/issues/74
@@ -321,6 +370,9 @@ behaviour a caller can see; each such change is marked below.
 [#108]: https://github.com/parisbs/codex-subagent-mcp/issues/108
 [#112]: https://github.com/parisbs/codex-subagent-mcp/issues/112
 [#116]: https://github.com/parisbs/codex-subagent-mcp/issues/116
+[#124]: https://github.com/parisbs/codex-subagent-mcp/pull/124
+[#128]: https://github.com/parisbs/codex-subagent-mcp/issues/128
+[#129]: https://github.com/parisbs/codex-subagent-mcp/issues/129
 
 ## [0.1.0] - 2026-09-11
 
@@ -370,7 +422,8 @@ First public release.
   outside the working directory, credentials included. The README explains the mitigation.
 - Background jobs live in memory and do not survive a server restart.
 
-[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.1.0...v0.2.0
