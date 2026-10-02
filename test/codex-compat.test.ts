@@ -92,6 +92,13 @@ test("AC-2 distrusts a CLI that no longer rejects the negative control", () => {
   assert.ok(report.failures.some((failure) => failure.includes(NEGATIVE_CONTROL.join(" "))));
 });
 
+test("AC-2 (#129) distrusts a negative control that times out instead of being rejected", () => {
+  const { run } = healthyCli((args) =>
+    args.includes("--full-auto") ? { status: null, stdout: "", stderr: "error: spawnSync codex ETIMEDOUT" } : undefined);
+  const report = check(run);
+  assert.ok(report.failures.some((failure) => failure.includes(NEGATIVE_CONTROL.join(" "))), report.failures.join("\n") || "no failure");
+});
+
 test("AC-3 fails an empty or unreadable catalog", () => {
   for (const output of [JSON.stringify({ models: [] }), "not json"]) {
     const { run } = healthyCli((args) => (args[0] === "debug" ? ok(output) : undefined));

@@ -1856,3 +1856,27 @@ test("AC-1 (#128) an ALLOWED_MODELS empty entry blocks every CLI tool and doctor
     assert.ok(textOf(doctor).includes("CODEX_SUBAGENT_ALLOWED_MODELS"));
   });
 });
+
+test("AC-8 (#129) a plugin listed without a boolean state disables all plugins in every delegation tool and says so", async () => {
+  await withServer(INHERIT_ENV, async (call) => {
+    inheritedListings();
+    pluginList = JSON.stringify({ installed: [
+      { pluginId: "docs@market", installed: true, enabled: true },
+      { pluginId: "browser@market", installed: true, enabled: "yes" },
+    ], available: [] });
+    pluginListError = undefined;
+    for (const [tool, mode] of [["codex_delegate", "blocking"], ["codex_delegate", "background"], ["codex_follow_up", undefined]]) {
+      let result = await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) });
+      assert.notEqual((result as ToolResult).isError, true, textOf(result));
+      await finishInheritedRuns();
+      if (mode === "background") {
+        const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(result))?.[1];
+        assert.ok(jobId);
+        result = await call("codex_job_result", { job_id: jobId });
+        assert.notEqual((result as ToolResult).isError, true, textOf(result));
+      }
+      assert.ok(inheritanceOverrides(spawnedArgs.at(-1)!).includes("features.plugins=false"), `${tool} ${mode}`);
+      assert.match(inheritanceLine(result), /plugin listing failed/i);
+    }
+  });
+});
