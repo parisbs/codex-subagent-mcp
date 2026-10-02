@@ -529,3 +529,28 @@ test("AC-3 (#98) reads an event stream recorded by codex-cli 0.159.2", async () 
   assert.equal(outcome.turnUsage?.outputTokens, 79);
   assert.equal(outcome.turnUsage?.reasoningOutputTokens, 13);
 });
+
+/** Captured verbatim from `codex exec --json` against codex-cli 0.160.0: the same event shapes as 0.159.2. */
+const STREAM_0160 = [
+  "{\"type\":\"thread.started\",\"thread_id\":\"01a0fa15-b0f6-7f11-83b3-bd83a7b742a3\"}",
+  "{\"type\":\"turn.started\"}",
+  "{\"type\":\"item.started\",\"item\":{\"id\":\"item_0\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'ls package.json'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'ls package.json'\",\"aggregated_output\":\"package.json\\n\",\"exit_code\":0,\"status\":\"completed\"}}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"agent_message\",\"text\":\"DONE\"}}",
+  "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":29575,\"cached_input_tokens\":24064,\"cache_write_input_tokens\":0,\"output_tokens\":80,\"reasoning_output_tokens\":14}}",
+];
+
+test("reads an event stream recorded by codex-cli 0.160.0", async () => {
+  const { outcome } = await runAgainst({ chunks: [STREAM_0160.map((line) => `${line}\n`).join("")], exitCode: 0 });
+  assert.equal(outcome.threadId, "01a0fa15-b0f6-7f11-83b3-bd83a7b742a3");
+  assert.equal(outcome.finalMessage, "DONE");
+  assert.equal(outcome.commandCount, 1);
+  assert.equal(outcome.commands[0]?.command, "/bin/zsh -lc 'ls package.json'");
+  assert.equal(outcome.commands[0]?.exitCode, 0);
+  assert.deepEqual(outcome.fileChanges, []);
+  assert.deepEqual(outcome.errors, []);
+  assert.equal(outcome.turnUsage?.inputTokens, 29575);
+  assert.equal(outcome.turnUsage?.cachedInputTokens, 24064);
+  assert.equal(outcome.turnUsage?.outputTokens, 80);
+  assert.equal(outcome.turnUsage?.reasoningOutputTokens, 14);
+});

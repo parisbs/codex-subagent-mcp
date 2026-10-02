@@ -59,7 +59,7 @@ subcommands and between versions. Two traps already found the hard way, both cov
 - What a run *applied* is not what it was *asked for*. The session file under
   `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
   turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and
-  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins real 0.154.0 and 0.159.2 lines), and
+  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins real 0.154.0, 0.159.2 and 0.160.0 lines), and
   keep every failure path reporting "unconfirmed" rather than guessing. Never let a read of it change
   anything but the report.
 - Codex starts its MCP servers with almost no environment (`HOME`, `LOGNAME`, `PATH`, `SHELL`,

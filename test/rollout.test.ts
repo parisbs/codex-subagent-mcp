@@ -41,6 +41,10 @@ const REQUESTED: RequestedSettings = {
 const REAL_TURN_CONTEXT_0159 =
   "{\"timestamp\":\"2026-09-30T18:21:47.664Z\",\"ordinal\":5,\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"01a0f38d-18e0-7f51-aa3b-6c78bc380f8b\",\"root_turn_id\":\"01a0f38d-18e0-7f51-aa3b-6c78bc380f8b\",\"disabled_plugin_ids\":[],\"cwd\":\"/workspace/project\",\"workspace_roots\":[\"/workspace/project\"],\"current_date\":\"2026-09-30\",\"timezone\":\"UTC\",\"approval_policy\":\"never\",\"approvals_reviewer\":\"user\",\"sandbox_policy\":{\"type\":\"read-only\"},\"permission_profile\":{\"type\":\"managed\",\"file_system\":{\"type\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"}]},\"network\":\"restricted\"},\"model\":\"gpt-5.6-luna\",\"comp_hash\":\"3000\",\"collaboration_mode\":{\"mode\":\"default\",\"settings\":{\"model\":\"gpt-5.6-luna\",\"reasoning_effort\":\"low\",\"developer_instructions\":null}},\"multi_agent_version\":\"v1\",\"realtime_active\":false,\"effort\":\"low\",\"summary\":\"none\"}}";
 
+/** The same line as recorded by codex-cli 0.160.0: same keys as 0.159.2. Home path and timezone replaced. */
+const REAL_TURN_CONTEXT_0160 =
+  "{\"timestamp\":\"2026-10-02T00:48:43.142Z\",\"ordinal\":5,\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"01a0fa15-b148-7063-b8e4-2ad5c577343e\",\"root_turn_id\":\"01a0fa15-b148-7063-b8e4-2ad5c577343e\",\"disabled_plugin_ids\":[],\"cwd\":\"/workspace/project\",\"workspace_roots\":[\"/workspace/project\"],\"current_date\":\"2026-10-01\",\"timezone\":\"UTC\",\"approval_policy\":\"never\",\"approvals_reviewer\":\"user\",\"sandbox_policy\":{\"type\":\"read-only\"},\"permission_profile\":{\"type\":\"managed\",\"file_system\":{\"type\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"}]},\"network\":\"restricted\"},\"model\":\"gpt-5.6-luna\",\"comp_hash\":\"3000\",\"collaboration_mode\":{\"mode\":\"default\",\"settings\":{\"model\":\"gpt-5.6-luna\",\"reasoning_effort\":\"low\",\"developer_instructions\":null}},\"multi_agent_version\":\"v1\",\"realtime_active\":false,\"effort\":\"low\",\"summary\":\"none\"}}";
+
 async function lookupIn(home: CodexHome, threadId: string | null) {
   return readTurnContext({ threadId, codexHome: home.path });
 }
@@ -290,6 +294,24 @@ test("AC-2 (#98) reads a turn context recorded by codex-cli 0.159.2", async () =
   try {
     home.write({ threadId: "thread-0159", day: "2026-09-30", lines: [SESSION_META, REAL_TURN_CONTEXT_0159] });
     const { context, reason } = await lookupIn(home, "thread-0159");
+    assert.equal(reason, null);
+    assert.deepEqual(context, {
+      cwd: "/workspace/project",
+      model: "gpt-5.6-luna",
+      effort: "low",
+      sandbox: "read-only",
+      approvalPolicy: "never",
+    });
+  } finally {
+    home.dispose();
+  }
+});
+
+test("reads a turn context recorded by codex-cli 0.160.0", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({ threadId: "thread-0160", day: "2026-10-01", lines: [SESSION_META, REAL_TURN_CONTEXT_0160] });
+    const { context, reason } = await lookupIn(home, "thread-0160");
     assert.equal(reason, null);
     assert.deepEqual(context, {
       cwd: "/workspace/project",

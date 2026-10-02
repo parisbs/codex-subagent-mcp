@@ -26,7 +26,7 @@ export const VERIFIED_CODEX_VERSION = "0.154.0";
  * (`scripts/check-codex-compat.ts`) compares each new release against this and
  * says when a smoke test is due.
  */
-export const NEWEST_VERIFIED_CODEX_VERSION = "0.159.2";
+export const NEWEST_VERIFIED_CODEX_VERSION = "0.160.0";
 
 export type DiagnosisStatus =
   | "ok"
