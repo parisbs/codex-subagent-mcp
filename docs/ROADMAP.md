@@ -309,31 +309,57 @@ on both the oldest supported release and the newest
 an empty entry instead of letting a list with no names allow everything
 ([#128](https://github.com/parisbs/codex-subagent-mcp/issues/128)).
 
-## 0.6.0 — Cost and configuration
+## 0.6.0 — Measurement and additive changes
 
 Every result already reports the tokens the CLI counted — input, cached, output and reasoning. What
 does not exist is any view across delegations, so there is no way to notice a pattern such as `xhigh`
-effort spent on work that `low` would have handled. Codex profiles are not exposed, and monorepos
-have to restate their extra directories on every call.
+effort spent on work that `low` would have handled. Cost accounting comes first in this release
+because later decisions depend on its data: whether background jobs must survive a restart, whether
+task intents are worth building, and whether wrapping `codex exec review` is.
 
 One thing this will deliberately never do: report or estimate subscription quota, such as the share
 of a usage window a delegation consumed. The CLI's own logs expose those percentages, but plan limits
 and credit rates are OpenAI's to change without notice, and a figure this server printed would go
 wrong silently. Tokens reported by the CLI are the only usage figure surfaced.
 
+The rest of the release only adds surface or fixes: a bound on how many delegations a session can
+start, a summary of `codex doctor --json`, and skipping a plugin listing that has no effect under
+the default configuration. No breaking change is planned here
+([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
+
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
-[#30](https://github.com/parisbs/codex-subagent-mcp/issues/30),
-[#31](https://github.com/parisbs/codex-subagent-mcp/issues/31)
+[#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
+[#69](https://github.com/parisbs/codex-subagent-mcp/issues/69),
+[#135](https://github.com/parisbs/codex-subagent-mcp/issues/135)
 
-## 1.0.0 — Hardening
+## 0.7.0 — Closing the interface
 
-The leading digit is not a decision to be made by declaration; [VERSIONING.md](VERSIONING.md) says
-what it requires. The two open pieces are integration tests against the real CLI off macOS, and a
-settled answer on whether background jobs must survive a restart — which is a question about real
-usage, and may well close as `wontfix`.
+The last release allowed to break before 1.0. Every open item that could still change the public
+interface is implemented or closed here: which parts of a result an orchestrator may parse, how a
+result says a turn is waiting for an answer, path validation for extra directories, refusing a
+directory nobody chose, and whether background jobs survive a restart. The last two are questions;
+closing one as `wontfix` resolves it as well as building it does.
 
-[#32](https://github.com/parisbs/codex-subagent-mcp/issues/32),
+[#138](https://github.com/parisbs/codex-subagent-mcp/issues/138),
+[#125](https://github.com/parisbs/codex-subagent-mcp/issues/125),
+[#31](https://github.com/parisbs/codex-subagent-mcp/issues/31),
+[#63](https://github.com/parisbs/codex-subagent-mcp/issues/63),
 [#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)
+
+## 1.0.0 — The interface freeze
+
+1.0 is the declaration that the public interface is frozen, as
+[ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md) defines it and
+[VERSIONING.md](VERSIONING.md#what-10-requires) lists. It carries no work of its own beyond what
+proves the freeze: a period after 0.7.0 with no breaking change, whose length and conditions are
+still to be set from data ([#139](https://github.com/parisbs/codex-subagent-mcp/issues/139)), and a
+real delegation verified off macOS ([#32](https://github.com/parisbs/codex-subagent-mcp/issues/32)).
+
+Changes that only add surface do not wait for 1.0 and do not block it. Codex profiles
+([#30](https://github.com/parisbs/codex-subagent-mcp/issues/30)), task intents
+([#136](https://github.com/parisbs/codex-subagent-mcp/issues/136)) and a review tool
+([#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)) are scheduled when data justifies
+them, before or after 1.0.
 
 ## Under consideration: keeping delegation under the user's control
 

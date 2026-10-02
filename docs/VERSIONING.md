@@ -88,16 +88,27 @@ that still receives security fixes stays supported.
 
 ## What 1.0 requires
 
-1.0 is not a milestone to be reached by declaration. It requires:
+1.0 is the freeze of the public interface: the tools, their parameters, their defaults, the
+environment variables, and the parts of a result defined as contract. After it, anything that breaks
+that interface is a major release. Changes that only add surface are not part of the freeze and do
+not wait for it. See [ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md).
 
-1. A real delegation verified on Windows and Linux against the actual Codex CLI. CI now exercises
-   the whole delegation cycle on all three platforms against a stand-in — spawning, stdin, JSONL
+It requires:
+
+1. Every open item that could still break the interface resolved, built or closed, by 0.7.0, the
+   last release allowed to break before 1.0. That includes defining which parts of a result are
+   contract ([#138](https://github.com/parisbs/codex-subagent-mcp/issues/138)) and a settled answer
+   on whether background jobs must survive a restart.
+2. A freeze period after 0.7.0 in which no release breaks the interface. How long it lasts, how it
+   is shown to have held, and what a Codex CLI floor raise means after 1.0 are still open; they
+   depend on how often a CLI release changes the surface this server uses
+   ([#139](https://github.com/parisbs/codex-subagent-mcp/issues/139)).
+3. A real delegation verified on Windows and Linux against the actual Codex CLI. CI exercises the
+   whole delegation cycle on all three platforms against a stand-in — spawning, stdin, JSONL
    parsing, exit codes and stderr — which covers the code this project owns. What remains unverified
    off macOS is the coupling itself: that the installed CLI accepts the argv built here and emits the
-   events parsed here. That needs an authenticated CLI, which CI cannot have.
-2. The recommendation matrix informed by actual usage rather than by the catalog's own positioning.
-3. The tool interface unchanged across several releases, demonstrated rather than intended.
-4. A settled answer on whether background jobs must survive a restart.
+   events parsed here. That needs an authenticated CLI
+   ([#32](https://github.com/parisbs/codex-subagent-mcp/issues/32)).
 
 Until then the leading digit stays at 0, and the release notes carry the detail.
 
