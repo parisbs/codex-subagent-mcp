@@ -29,3 +29,4 @@ readable even after the choice changes. There is no exception for facts that bec
 | [0014](0014-user-controlled-sandbox-defaults.md) | Make sandbox defaults user-controlled and unsandboxed access opt-in | Accepted |
 | [0015](0015-agents-md-and-immutable-records.md) | Keep agent instructions in AGENTS.md and records immutable | Accepted |
 | [0016](0016-turn-off-inherited-tools.md) | Turn off the MCP servers, plugins and apps a delegation inherits | Accepted |
+| [0017](0017-define-1-0-as-the-interface-freeze.md) | Define 1.0 as the freeze of the public interface | Accepted |
