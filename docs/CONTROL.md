@@ -76,7 +76,7 @@ covered in full in [TOOLS.md](TOOLS.md#configuration); the ones that matter most
 A reasonable starting point for everyday use:
 
 ```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.4.0
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.5.0
 ```
 
 Register defaults and ceilings outside the repository — Claude Code's default `local` scope or
@@ -88,7 +88,7 @@ default sandbox could make later calls write without requesting a sandbox at all
 
 `npx -y codex-subagent-mcp` always runs the newest published version, so a new release — including
 changes to what the tools tell Claude — reaches you without a decision on your part. A range such as
-`codex-subagent-mcp@^0.4.0` accepts fixes but not new or changed behaviour, which on 0.x arrives in a
+`codex-subagent-mcp@^0.5.0` accepts fixes but not new or changed behaviour, which on 0.x arrives in a
 new minor (see [VERSIONING.md](VERSIONING.md)).
 
 ## 4. Your own rules for Claude
