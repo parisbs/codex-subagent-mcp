@@ -45,8 +45,8 @@ a confusing one.
 **Keep npm scripts shell-agnostic.** npm runs scripts through cmd.exe on Windows: no glob expansion,
 no `rm`. That is why `npm test` goes through `scripts/run-tests.mjs`.
 
-`AGENTS.md` carries the same rules in the form a coding agent reads them (`CLAUDE.md` imports it),
-and the two should be kept in step.
+`CLAUDE.md` carries the same rules in the form a coding agent reads them, and the two should be
+kept in step.
 
 ## Where the work is tracked
 
