@@ -30,7 +30,7 @@ For ATDD work, add the oracle commit and the red evidence. Delete for changes wi
 
 ## Documentation
 
-<!-- What was checked and what changed: README, docs/, ADRs, AGENTS.md. "Nothing needed" is valid
+<!-- What was checked and what changed: README, docs/, ADRs, CLAUDE.md. "Nothing needed" is valid
 after looking. User-visible changes are described here for the changelog, which is only written at
 release time. -->
 
