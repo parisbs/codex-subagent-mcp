@@ -109,7 +109,8 @@ export function resolveInheritance(input: {
   plugins: InheritPolicy;
   apps: boolean;
   mcp: McpInventory;
-  pluginInventory: PluginInventory;
+  /** Null when plugins were not listed because the policy turns every one off (#135). */
+  pluginInventory: PluginInventory | null;
   selfNames: string[];
 }): {
   ok: true;
@@ -119,7 +120,12 @@ export function resolveInheritance(input: {
   disableApps: boolean;
   report: InheritanceReport;
 } | { ok: false; reason: string } {
-  const { mcpServers, plugins, apps, mcp, pluginInventory, selfNames } = input;
+  const { mcpServers, plugins, apps, mcp, selfNames } = input;
+  // Only `none` may skip the listing; anywhere else a missing one is a failure, and fails closed.
+  const pluginInventory: PluginInventory =
+    input.pluginInventory ?? (plugins.kind === "none"
+      ? { ok: true, enabled: [] }
+      : { ok: false, error: "codex plugin list --json was not run" });
 
   if (!mcp.ok && mcpServers.kind !== "all") {
     return {
@@ -232,14 +238,30 @@ export function formatInheritance(report: InheritanceReport): string {
 }
 
 /**
+ * Why a listing failed, ahead of the message so truncation cannot cut it: Node's execFile reports
+ * a timeout, an exit status and an outside signal all as "Command failed" (#135).
+ */
+function failureCause(error: unknown): string | null {
+  if (!isRecord(error)) return null;
+  if (error.killed === true) return `timed out after ${LIST_TIMEOUT_MS / 1000} s`;
+  if (typeof error.code === "number") return `exited with code ${error.code}`;
+  if (typeof error.signal === "string") return `killed by signal ${error.signal}`;
+  return null;
+}
+
+/**
  * Lists the MCP servers and plugins a run in `cwd` would inherit. Not cached: both are short local
  * processes, and a stale answer would miss a server or plugin added mid-session (AC-12).
+ *
+ * `listPlugins: false` skips `codex plugin list`, which can take seconds and reach remote
+ * marketplaces, when the policy turns every plugin off and needs no inventory (#135, ADR 16).
  */
 export async function inspectInherited(options: {
   cwd?: string;
   codexPath?: string;
-}): Promise<{ mcp: McpInventory; plugins: PluginInventory; selfNames: string[] }> {
-  const { codexPath = process.env.CODEX_BIN ?? "codex", cwd } = options;
+  listPlugins?: boolean;
+}): Promise<{ mcp: McpInventory; plugins: PluginInventory | null; selfNames: string[] }> {
+  const { codexPath = process.env.CODEX_BIN ?? "codex", cwd, listPlugins = true } = options;
   const list = async (args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> => {
     try {
       const resolved = resolveCodexExecutable(codexPath);
@@ -249,7 +271,9 @@ export async function inspectInherited(options: {
       });
       return { ok: true, stdout };
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      const cause = failureCause(error);
+      const reason = cause ? `${cause}: ${message}` : message;
       // A failed CLI call can carry its whole stderr, and this ends up in a result.
       const bounded = reason.length > 300 ? `${reason.slice(0, 300)}… [truncated]` : reason;
       return { ok: false, error: oneLine(bounded) };
@@ -258,10 +282,11 @@ export async function inspectInherited(options: {
 
   const [mcpListing, pluginListing] = await Promise.all([
     list(MCP_LIST_ARGS),
-    list(["plugin", "list", "--json"]),
+    listPlugins ? list(["plugin", "list", "--json"]) : null,
   ]);
   const mcp = mcpListing.ok ? parseMcpInventory(mcpListing.stdout) : mcpListing;
-  const plugins = pluginListing.ok ? parsePluginInventory(pluginListing.stdout) : pluginListing;
+  const plugins =
+    pluginListing === null ? null : pluginListing.ok ? parsePluginInventory(pluginListing.stdout) : pluginListing;
   const selfNames = mcpListing.ok && mcp.ok ? findSelfReferences(mcpListing.stdout, process.argv[1]) : [];
   return { mcp, plugins, selfNames };
 }

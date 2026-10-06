@@ -1880,3 +1880,41 @@ test("AC-8 (#129) a plugin listed without a boolean state disables all plugins i
     }
   });
 });
+
+const DELEGATION_CALLS = [["codex_delegate", "blocking"], ["codex_delegate", "background"], ["codex_follow_up", undefined]];
+
+test("AC-1 (#135) with plugins none no delegation tool lists plugins or reports a plugin listing failure", async () => {
+  for (const env of [{}, { CODEX_SUBAGENT_PLUGINS: "none" }]) {
+    await withServer(env, async (call) => {
+      inheritedListings();
+      pluginListError = new Error("plugin listing unavailable");
+      for (const [tool, mode] of DELEGATION_CALLS) {
+        let result = await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) });
+        assert.notEqual((result as ToolResult).isError, true, textOf(result));
+        await finishInheritedRuns();
+        if (mode === "background") {
+          const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(result))?.[1];
+          assert.ok(jobId);
+          result = await call("codex_job_result", { job_id: jobId });
+        }
+        assert.ok(inheritanceOverrides(spawnedArgs.at(-1)!).includes("features.plugins=false"), `${tool} ${mode}`);
+        assert.doesNotMatch(inheritanceLine(result), /plugin listing/i);
+      }
+      assert.deepEqual(pluginListCwds, [], "codex plugin list must not run");
+      assert.equal(mcpListCwds.length, 3, "the MCP listing still runs");
+    });
+  }
+});
+
+test("AC-2 (#135) with plugins all or a list every delegation tool still lists plugins", async () => {
+  for (const plugins of ["all", "docs@market"]) {
+    await withServer({ CODEX_SUBAGENT_PLUGINS: plugins }, async (call) => {
+      inheritedListings();
+      for (const [tool, mode] of DELEGATION_CALLS) {
+        await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) });
+        await finishInheritedRuns();
+      }
+      assert.equal(pluginListCwds.length, 3, plugins);
+    });
+  }
+});
