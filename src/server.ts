@@ -631,7 +631,10 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
    * and never cached: a server or plugin added mid-session must not be missed.
    */
   const inheritanceFor = async (cwd: string | undefined) => {
-    const inventory = await inspectInherited({ ...(cwd ? { cwd } : {}) });
+    const inventory = await inspectInherited({
+      ...(cwd ? { cwd } : {}),
+      listPlugins: config.plugins.kind !== "none",
+    });
     return resolveInheritance({
       mcpServers: config.mcpServers,
       plugins: config.plugins,

@@ -238,6 +238,61 @@ test("AC-4 AC-5 (#64) inspection preserves both listing failures without throwin
   } finally { failures = {}; }
 });
 
+// The shapes Node's execFile gives a failed child: `killed` with the timeout's signal, a numeric
+// `code` for an exit status, and `signal` alone for a signal sent from outside.
+const execFailure = (fields: Record<string, unknown>, stderr = "") =>
+  Object.assign(new Error(`Command failed: codex list --json\n${stderr}`), fields);
+
+test("AC-3 (#135) a failed listing states its cause before the bounded stderr", async () => {
+  for (const [label, error, cause] of [
+    ["timeout", execFailure({ killed: true, signal: "SIGTERM", code: null }), /timed out after 10 s/],
+    ["exit code", execFailure({ killed: false, signal: null, code: 2 }, "error: bad flag"), /exited with code 2/],
+    ["signal", execFailure({ killed: false, signal: "SIGKILL", code: null }), /killed by signal SIGKILL/],
+    ["long stderr", execFailure({ killed: false, signal: null, code: 1 }, "x".repeat(2000)), /exited with code 1/],
+  ] as const) {
+    calls = []; failures = { mcp: error, plugin: error };
+    try {
+      const result = await inspectInherited({ codexPath: process.execPath, cwd: tmpdir() });
+      for (const listing of [result.mcp, result.plugins]) {
+        assert.equal(listing?.ok, false, label);
+        if (listing?.ok !== false) continue;
+        assert.match(listing.error, cause, label);
+        assert.match(listing.error, /Command failed/, label);
+        assert.ok(listing.error.length < 400, `${label}: stderr stays bounded (${listing.error.length})`);
+        if (label === "exit code") assert.match(listing.error, /error: bad flag/);
+      }
+    } finally { failures = {}; }
+  }
+});
+
+test("AC-1 (#135) inspection skips the plugin listing when no plugin may be listed", async () => {
+  calls = []; failures = { plugin: new Error("plugin unavailable") };
+  try {
+    const result = await inspectInherited({ codexPath: process.execPath, cwd: tmpdir(), listPlugins: false });
+    assert.deepEqual(calls.map((call) => call.args[0]), ["mcp"]);
+    assert.equal(result.plugins, null);
+    const resolved = resolveInheritance({ ...base(), pluginInventory: result.plugins });
+    assert.ok(resolved.ok);
+    if (resolved.ok) {
+      assert.equal(resolved.disableAllPlugins, true);
+      assert.equal(resolved.report.listingErrors.plugins, null);
+    }
+  } finally { failures = {}; }
+});
+
+test("AC-2 (#135) a list policy whose plugins were not listed still turns every plugin off", () => {
+  for (const plugins of [list("docs@market"), all]) {
+    const resolved = resolveInheritance({ ...base(), plugins, pluginInventory: null });
+    assert.ok(resolved.ok);
+    if (!resolved.ok) continue;
+    if (plugins.kind === "list") {
+      assert.equal(resolved.disableAllPlugins, true);
+      assert.deepEqual(resolved.report.plugins, []);
+    }
+    assert.notEqual(resolved.report.listingErrors.plugins, null, "an unlisted inventory is reported");
+  }
+});
+
 // Amended on 2026-10-01: codex-cli 0.159.2 splits a `-c` path on dots and on the first `=`, so a
 // server or plugin whose name holds either cannot be turned off for one run. Fail closed.
 test("AC-1 AC-2 AC-4 (#64) refuses when an MCP server it must turn off cannot be addressed by name", () => {
