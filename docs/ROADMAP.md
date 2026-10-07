@@ -311,9 +311,9 @@ an empty entry instead of letting a list with no names allow everything
 
 ## 0.6.0 — Measurement and additive changes
 
-Every result already reports the tokens the CLI counted — input, cached, output and reasoning. What
-does not exist is any view across delegations, so there is no way to notice a pattern such as `xhigh`
-effort spent on work that `low` would have handled. Cost accounting comes first in this release
+A blocking result already reports the tokens the CLI counted — input, cached, output and reasoning.
+What does not exist is any view across delegations that outlives the process, so there is no way to
+notice a pattern such as `xhigh` effort spent on work that `low` would have handled. Cost accounting comes first in this release
 because later decisions depend on its data: whether background jobs must survive a restart, whether
 task intents are worth building, and whether wrapping `codex exec review` is.
 
@@ -322,10 +322,17 @@ of a usage window a delegation consumed. The CLI's own logs expose those percent
 and credit rates are OpenAI's to change without notice, and a figure this server printed would go
 wrong silently. Tokens reported by the CLI are the only usage figure surfaced.
 
+The accounting is a local log the user turns on, one line per delegation process with counts and
+enumerations, never anything the server takes from the prompt or the working tree, read back through
+a `codex_usage` tool. Grouping by kind of task uses a label the caller chooses and the server stores
+as given, because the server classifying prompts would be making policy
+([ADR 22](adr/0022-keep-an-opt-in-local-usage-log.md)).
+
 The rest of the release only adds surface or fixes: a bound on how many delegations a session can
-start, a summary of `codex doctor --json`, and skipping a plugin listing that has no effect under
-the default configuration. No breaking change is planned here
-([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
+start, counted in memory and set by the user
+([ADR 23](adr/0023-bound-delegations-in-memory.md)), a summary of `codex doctor --json`, and
+skipping a plugin listing that has no effect under the default configuration. No breaking change is
+planned here ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 
 It also lets each registration describe itself. A user who registers the server twice with different
 ceilings, one read-only for reviews and one that can write, today gets two identical sets of tools:
