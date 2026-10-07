@@ -35,3 +35,5 @@ choice changes. There is no exception for facts that became untrue; see
 | [0019](0019-name-the-successor-in-the-status-line.md) | Name the successor in a superseded record's status line | Accepted |
 | [0020](0020-let-the-session-file-decide-where-a-follow-up-resumes.md) | Let the session file decide where a follow-up resumes | Accepted |
 | [0021](0021-report-the-base-of-a-worktree-run.md) | Report the base of a worktree run | Accepted |
+| [0022](0022-keep-an-opt-in-local-usage-log.md) | Keep an opt-in local usage log | Accepted |
+| [0023](0023-bound-delegations-in-memory.md) | Bound delegations per hour, in memory | Accepted |
