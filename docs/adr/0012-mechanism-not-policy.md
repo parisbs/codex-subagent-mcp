@@ -1,6 +1,6 @@
 # 12. Provide mechanism, not policy
 
-Status: Accepted
+Status: Accepted; the clause that configuration may only restrict superseded by [ADR 14](0014-user-controlled-sandbox-defaults.md)
 
 Supersedes part of [ADR 3](0003-read-the-catalog-from-the-cli.md), which introduced the
 recommendation matrix as the default path for delegations.

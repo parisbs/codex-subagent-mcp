@@ -1,6 +1,6 @@
 # 5. Default to a read-only sandbox
 
-Status: Accepted
+Status: Accepted; the clause that writing requires an explicit `sandbox` argument superseded by [ADR 14](0014-user-controlled-sandbox-defaults.md)
 
 ## Context
 
