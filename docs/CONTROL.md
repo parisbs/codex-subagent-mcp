@@ -127,6 +127,10 @@ place.
   again. The server lists that directory's MCP entries immediately before both new runs and
   follow-ups. If the listing fails, the delegation still runs, but its result says the recursion
   guard could not be applied.
+- The MCP servers, plugins and apps of your Codex configuration are off for a delegation unless
+  `CODEX_SUBAGENT_MCP_SERVERS`, `CODEX_SUBAGENT_PLUGINS` or `CODEX_SUBAGENT_APPS` allow them, because
+  the sandbox does not confine what those tools do. The result says what was allowed
+  ([ADR 16](adr/0016-turn-off-inherited-tools.md)).
 - Every new delegation's prompt also instructs the delegated agent not to delegate further. This is
   an instruction, not a control; it is a second layer for configurations the server could not
   enumerate.
@@ -156,9 +160,13 @@ place.
 
 ## Being considered
 
-Not scheduled for a particular release: a limit on how many delegations a session can start
-([#62](https://github.com/parisbs/codex-subagent-mcp/issues/62)), refusing to run in a directory
-nobody chose ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)), turning off inherited
-Codex plugins per delegation ([#64](https://github.com/parisbs/codex-subagent-mcp/issues/64)), and
-asking you directly before expensive runs
-([#65](https://github.com/parisbs/codex-subagent-mcp/issues/65)).
+A limit on how many delegations a session can start
+([#62](https://github.com/parisbs/codex-subagent-mcp/issues/62)) is planned for 0.6.0. Refusing to
+run in a directory nobody chose ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)) is
+still being evaluated for 0.7.0. Neither is a promise until its release ships
+([VERSIONING.md](VERSIONING.md)).
+
+Asking you directly before expensive runs
+([#65](https://github.com/parisbs/codex-subagent-mcp/issues/65)) is not planned: it would rely on
+MCP elicitation, which the Claude desktop app currently declines without showing it to you. Your
+client's permission prompt on `codex_delegate` and `codex_follow_up` remains that confirmation.
