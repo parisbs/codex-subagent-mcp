@@ -1,6 +1,6 @@
 # 13. Confirm what Codex applied instead of re-implementing its configuration
 
-Status: Accepted
+Status: Accepted; that a read of the session file never decides anything, for the directory a follow-up resumes in, superseded by [ADR 20](0020-let-the-session-file-decide-where-a-follow-up-resumes.md)
 
 ## Context
 

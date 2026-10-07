@@ -162,7 +162,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
 | `auto_approve` | boolean | `false` | Codex approves its own commands, and also the tools of any MCP server, plugin or app the user allowed, which run outside the sandbox. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
-| `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. |
+| `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. A follow-up defaults to the directory confirmed by Codex's session file; if that directory is unconfirmed, the follow-up is refused unless it supplies `working_dir`. |
 | `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
 | `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
@@ -314,6 +314,13 @@ session file and says when it did. Recovery is all-or-nothing: a missing, unread
 unrecognised record falls back to the existing explicit/configured-model behaviour. Recovered values
 go through the same directory validation, model catalog and allow-list, effort ceiling and clamping
 as caller-supplied values. If no usable record and no model are available, the call is refused.
+
+After a delegation with `use_worktree`, the server remembers the applied directory when Codex's
+session file confirms that it differs from the requested one. A follow-up without `working_dir`
+resumes there and reports the directory. If the applied directory could not be confirmed, the
+follow-up is refused before any CLI process starts; the message names the requested directory and
+asks for `working_dir`. An explicit `working_dir` always wins. Runs without `use_worktree` keep
+the requested directory in memory even if the session file reports a different one.
 
 ---
 

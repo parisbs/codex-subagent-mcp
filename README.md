@@ -129,8 +129,9 @@ resume.
 `use_worktree` sends the run's edits to `~/.codex/worktrees/`; results list the files it touched and
 where each landed, up to a thousand distinct files, then report the omitted count. The server does
 not clean worktrees up: they may hold unapplied work. The experimental feature is enabled only for
-that invocation; your Codex configuration is unchanged. See [Safety](#safety) for the write
-boundary.
+that invocation; your Codex configuration is unchanged. A follow-up continues in the same worktree;
+when Codex's session file could not confirm where that was, the follow-up asks for `working_dir`
+rather than resume in your working tree. See [Safety](#safety) for the write boundary.
 
 Whatever the sandbox, a delegation that writes reports what it wrote:
 
