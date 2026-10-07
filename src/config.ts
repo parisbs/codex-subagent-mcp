@@ -45,6 +45,8 @@ export interface ServerConfig {
   maxSandboxConfigured: boolean;
   /** The highest reasoning effort this server will request. */
   maxEffort: ReasoningEffort | null;
+  /** Whether each delegation process appends a line to the local usage log (ADR 22, ADR 24). */
+  usageLog: boolean;
 }
 
 export interface LoadedConfig {
@@ -197,6 +199,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
       maxSandbox: effectiveMaxSandbox,
       maxSandboxConfigured: maxSandbox !== null,
       maxEffort,
+      // Placeholder until #29 is implemented: CODEX_SUBAGENT_USAGE_LOG is not read yet.
+      usageLog: false,
     },
     errors,
   };

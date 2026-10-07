@@ -38,6 +38,7 @@ import { ActiveRuns } from "./runs.js";
 import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
 import { ThreadRegistry, type ThreadSettings } from "./threads.js";
+import type { UsageFileSystem } from "./usage.js";
 import {
   REASONING_EFFORTS,
   SANDBOX_MODES,
@@ -595,9 +596,21 @@ const delegateShape = {
     .optional()
     .describe("blocking (default) waits and streams progress; background returns a job_id immediately."),
   output_schema: outputSchemaParameter,
+  label: z
+    .string()
+    .optional()
+    .describe("Your own short name for this kind of task, stored verbatim in the local usage log and never sent to Codex: 1 to 64 characters, no control or bidirectional-control characters. A follow-up without one keeps its thread's label."),
 };
 
-export function createServer(): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
+/** Test seams; production code passes nothing. */
+export interface ServerOptions {
+  /** The file operations of the usage log, so that tests can make one fail (#29). */
+  usageFileSystem?: UsageFileSystem;
+}
+
+export function createServer(
+  _options: ServerOptions = {},
+): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {}, logging: {} } },
@@ -1107,6 +1120,10 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           .describe("Absolute directory to resume in. Defaults to the directory the thread last ran in."),
         timeout_seconds: z.number().int().positive().max(7200).optional(),
         output_schema: outputSchemaParameter,
+      label: z
+        .string()
+        .optional()
+        .describe("Your own short name for this kind of task, stored verbatim in the local usage log and never sent to Codex: 1 to 64 characters, no control or bidirectional-control characters. A follow-up without one keeps its thread's label."),
       },
       annotations: { readOnlyHint: false, openWorldHint: true },
     },
@@ -1325,6 +1342,35 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           lines.push("", "Read the full output with codex_job_result.");
         }
         return textResult(lines.join("\n"));
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "codex_usage",
+    {
+      title: "Summarise the local usage log",
+      description:
+        "Summarise this server's local usage log (CODEX_SUBAGENT_USAGE_LOG) over a window: per group, the number of " +
+        "delegation processes, their outcomes, commands, durations and the tokens the Codex CLI reported. Reads local " +
+        "files only and runs no Codex process. It never reports quota, credits or remaining allowance.",
+      inputSchema: {
+        since_hours: z
+          .number()
+          .optional()
+          .describe("How far back to look, in hours: greater than 0 and at most 8,760. Defaults to 168 (one week)."),
+        group_by: z
+          .enum(["model", "label", "outcome", "kind"])
+          .optional()
+          .describe("Group by the applied model and effort (default), the caller's label, the outcome, or the kind."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () => {
+      try {
+        throw new Error("not implemented");
       } catch (error) {
         return errorResult(error);
       }
