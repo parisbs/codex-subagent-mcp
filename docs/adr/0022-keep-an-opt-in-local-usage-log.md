@@ -1,6 +1,6 @@
 # 22. Keep an opt-in local usage log
 
-Status: Accepted; the characters a label may contain superseded by [ADR 24](0024-keep-the-usage-log-label-well-formed.md)
+Status: Accepted; the characters a label may contain superseded by [ADR 24](0024-settle-the-open-details-of-the-usage-log.md)
 
 ## Context
 
