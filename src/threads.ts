@@ -2,6 +2,8 @@ import type { ReasoningEffort, TokenUsage } from "./types.js";
 
 /** What to restate on a follow-up, including a confirmed worktree directory (ADR 20). */
 export interface ThreadSettings {
+  /** Caller text, inherited only through this in-memory registry. */
+  label?: string | null;
   model: string;
   reasoningEffort: ReasoningEffort;
   workingDir?: string;

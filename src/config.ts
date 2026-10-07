@@ -143,6 +143,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     return null;
   };
 
+  const usageLog = readEnum("USAGE_LOG", ["on", "off"]);
   const maxSandbox = readEnum("MAX_SANDBOX", SANDBOX_MODES);
   const defaultSandbox = readEnum("DEFAULT_SANDBOX", SANDBOX_MODES);
   const maxEffort = readEnum("MAX_EFFORT", REASONING_EFFORTS);
@@ -199,8 +200,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
       maxSandbox: effectiveMaxSandbox,
       maxSandboxConfigured: maxSandbox !== null,
       maxEffort,
-      // Placeholder until #29 is implemented: CODEX_SUBAGENT_USAGE_LOG is not read yet.
-      usageLog: false,
+      usageLog: usageLog === "on",
     },
     errors,
   };

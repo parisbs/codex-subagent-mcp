@@ -158,6 +158,39 @@ place.
 - That the applied settings can always be confirmed. The check reads a Codex file format that is
   internal and undocumented; when it cannot, it says `unconfirmed` rather than assuming.
 
+## Local usage log
+
+`CODEX_SUBAGENT_USAGE_LOG=on` enables a local log; unset, empty, whitespace and `off` create no log
+files or directories. Invalid values refuse delegations and are listed by `codex_doctor`.
+
+One JSON line records each spawned delegation or follow-up after its outcome is final, including
+background jobs. Probes and calls refused before spawning add nothing. Entries contain end time,
+duration from spawn, kind and mode, thread id, requested and applied model, effort and sandbox,
+boolean feature flags, command count, outcome, sandbox ceiling, server and CLI versions, and the
+CLI's tokens for this turn (input, cached, output, reasoning and derived uncached input). Missing
+or invalid counters, cancellation and timeout mean unknown tokens, never estimated zeros. Resumed
+threads need an in-memory cumulative baseline to derive turn tokens. Unconfirmed settings stay
+unconfirmed.
+
+The log never holds prompts, context, system instructions, acceptance criteria, schemas, file names,
+working directories or other paths, command text or output, Codex messages, errors or stderr.
+The exception is `label`: it is the caller's own text, recorded and displayed verbatim. Do not put
+anything there you do not want stored. The server never interprets what a label means.
+
+Files live under absolute `$XDG_STATE_HOME/codex-subagent-mcp`, otherwise under
+`~/Library/Application Support/codex-subagent-mcp` on macOS, `~/.local/state/codex-subagent-mcp` on
+Linux, or absolute `%LOCALAPPDATA%\codex-subagent-mcp` on Windows. Without either absolute Windows
+state path, results report that the entry could not be written. New POSIX directories use `0700`
+and files `0600`; existing permissions are kept.
+
+Before `usage.jsonl` would exceed 10 MiB, it rotates to a unique timestamp-and-pid archive, and the
+oldest archives are pruned to 50 MiB. Caps are approximate with concurrent writers. Appends are best
+effort and never retried; concurrent Windows appends have no guarantee against interleaving. A
+failed write or rotation is reported in the blocking result or `codex_job_result` without changing
+the delegation's success or failure. Failed pruning still permits the entry and is reported too.
+`codex_usage` reads surviving current and archived entries and skips damaged lines. It never
+estimates subscription quota, usage-window share, credits or remaining allowance.
+
 ## Being considered
 
 A limit on how many delegations a session can start

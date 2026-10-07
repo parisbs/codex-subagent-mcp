@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
@@ -38,7 +39,10 @@ import { ActiveRuns } from "./runs.js";
 import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
 import { ThreadRegistry, type ThreadSettings } from "./threads.js";
-import type { UsageFileSystem } from "./usage.js";
+import {
+  appendUsageEntry, resolveUsageDirectory, summarizeUsage, usageOutcome, validateLabel,
+  type UsageEntry, type UsageFileSystem, type UsageWriteResult,
+} from "./usage.js";
 import {
   REASONING_EFFORTS,
   SANDBOX_MODES,
@@ -314,11 +318,13 @@ function renderFinalMessage(result: DelegationResult): string[] {
 }
 
 /** Renders a finished delegation as the text the orchestrator reads. */
-function renderResult(result: DelegationResult, notes: string[], config: ServerConfig): string {
+function renderResult(result: DelegationResult, notes: string[], config: ServerConfig, usageWrite?: UsageWriteResult): string {
   // Codex may have read hostile content — an issue body, a file from someone
   // else's repository — and its report is the channel that content has back
   // into the orchestrator. Saying so costs one line.
   const lines: string[] = [RESULT_FRAMING, ""];
+  if (usageWrite && !usageWrite.written) lines.push(`Usage entry was not written: ${usageWrite.error}`, "");
+  if (usageWrite?.pruneError) lines.push(`Usage archives could not be pruned: ${usageWrite.pruneError}`, "");
 
   if (notes.length > 0) {
     lines.push(`Notes: ${notes.join(" ")}`, "");
@@ -459,7 +465,7 @@ async function resolveModelAndEffort(
   taskDescription: string,
   config: ServerConfig,
   cwd?: string,
-): Promise<{ model: string; effort: ReasoningEffort; notes: string[] }> {
+): Promise<{ model: string; effort: ReasoningEffort; notes: string[]; cliVersion: string | null }> {
   const diagnosis = await requireUsableCodex(cwd);
   const catalog = await getCatalog(cwd ? { cwd } : {});
   const notes: string[] = [];
@@ -516,7 +522,7 @@ async function resolveModelAndEffort(
   );
   if (resolved.adjusted && resolved.reason) notes.push(resolved.reason);
 
-  return { model: model.slug, effort: resolved.effort, notes };
+  return { model: model.slug, effort: resolved.effort, notes, cliVersion: diagnosis.version };
 }
 
 /** Shared by codex_delegate and codex_follow_up (#28). */
@@ -609,7 +615,7 @@ export interface ServerOptions {
 }
 
 export function createServer(
-  _options: ServerOptions = {},
+  options: ServerOptions = {},
 ): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -619,6 +625,48 @@ export function createServer(
   const runs = new ActiveRuns();
   const threads = new ThreadRegistry();
   const { config, errors: configErrors } = loadConfig();
+  const usageDirectory = resolveUsageDirectory({ env: process.env, platform: process.platform, homedir: homedir() });
+
+  const recordUsage = (
+    result: DelegationResult,
+    invocation: CodexInvocation,
+    mode: "blocking" | "background",
+    label: string | null,
+    flags: UsageEntry["flags"],
+    cliVersion: string | null,
+    endedAtMs = Date.now(),
+  ): void => {
+    if (!config.usageLog || result.notStarted || result.spawnedAtMs === undefined) return;
+    if ("error" in usageDirectory) {
+      result.usageWrite = Promise.resolve({ written: false, error: usageDirectory.error, pruneError: null });
+      return;
+    }
+    const cut = (text: string): string => [...text].slice(0, 128).join("");
+    const applied = (setting: AppliedSetting): string =>
+      setting.state === "unconfirmed" || setting.applied === null ? "unconfirmed" : cut(setting.applied);
+    const usage = result.cancelled || result.timedOut || result.turnFailure ? null : result.turnUsage;
+    const threadId = result.threadId ?? (invocation.kind === "resume" ? invocation.threadId ?? null : null);
+    const entry: UsageEntry = {
+      schema: 1,
+      ended_at: new Date(endedAtMs).toISOString(),
+      duration_ms: Math.max(0, endedAtMs - result.spawnedAtMs),
+      kind: invocation.kind === "resume" ? "follow-up" : "delegation",
+      mode,
+      thread_id: threadId === null ? null : cut(threadId),
+      label,
+      requested: { model: cut(invocation.model ?? "unconfirmed"), effort: cut(invocation.reasoningEffort ?? "unconfirmed"), sandbox: invocation.sandbox },
+      applied: { model: applied(result.applied.model), effort: applied(result.applied.reasoningEffort), sandbox: applied(result.applied.sandbox) },
+      flags,
+      commands: result.commandCount,
+      tokens: usage ? { input: usage.inputTokens, cached: usage.cachedInputTokens, output: usage.outputTokens,
+        reasoning: usage.reasoningOutputTokens, uncached: usage.inputTokens - usage.cachedInputTokens } : null,
+      outcome: usageOutcome(result),
+      sandbox_ceiling: config.maxSandbox,
+      server_version: SERVER_VERSION,
+      cli_version: cliVersion === null ? null : cut(cliVersion),
+    };
+    result.usageWrite = appendUsageEntry(usageDirectory.dir, entry, { fs: options.usageFileSystem });
+  };
 
   /**
    * Records settings and cumulative counters for the next follow-up.
@@ -944,6 +992,10 @@ export function createServer(
     async (args, extra) => {
       try {
         requireValidConfig();
+        if (args.label !== undefined) {
+          const error = validateLabel(args.label);
+          if (error) throw new Error(error);
+        }
         // Before anything that starts a CLI process: preflight, catalog, MCP listing (#28, AC-8).
         const outputSchema =
           args.output_schema === undefined ? undefined : serialiseOutputSchema(args.output_schema);
@@ -954,7 +1006,7 @@ export function createServer(
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
 
-        const { model, effort, notes } = await resolveModelAndEffort(
+        const { model, effort, notes, cliVersion } = await resolveModelAndEffort(
           args.model,
           args.reasoning_effort as ReasoningEffort | undefined,
           `${args.prompt}\n${args.context ?? ""}`,
@@ -1006,18 +1058,26 @@ export function createServer(
 
         const timeoutSeconds = args.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS;
         const threadSettings: ThreadSettings = {
+          label: args.label ?? null,
           model,
           reasoningEffort: effort,
           ...(args.working_dir ? { workingDir: args.working_dir } : {}),
           skipGitRepoCheck: args.skip_git_repo_check ?? false,
         };
 
+        const flags = {
+          use_worktree: args.use_worktree === true,
+          target_files: (args.target_files?.length ?? 0) > 0,
+          acceptance_criteria: (args.acceptance_criteria?.length ?? 0) > 0,
+          output_schema: outputSchema !== undefined,
+        };
         if (args.mode === "background") {
           const controller = new AbortController();
           const jobId = jobs.start({
             model,
             reasoningEffort: effort,
             controller,
+            onSettled: (result, endedAtMs) => recordUsage(result, invocation, "background", args.label ?? null, flags, cliVersion, endedAtMs),
             run: (hooks) =>
               settle(
                 runs.track(
@@ -1078,7 +1138,8 @@ export function createServer(
           threadSettings,
           invocation.useWorktree,
         );
-        return textResult(renderResult(result, notes, config), isFailure(result));
+        recordUsage(result, invocation, "blocking", args.label ?? null, flags, cliVersion);
+        return textResult(renderResult(result, notes, config, await result.usageWrite), isFailure(result));
       } catch (error) {
         return errorResult(error);
       }
@@ -1130,6 +1191,10 @@ export function createServer(
     async (args, extra) => {
       try {
         requireValidConfig();
+        if (args.label !== undefined) {
+          const error = validateLabel(args.label);
+          if (error) throw new Error(error);
+        }
 
         // `codex exec resume` has no --approve-for-me, and this server never
         // applied the flag on resume. Accepting it and running without it told
@@ -1157,6 +1222,7 @@ export function createServer(
         // through the same policy as a new delegation, which also keeps
         // ALLOWED_MODELS and MAX_EFFORT in force.
         const recorded = threads.get(args.thread_id);
+        const label = args.label ?? recorded?.label ?? null;
         let recovered: ThreadSettings | undefined;
         // Only worth a file lookup when something is actually missing: a caller
         // that states its own model and directory needs nothing recovered.
@@ -1221,7 +1287,7 @@ export function createServer(
           }
           throw error;
         }
-        const { model, effort, notes } = resolved;
+        const { model, effort, notes, cliVersion } = resolved;
 
         if (recovered) {
           notes.push(
@@ -1279,13 +1345,20 @@ export function createServer(
           },
         }));
 
-        const result = rememberThread(await settle(handle.result, invocation, inheritance.report, () => extra.signal.aborted), {
+        const settled = await settle(handle.result, invocation, inheritance.report, () => extra.signal.aborted);
+        // A spawned resume can fail before reporting its thread; its requested id still owns the label.
+        if (!settled.notStarted && settled.threadId === null) settled.threadId = args.thread_id;
+        const result = rememberThread(settled, {
+          label,
           model,
           reasoningEffort: effort,
           ...(workingDir ? { workingDir } : {}),
           skipGitRepoCheck,
         });
-        return textResult(renderResult(result, notes, config), isFailure(result));
+        recordUsage(result, invocation, "blocking", label, {
+          use_worktree: false, target_files: false, acceptance_criteria: false, output_schema: outputSchema !== undefined,
+        }, cliVersion);
+        return textResult(renderResult(result, notes, config, await result.usageWrite), isFailure(result));
       } catch (error) {
         return errorResult(error);
       }
@@ -1358,7 +1431,7 @@ export function createServer(
         "files only and runs no Codex process. It never reports quota, credits or remaining allowance.",
       inputSchema: {
         since_hours: z
-          .number()
+          .number({ error: "since_hours must be finite, greater than 0 and at most 8,760." })
           .optional()
           .describe("How far back to look, in hours: greater than 0 and at most 8,760. Defaults to 168 (one week)."),
         group_by: z
@@ -1368,9 +1441,36 @@ export function createServer(
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () => {
+    async ({ since_hours = 168, group_by = "model" }) => {
       try {
-        throw new Error("not implemented");
+        if (!Number.isFinite(since_hours) || since_hours <= 0 || since_hours > 8760) {
+          throw new Error("since_hours must be finite, greater than 0 and at most 8,760.");
+        }
+        if ("error" in usageDirectory) throw new Error(usageDirectory.error);
+        const summary = await summarizeUsage(usageDirectory.dir, {
+          sinceHours: since_hours, groupBy: group_by, now: new Date(), fs: options.usageFileSystem,
+        });
+        const lines: string[] = [];
+        if (!config.usageLog) lines.push("Usage logging is off (CODEX_SUBAGENT_USAGE_LOG); existing files are still summarised.");
+        lines.push("This summary combines every registration writing to these files.");
+        if (summary.filesFound === 0) lines.push("There is nothing to summarise.");
+        lines.push(`${summary.entries} entries in the last ${since_hours} hours; ${summary.skipped} lines skipped.`);
+        if (summary.oldest !== null) lines.push(`Oldest valid entry retained: ${summary.oldest}`);
+        for (const file of summary.unreadable) lines.push(`Could not read ${file}.`);
+        for (const group of summary.groups) {
+          const key = group.key;
+          const heading = "model" in key ? `${key.model} / ${key.effort}`
+            : "label" in key ? (key.label === null ? "label: null" : `label: ${key.label}`)
+            : "outcome" in key ? key.outcome : key.kind;
+          lines.push("", heading, `${group.count} runs; ${group.commands} commands; duration total ${group.totalDurationMs} ms, median ${group.medianDurationMs} ms.`,
+            `Outcomes: ${Object.entries(group.outcomes).map(([name, count]) => `${name} ${count}`).join(", ")}.`,
+            `Tokens known for ${group.knownTokens} runs, unknown for ${group.unknownTokens}.`);
+          if (group.tokens) lines.push(`Token sums: input ${group.tokens.input}, cached ${group.tokens.cached}, uncached ${group.tokens.uncached}, output ${group.tokens.output}, reasoning ${group.tokens.reasoning}.`);
+        }
+        if (summary.groups.some((group) => group.unknownTokens > 0)) {
+          lines.push("Token sums are a lower bound: cancelled, timed-out and failed-turn runs report no tokens although Codex spent them.");
+        }
+        return textResult(lines.join("\n"));
       } catch (error) {
         return errorResult(error);
       }
@@ -1394,7 +1494,7 @@ export function createServer(
         // A cancelled job also has a result, but a partial one; only a job that
         // ran to completion is a success.
         const { state } = jobs.snapshot(job_id);
-        return textResult(renderResult(result, [], config), state !== "completed");
+        return textResult(renderResult(result, [], config, await result.usageWrite), state !== "completed");
       } catch (error) {
         return errorResult(error);
       }
