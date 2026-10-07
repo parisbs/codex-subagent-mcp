@@ -34,3 +34,4 @@ choice changes. There is no exception for facts that became untrue; see
 | [0018](0018-keep-agent-instructions-in-claude-md-alone.md) | Keep agent instructions in CLAUDE.md alone | Accepted |
 | [0019](0019-name-the-successor-in-the-status-line.md) | Name the successor in a superseded record's status line | Accepted |
 | [0020](0020-let-the-session-file-decide-where-a-follow-up-resumes.md) | Let the session file decide where a follow-up resumes | Accepted |
+| [0021](0021-report-the-base-of-a-worktree-run.md) | Report the base of a worktree run | Accepted |
