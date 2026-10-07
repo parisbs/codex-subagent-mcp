@@ -1185,3 +1185,52 @@ test("AC-21 records null tokens for a follow-up whose thread has no total in thi
     assert.deepEqual(h.lines().map((line) => line.tokens), [null, null]);
   });
 });
+
+// Regressions found by reviewing the implementation (#29), added to the oracle with the maintainer's approval.
+
+test("AC-4 AC-5 keeps the tokens a background run reported before a late cancellation", async () => {
+  await withServer(ON, async (h) => {
+    nextRun = { events: [threadStarted("late-cancel-tokens"), ANSWER, usage(10, 4, 2, 1)], exitCode: 0, hold: true };
+    const jobId = jobIdOf(await h.call("codex_delegate", { prompt: "anything", model: "cheap-model", mode: "background" }));
+    const child = await heldChild();
+    close(child);
+    h.jobs.cancel(jobId);
+    await h.settle();
+    const entry = only(h.lines());
+    assert.equal(entry.outcome, "cancelled");
+    assert.deepEqual(entry.tokens, { input: 10, cached: 4, output: 2, reasoning: 1, uncached: 6 });
+  });
+});
+
+test("AC-21 derives a follow-up's tokens when Codex reported usage but no thread, and keeps the next turn exact", async () => {
+  await withServer(ON, async (h) => {
+    nextRun = { events: [threadStarted("no-thread-usage"), ANSWER, usage(1000, 400, 50, 5)], exitCode: 0 };
+    await h.call("codex_delegate", { prompt: "go", model: "cheap-model" });
+    nextRun = { events: [ANSWER, usage(1500, 600, 80, 9)], exitCode: 0 };
+    await h.call("codex_follow_up", { thread_id: "no-thread-usage", prompt: "more" });
+    nextRun = { events: [threadStarted("no-thread-usage"), ANSWER, usage(1800, 700, 90, 10)], exitCode: 0 };
+    await h.call("codex_follow_up", { thread_id: "no-thread-usage", prompt: "more" });
+    await h.settle();
+    const [, second, third] = exactly(3, h.lines());
+    assert.equal(second.thread_id, "no-thread-usage");
+    assert.deepEqual(second.tokens, { input: 500, cached: 200, output: 30, reasoning: 4, uncached: 300 });
+    assert.deepEqual(third.tokens, { input: 300, cached: 100, output: 10, reasoning: 1, uncached: 200 });
+  });
+});
+
+test("AC-21 never charges a follow-up for an earlier spawned turn that reported neither thread nor usage", async () => {
+  await withServer(ON, async (h) => {
+    nextRun = { events: [threadStarted("silent-turn"), ANSWER, usage(1000, 400, 50, 5)], exitCode: 0 };
+    await h.call("codex_delegate", { prompt: "go", model: "cheap-model" });
+    nextRun = { events: [], exitCode: 1 };
+    await h.call("codex_follow_up", { thread_id: "silent-turn", prompt: "more" });
+    // The cumulative total now includes whatever the silent turn spent; it cannot be told apart.
+    nextRun = { events: [threadStarted("silent-turn"), ANSWER, usage(1800, 700, 90, 10)], exitCode: 0 };
+    await h.call("codex_follow_up", { thread_id: "silent-turn", prompt: "more" });
+    await h.settle();
+    const [, silent, next] = exactly(3, h.lines());
+    assert.equal(silent.thread_id, "silent-turn");
+    assert.equal(silent.tokens, null);
+    assert.equal(next.tokens, null);
+  });
+});

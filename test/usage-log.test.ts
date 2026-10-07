@@ -15,6 +15,8 @@ import { test } from "node:test";
 
 import { documentedVariables } from "../scripts/check-registry.ts";
 import { loadConfig } from "../src/config.ts";
+import { JobRegistry } from "../src/jobs.ts";
+import { SHUTDOWN_DEADLINE_MS, createShutdown } from "../src/shutdown.ts";
 import type { AppliedSettings, DelegationResult } from "../src/types.ts";
 import {
   appendUsageEntry,
@@ -753,4 +755,67 @@ test("AC-22 lists CODEX_SUBAGENT_USAGE_LOG in the README's configuration table a
     (npm?.environmentVariables ?? []).some((variable) => variable.name === "CODEX_SUBAGENT_USAGE_LOG"),
     "server.json npm environmentVariables",
   );
+});
+
+// Regressions found by reviewing the implementation (#29), added to the oracle with the maintainer's approval.
+
+test("AC-10 a failure while recording a background job's usage does not change how the job ended", async () => {
+  const registry = new JobRegistry();
+  const jobId = registry.start({
+    model: null,
+    reasoningEffort: null,
+    controller: new AbortController(),
+    run: async () => result(),
+    onSettled: () => {
+      throw new Error("injected failure while recording usage");
+    },
+  });
+  for (let i = 0; i < 50 && registry.snapshot(jobId).state === "running"; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(registry.snapshot(jobId).state, "completed");
+  assert.equal(registry.snapshot(jobId).error, undefined);
+});
+
+test("AC-3 a shutdown writes a usage entry already queued when the budget allows, and never exits past its deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+  const run = (drainMs: number) => {
+    const exits: number[] = [];
+    let drained = false;
+    const shutdown = createShutdown({
+      runs: { stopAll: async () => [] },
+      jobs: { cancelAll: () => {} },
+      close: async () => {},
+      exit: () => exits.push(Date.now()),
+      log: () => {},
+      drain: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            drained = true;
+            resolve();
+          }, drainMs),
+        ),
+    });
+    shutdown(143);
+    return { exits, drained: () => drained };
+  };
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  const quick = run(50);
+  await flush();
+  assert.deepEqual(quick.exits, [], "exited before the queued write finished");
+  t.mock.timers.tick(50);
+  await flush();
+  assert.equal(quick.drained(), true);
+  assert.deepEqual(quick.exits, [50]);
+
+  const slow = run(10_000);
+  await flush();
+  t.mock.timers.tick(SHUTDOWN_DEADLINE_MS);
+  await flush();
+  assert.equal(slow.drained(), false);
+  assert.equal(slow.exits.length, 1);
+  assert.ok(slow.exits[0]! <= 50 + SHUTDOWN_DEADLINE_MS, String(slow.exits[0]));
 });
