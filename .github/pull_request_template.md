@@ -1,6 +1,9 @@
 ## Summary
 
-<!-- What changed and why, in two or three sentences. -->
+<!-- What changed and why, in two or three sentences. Complete the line below with the issue this
+pull request resolves, or delete it when there is none. -->
+
+Closes #
 
 ## Changes
 
