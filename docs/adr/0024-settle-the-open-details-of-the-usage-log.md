@@ -1,6 +1,6 @@
 # 24. Settle the open details of the usage log
 
-Status: Proposed
+Status: Accepted
 
 Supersedes the character rule of point 4 of [ADR 22](0022-keep-an-opt-in-local-usage-log.md), which
 allows any label of 1 to 64 Unicode code points with no character of category Cc. Everything else in
