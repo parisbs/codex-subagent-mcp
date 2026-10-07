@@ -23,6 +23,7 @@ export interface ShutdownDeps {
   runs: Pick<ActiveRuns, "stopAll">;
   jobs: { cancelAll: () => void };
   close: () => Promise<void>;
+  drain?: () => Promise<void>;
   exit: (code: number) => void;
   log: (message: string) => void;
 }
@@ -30,8 +31,9 @@ export interface ShutdownDeps {
 /**
  * Builds the server's shutdown: every Codex process tree gets SIGTERM at once
  * and SIGKILL after `SHUTDOWN_KILL_MS`, and the server exits once they are gone
- * or at `SHUTDOWN_DEADLINE_MS`, whichever comes first. The ordinary five-second
- * cancellation grace does not apply: nobody is left to read the result.
+ * and queued writes finish, or at `SHUTDOWN_DEADLINE_MS`, whichever comes first.
+ * The ordinary five-second cancellation grace does not apply: nobody is left
+ * to read the result.
  *
  * The first call wins. A host sends SIGINT and SIGTERM within 100 ms of each
  * other, and the second must neither restart the sequence nor change the code.
@@ -41,6 +43,7 @@ export function createShutdown(deps: ShutdownDeps): (code: number) => void {
   return (code) => {
     if (started) return;
     started = true;
+    const deadlineAt = Date.now() + SHUTDOWN_DEADLINE_MS;
     // Shortens every run's escalation first, so the abort that marks background
     // jobs cancelled cannot arm the longer default grace.
     const stopped = deps.runs.stopAll({
@@ -59,6 +62,21 @@ export function createShutdown(deps: ShutdownDeps): (code: number) => void {
         }
       })
       .catch(() => {})
+      .then(async () => {
+        const remainingMs = deadlineAt - Date.now();
+        if (!deps.drain || remainingMs <= 0) return;
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          await Promise.race([
+            Promise.resolve().then(() => deps.drain!()),
+            new Promise<void>((resolve) => { timer = setTimeout(resolve, remainingMs); }),
+          ]);
+        } catch {
+          // A failed write cannot prevent shutdown.
+        } finally {
+          clearTimeout(timer);
+        }
+      })
       .finally(() => {
         // Not awaited: closing the transport must not hold the exit past the host's budget.
         void deps.close().catch(() => {});

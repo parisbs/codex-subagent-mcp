@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { SERVER_NAME, SERVER_VERSION, createServer } from "./server.js";
 import { createShutdown, installShutdownTriggers } from "./shutdown.js";
+import { whenUsageIdle } from "./usage.js";
 
 async function main(): Promise<void> {
   const { server, jobs, runs } = createServer();
@@ -12,6 +13,7 @@ async function main(): Promise<void> {
   const shutdown = createShutdown({
     runs,
     jobs,
+    drain: whenUsageIdle,
     close: () => server.close(),
     exit: (code) => process.exit(code),
     log: (message) => console.error(message),

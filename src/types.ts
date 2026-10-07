@@ -122,6 +122,10 @@ export interface AppliedSettings {
 export type StructuredResult = { ok: true; json: string } | { ok: false; error: string };
 
 export interface DelegationResult {
+  /** Present only once Node reported the delegation process pid. */
+  spawnedAtMs?: number;
+  /** The best-effort log write, awaited before rendering the result. */
+  usageWrite?: Promise<import("./usage.js").UsageWriteResult>;
   /** What the run was allowed to inherit from the user's Codex setup (ADR 16); null when unknown. */
   inherited: InheritanceReport | null;
   /** Why the CLI never ran: it could not be started, or the run was cancelled first. */

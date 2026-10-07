@@ -19,6 +19,13 @@
       },
       "environmentVariables": [
         {
+          "name": "CODEX_SUBAGENT_USAGE_LOG",
+          "description": "Opt-in local usage log: on or off (default off). Records counts and settings, never prompts, code or paths; labels are caller text.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
           "name": "CODEX_SUBAGENT_DEFAULT_MODEL",
           "description": "Model used when a call names none; without it the server asks which model to use.",
           "isRequired": false,

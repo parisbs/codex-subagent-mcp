@@ -46,6 +46,8 @@ export interface StartJobInput {
   controller: AbortController;
   /** Resolves when the delegation finishes; rejects when it could not run. */
   run: (job: JobHooks) => Promise<DelegationResult>;
+  /** Called once after cancellation precedence and the final time are settled. */
+  onSettled?: (result: DelegationResult, finishedAtMs: number) => void;
 }
 
 export interface JobHooks {
@@ -134,14 +136,23 @@ export class JobRegistry {
         const failure = describeFailure(job.result);
         job.state = aborted ? "cancelled" : failure ? "failed" : "completed";
         if (job.state === "failed") job.error = failure;
+        job.finishedAtMs = Date.now();
+        try {
+          input.onSettled?.(job.result, job.finishedAtMs);
+        } catch (error) {
+          // Recording usage must not change the settled outcome.
+          job.result.usageWrite = Promise.resolve({
+            written: false,
+            error: error instanceof Error ? error.message : String(error),
+            pruneError: null,
+          });
+        }
       })
       .catch((error: unknown) => {
         // The runner rejects outright when cancellation arrives before it
         // spawns anything. That is still a cancellation, not a failure.
         job.state = job.controller.signal.aborted ? "cancelled" : "failed";
         job.error = error instanceof Error ? error.message : String(error);
-      })
-      .finally(() => {
         job.finishedAtMs = Date.now();
       });
 

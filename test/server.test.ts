@@ -170,6 +170,9 @@ async function withServer<T>(
     "CODEX_SUBAGENT_DEFAULT_EFFORT",
     "CODEX_SUBAGENT_DEFAULT_SANDBOX",
     "CODEX_SUBAGENT_MAX_SANDBOX",
+    // An ambient usage-log setting must neither write to the developer's state directory nor
+    // refuse these tests (#29).
+    "CODEX_SUBAGENT_USAGE_LOG",
     "CODEX_BIN",
     // The applied settings are read from Codex's session files, so a test must
     // never fall through to the developer's real ones.

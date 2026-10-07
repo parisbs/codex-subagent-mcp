@@ -1,6 +1,6 @@
 # Tool reference
 
-Complete reference for the eight tools this server exposes. The [README](../README.md) covers what
+Complete reference for the nine tools this server exposes. The [README](../README.md) covers what
 to use them for; this covers every parameter.
 
 Codex cannot see the orchestrator's conversation. Everything a delegation needs has to arrive in
@@ -33,6 +33,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. This server is always off, whatever the value. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
 | `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. A plugin list that cannot be checked turns every plugin off. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
+| `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | Opt-in local usage log, default `off`. Empty or whitespace means off; other values refuse delegations until restart with a valid value. |
 
 Two rules govern all of this, and are explained in
 [ADR 12](adr/0012-mechanism-not-policy.md) and
@@ -189,6 +190,10 @@ remembered for that thread. If the thread was started elsewhere, the server rest
 previous total was reported, this-turn usage is explicitly `unknown`; the cumulative total is never
 presented as though it belonged to the latest call. Input also shows cached and uncached counts,
 where uncached input is total input minus cached input.
+
+A spawned follow-up updates the baseline using its requested thread id if Codex reports no thread
+id, without presenting that id as reported by Codex. A turn with no complete counters clears the
+baseline, so the next follow-up cannot be charged for tokens from that earlier turn.
 
 These counters are measured facts about the completed run, not estimates of cost, credits, money or
 a share of any usage window. They are descriptive only: the server never acts on them, and they are
@@ -377,3 +382,36 @@ result.
 
 Jobs live only in the server process: restarting Claude Code loses them. See the
 [roadmap](ROADMAP.md).
+
+## `codex_usage`
+
+Reads the local usage log without running any CLI process, including when logging is off.
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `since_hours` | number | `168` | Finite window in hours, greater than 0 and at most 8,760. Future entries are included. |
+| `group_by` | string | `model` | `model` groups applied model and effort together; alternatives are `label`, `outcome`, and `kind`. Unconfirmed settings and null labels have their own groups. |
+
+Each group reports runs, outcomes, commands, total and median duration, and token sums with counts
+of runs whose tokens are known or unknown. With any unknown tokens, the sums are a lower bound:
+Codex can spend tokens on cancelled, timed-out or failed turns without reporting them. A group with
+no known tokens shows no sums. The summary reports skipped damaged lines, unreadable files and the
+oldest valid retained entry, even outside the window. It combines every registration writing to the
+same files. None of these figures represents subscription quota, credits or remaining allowance.
+
+Complete token counters are retained even if the run later ends as cancelled, timed out or failed.
+All four counters must be non-negative integers; otherwise tokens are unknown. Shutdown waits for
+queued writes only within its existing 300 ms deadline, so pending entries may be lost then.
+
+### Labels on delegations and follow-ups
+
+Both `codex_delegate` and `codex_follow_up` accept optional string `label`, even when logging is off.
+It is 1 to 64 Unicode code points, well-formed (no unpaired surrogates), with no category Cc control
+characters or Bidi_Control characters. Other text, including U+200D, is accepted. Labels are stored
+and shown verbatim, without trimming or normalising, and never sent to Codex. The caller chooses
+what they mean; the server does not classify tasks.
+
+A follow-up without a label inherits its thread's latest label in this server's memory. A spawned
+follow-up with a label replaces it for later calls, even if the run fails. Calls refused before
+spawning do not change it. Restarting or evicting the thread loses the label; recovering settings
+from a Codex session file does not recover labels.

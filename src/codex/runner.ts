@@ -175,7 +175,6 @@ export function runCodex(options: RunOptions): RunHandle {
     schemaFile?.remove();
     throw error;
   }
-  const startedAt = Date.now();
   const workingDir = invocation.workingDir ?? process.cwd();
 
   // Windows `spawn` does not apply PATHEXT, so resolve the executable rather
@@ -207,6 +206,7 @@ export function runCodex(options: RunOptions): RunHandle {
     };
   }
 
+  const startedAt = Date.now();
   const parser = new JsonLinesParser();
   const agentMessages: string[] = [];
   const commands: ExecutedCommand[] = [];
@@ -325,7 +325,7 @@ export function runCodex(options: RunOptions): RunHandle {
           }
         }
         if (event.type === "turn.completed") {
-          usage = parseUsage(event) ?? usage;
+          usage = parseUsage(event);
         }
         const streamError = toStreamError(event);
         if (streamError) addError(streamError);
@@ -531,6 +531,7 @@ export function runCodex(options: RunOptions): RunHandle {
         // turn only when its thread registry supplies the preceding total.
         turnUsage: invocation.kind === "exec" ? usage : null,
         threadUsage: usage,
+        spawnedAtMs: child.pid === undefined ? undefined : startedAt,
         durationMs: Date.now() - startedAt,
         exitCode: code,
         timedOut,

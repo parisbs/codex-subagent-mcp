@@ -87,11 +87,13 @@ export function parseUsage(event: CodexEvent): TokenUsage | null {
   if (!isCodexEvent(event)) return null;
   const usage = event.usage;
   if (!usage) return null;
+  if (![usage.input_tokens, usage.cached_input_tokens, usage.output_tokens, usage.reasoning_output_tokens]
+    .every((count) => typeof count === "number" && Number.isInteger(count) && count >= 0)) return null;
   return {
-    inputTokens: usage.input_tokens ?? 0,
-    cachedInputTokens: usage.cached_input_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
-    reasoningOutputTokens: usage.reasoning_output_tokens ?? 0,
+    inputTokens: usage.input_tokens!,
+    cachedInputTokens: usage.cached_input_tokens!,
+    outputTokens: usage.output_tokens!,
+    reasoningOutputTokens: usage.reasoning_output_tokens!,
   };
 }
 

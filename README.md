@@ -229,6 +229,7 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | `none` | MCP servers from Codex's config a delegation keeps; this server is always off. |
 | `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | `none` | Installed Codex plugins a delegation keeps, with the MCP servers they provide. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | `off` | Whether a delegation keeps Codex's apps (connectors to external services). |
+| `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | `off` | Append local usage counts for spawned delegations; read them with `codex_usage`. No prompts, code or paths are logged. Labels are caller text. |
 | `CODEX_BIN` | Executable path | `codex` on `PATH` | Override CLI resolution; see [Installation](docs/INSTALL.md). |
 
 A model supports a subset of efforts; an unsupported effort is adjusted to the closest supported one
