@@ -1,6 +1,6 @@
 # 20. Let the session file decide where a follow-up resumes
 
-Status: Proposed
+Status: Accepted
 
 Supersedes the part of [ADR 13](0013-confirm-applied-settings.md) that makes the read of Codex's
 session file a report and never a decision, for the directory a follow-up resumes in. What ADR 13
