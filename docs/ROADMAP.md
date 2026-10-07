@@ -327,10 +327,23 @@ start, a summary of `codex doctor --json`, and skipping a plugin listing that ha
 the default configuration. No breaking change is planned here
 ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 
+It also lets each registration describe itself. A user who registers the server twice with different
+ceilings, one read-only for reviews and one that can write, today gets two identical sets of tools:
+the descriptions are fixed strings, so a read-only registration still invites a writing sandbox, and
+the server sends no instructions when a client connects. The descriptions and the instructions will
+state what the configuration already says — the sandbox ceiling and default, the effort ceiling,
+whether a default model makes `codex_recommend` unnecessary — plus, optionally, a purpose the user
+writes in their own words and the server passes on without interpreting. That is reporting the
+user's policy, not making one ([ADR 12](adr/0012-mechanism-not-policy.md)). Task intents
+([#136](https://github.com/parisbs/codex-subagent-mcp/issues/136)) would change what the orchestrator
+is told per call; this is about what each instance says about itself, and it does not wait for that
+decision.
+
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
 [#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
 [#69](https://github.com/parisbs/codex-subagent-mcp/issues/69),
-[#135](https://github.com/parisbs/codex-subagent-mcp/issues/135)
+[#135](https://github.com/parisbs/codex-subagent-mcp/issues/135),
+[#143](https://github.com/parisbs/codex-subagent-mcp/issues/143)
 
 ## 0.7.0 — Closing the interface
 
