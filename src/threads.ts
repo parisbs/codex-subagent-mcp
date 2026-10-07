@@ -1,10 +1,12 @@
 import type { ReasoningEffort, TokenUsage } from "./types.js";
 
-/** What a thread last ran with, as this server passed it to Codex. */
+/** What to restate on a follow-up, including a confirmed worktree directory (ADR 20). */
 export interface ThreadSettings {
   model: string;
   reasoningEffort: ReasoningEffort;
   workingDir?: string;
+  /** The worktree directory was unconfirmed; workingDir is only the requested directory. */
+  worktreeDirUnconfirmed?: boolean;
   skipGitRepoCheck: boolean;
 }
 

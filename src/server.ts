@@ -615,8 +615,23 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
    * internal rollout format; if this process lacks that baseline, the report
    * says the turn is unknown instead of presenting the cumulative value as it.
    */
-  const rememberThread = (result: DelegationResult, settings: ThreadSettings): DelegationResult => {
+  const rememberThread = (
+    result: DelegationResult,
+    settings: ThreadSettings,
+    useWorktree = false,
+  ): DelegationResult => {
     if (!result.threadId) return result;
+    if (useWorktree) {
+      const directory = result.applied.workingDir;
+      settings = {
+        ...settings,
+        workingDir:
+          directory.state === "differs" && directory.applied !== null
+            ? directory.applied
+            : result.workingDir,
+        worktreeDirUnconfirmed: directory.state === "unconfirmed" || directory.applied === null,
+      };
+    }
     const previousTotal = threads.getTotalUsage(result.threadId);
     const withTurnUsage =
       result.turnUsage === null && result.threadUsage && previousTotal
@@ -1005,7 +1020,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
                 invocation,
                 inheritance.report,
                 () => controller.signal.aborted,
-              ).then((result) => rememberThread(result, threadSettings)),
+              ).then((result) => rememberThread(result, threadSettings, invocation.useWorktree)),
           });
 
           return textResult(
@@ -1048,6 +1063,7 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
         const result = rememberThread(
           await settle(handle.result, invocation, inheritance.report, () => extra.signal.aborted),
           threadSettings,
+          invocation.useWorktree,
         );
         return textResult(renderResult(result, notes, config), isFailure(result));
       } catch (error) {
@@ -1152,6 +1168,16 @@ export function createServer(): { server: McpServer; jobs: JobRegistry; runs: Ac
           (args.reasoning_effort as ReasoningEffort | undefined) ??
           (keepsModel ? previous.reasoningEffort : undefined);
 
+        // A worktree run whose directory Codex's session file did not confirm has
+        // no known place to resume: the requested directory is the working tree
+        // the caller wanted kept out of it (ADR 20). Before any CLI process.
+        if (args.working_dir === undefined && previous?.worktreeDirUnconfirmed) {
+          throw new Error(
+            `The worktree directory for thread "${args.thread_id}" is unconfirmed. ` +
+              `The delegation requested ${previous.workingDir}. Pass working_dir explicitly ` +
+              "to choose where to resume; nothing was run.",
+          );
+        }
         // The directory is settled before the catalog is read, not after: the
         // thread resumes there, and that is the configuration Codex will apply.
         const workingDir = args.working_dir ?? previous?.workingDir;
