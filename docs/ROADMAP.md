@@ -339,11 +339,24 @@ user's policy, not making one ([ADR 12](adr/0012-mechanism-not-policy.md)). Task
 is told per call; this is about what each instance says about itself, and it does not wait for that
 decision.
 
+Worktree runs become something a caller can integrate without parsing a mismatch report. A follow-up
+already resumes in the worktree Codex applied
+([ADR 20](adr/0020-let-the-session-file-decide-where-a-follow-up-resumes.md)). What is still missing
+is the worktree's path and base commit as a line of their own, and any word about what the worktree
+left out: it is made from the last commit, so uncommitted changes, untracked files and ignored files
+such as installed dependencies are not in it, and a probe saw Codex rewrite production code around a
+missing dependency. The server reads the caller's tree with git before the run, tells Codex in the
+prompt what its worktree lacks, takes the base commit from the session file rather than from the
+request, and reports what differs ([ADR 21](adr/0021-report-the-base-of-a-worktree-run.md)). It
+refuses nothing: denying a run from a dirty tree is a client-side hook's job.
+
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
 [#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
 [#69](https://github.com/parisbs/codex-subagent-mcp/issues/69),
 [#135](https://github.com/parisbs/codex-subagent-mcp/issues/135),
-[#143](https://github.com/parisbs/codex-subagent-mcp/issues/143)
+[#143](https://github.com/parisbs/codex-subagent-mcp/issues/143),
+[#149](https://github.com/parisbs/codex-subagent-mcp/issues/149),
+[#150](https://github.com/parisbs/codex-subagent-mcp/issues/150)
 
 ## 0.7.0 — Closing the interface
 
