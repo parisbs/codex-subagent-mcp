@@ -1245,7 +1245,7 @@ test("names the configured ceiling when the user did set one", async () => {
     })) as ToolResult;
 
     assert.equal(result.isError, true);
-    assert.match(result.content[0]?.text ?? "", /configured with CODEX_SUBAGENT_MAX_SANDBOX="read-only"/);
+    assert.match(result.content[0]?.text ?? "", /runs with a ceiling configured with CODEX_SUBAGENT_MAX_SANDBOX="read-only"/);
   });
 });
 

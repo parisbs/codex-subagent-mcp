@@ -219,7 +219,7 @@ export function checkSandbox(
   // built-in one: a user told they set something they never set goes looking
   // for it in the wrong place.
   const source = config.maxSandboxConfigured
-    ? `configured with ${ENV_PREFIX}MAX_SANDBOX="${config.maxSandbox}"`
+    ? `ceiling configured with ${ENV_PREFIX}MAX_SANDBOX="${config.maxSandbox}"`
     : `built-in ceiling of "${config.maxSandbox}", which is what applies when ${ENV_PREFIX}MAX_SANDBOX is unset`;
   return {
     ok: false,
