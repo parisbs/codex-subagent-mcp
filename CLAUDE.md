@@ -60,8 +60,10 @@ subcommands and between versions. Two traps already found the hard way, both cov
   `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
   turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and
   undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins real 0.154.0, 0.159.2 and 0.160.0 lines), and
-  keep every failure path reporting "unconfirmed" rather than guessing. Never let a read of it change
-  anything but the report.
+  keep every failure path reporting "unconfirmed" rather than guessing. A read of it changes nothing
+  but the report, except the directory a follow-up resumes in: on a registry miss (recovery) and
+  after a `use_worktree` run, where the worktree path exists nowhere else. An unconfirmed read there
+  degrades to the old behaviour or to a refusal, never to a guessed directory (ADR 20).
 - Codex starts its MCP servers with almost no environment (`HOME`, `LOGNAME`, `PATH`, `SHELL`,
   `TMPDIR`, `USER`) unless an entry lists `env_vars`, so an environment marker cannot tell this
   server it is running inside a delegation. The recursion guard instead finds this server in
