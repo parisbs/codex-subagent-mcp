@@ -11,7 +11,7 @@ becomes a callable subagent whose model and reasoning depth are chosen per task.
 - `npm run dev` watches `src/index.ts`; `npm run clean` removes the build output through Node, not
   `rm`.
 
-## Hard rules
+## Invariants
 
 **Never hardcode the model list.** The catalog is read at runtime from `codex debug models`
 (`src/codex/catalog.ts`). OpenAI ships new Codex models regularly; a hardcoded list goes stale and
@@ -122,9 +122,8 @@ diagnosis. `scripts/check-startup.mjs` asserts this in CI.
 
 ## Architecture
 
-`src/server.ts` registers the eight tools and owns all user-facing formatting; `src/codex/` holds
-everything that talks to the CLI, and `src/codex/rollout.ts` is the only place that touches an
-internal Codex format (ADR 13).
+`src/server.ts` owns all user-facing formatting; `src/codex/` holds everything that talks to the
+CLI, and `src/codex/rollout.ts` is the only place that touches an internal Codex format (ADR 13).
 
 Two independent axes govern a delegation: the **model** (`-m`) sets raw capability, the **reasoning
 effort** (`-c model_reasoning_effort=...`) sets how long it deliberates. Conflating them was the
@@ -200,7 +199,8 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
   short prose description.
 - Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is immutable once
   merged to `main`, with no exception: a changed decision or a fact that became untrue goes in a
-  later record that supersedes it and links back (ADR 15).
+  later record that supersedes it and links back (ADR 15). The superseded record changes in its
+  status line only, naming its successor, and its index row says the same (ADR 19).
 - Instructions live in this `CLAUDE.md` alone; there is no `AGENTS.md`, so a delegated run loads no
   repository instructions of its own (ADR 18).
 - `CHANGELOG.md` changes only when a release is prepared. A pull request describes any user-visible
@@ -225,8 +225,9 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
   criterion carry its identifier in their name.
 - Review: none
 - Ask for a Codex review when a change touches argv construction, the event parser or the catalog.
+  Those files are on the `Human merge:` line, so the human sees whether the review ran.
 - Implement: claude
-- Human merge: package-lock.json, .npmrc, server.json
+- Human merge: package-lock.json, .npmrc, server.json, .mcp.json, scripts/, src/codex/args.ts, src/codex/events.ts, src/codex/catalog.ts
 
 ## Claude Code
 
