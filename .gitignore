@@ -4,3 +4,6 @@ dist/
 .env
 .DS_Store
 *.tsbuildinfo
+
+# Claude Code worktrees; the rest of .claude/ is versioned.
+.claude/worktrees/
