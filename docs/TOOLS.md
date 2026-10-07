@@ -191,6 +191,10 @@ previous total was reported, this-turn usage is explicitly `unknown`; the cumula
 presented as though it belonged to the latest call. Input also shows cached and uncached counts,
 where uncached input is total input minus cached input.
 
+A spawned follow-up updates the baseline using its requested thread id if Codex reports no thread
+id, without presenting that id as reported by Codex. A turn with no complete counters clears the
+baseline, so the next follow-up cannot be charged for tokens from that earlier turn.
+
 These counters are measured facts about the completed run, not estimates of cost, credits, money or
 a share of any usage window. They are descriptive only: the server never acts on them, and they are
 not a target to optimise. In particular, minimising command count can reduce correctness because a
@@ -394,6 +398,10 @@ Codex can spend tokens on cancelled, timed-out or failed turns without reporting
 no known tokens shows no sums. The summary reports skipped damaged lines, unreadable files and the
 oldest valid retained entry, even outside the window. It combines every registration writing to the
 same files. None of these figures represents subscription quota, credits or remaining allowance.
+
+Complete token counters are retained even if the run later ends as cancelled, timed out or failed.
+All four counters must be non-negative integers; otherwise tokens are unknown. Shutdown waits for
+queued writes only within its existing 300 ms deadline, so pending entries may be lost then.
 
 ### Labels on delegations and follow-ups
 

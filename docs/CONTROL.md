@@ -168,9 +168,10 @@ background jobs. Probes and calls refused before spawning add nothing. Entries c
 duration from spawn, kind and mode, thread id, requested and applied model, effort and sandbox,
 boolean feature flags, command count, outcome, sandbox ceiling, server and CLI versions, and the
 CLI's tokens for this turn (input, cached, output, reasoning and derived uncached input). Missing
-or invalid counters, cancellation and timeout mean unknown tokens, never estimated zeros. Resumed
-threads need an in-memory cumulative baseline to derive turn tokens. Unconfirmed settings stay
-unconfirmed.
+or invalid counters mean unknown tokens, never estimated zeros. Complete counters are kept even
+when the outcome is cancellation, timeout or failure. Resumed threads need an in-memory cumulative
+baseline to derive turn tokens; a spawned turn with no counters clears that baseline. Unconfirmed
+settings stay unconfirmed.
 
 The log never holds prompts, context, system instructions, acceptance criteria, schemas, file names,
 working directories or other paths, command text or output, Codex messages, errors or stderr.
@@ -188,6 +189,8 @@ oldest archives are pruned to 50 MiB. Caps are approximate with concurrent write
 effort and never retried; concurrent Windows appends have no guarantee against interleaving. A
 failed write or rotation is reported in the blocking result or `codex_job_result` without changing
 the delegation's success or failure. Failed pruning still permits the entry and is reported too.
+Shutdown drains queued writes after stopping runs, within the same 300 ms shutdown deadline;
+writes still pending at that deadline may be lost.
 `codex_usage` reads surviving current and archived entries and skips damaged lines. It never
 estimates subscription quota, usage-window share, credits or remaining allowance.
 

@@ -644,7 +644,7 @@ export function createServer(
     const cut = (text: string): string => [...text].slice(0, 128).join("");
     const applied = (setting: AppliedSetting): string =>
       setting.state === "unconfirmed" || setting.applied === null ? "unconfirmed" : cut(setting.applied);
-    const usage = result.cancelled || result.timedOut || result.turnFailure ? null : result.turnUsage;
+    const usage = result.turnUsage;
     const threadId = result.threadId ?? (invocation.kind === "resume" ? invocation.threadId ?? null : null);
     const entry: UsageEntry = {
       schema: 1,
@@ -680,8 +680,10 @@ export function createServer(
     result: DelegationResult,
     settings: ThreadSettings,
     useWorktree = false,
+    resumedThreadId?: string,
   ): DelegationResult => {
-    if (!result.threadId) return result;
+    const threadId = result.threadId ?? (result.notStarted ? null : resumedThreadId);
+    if (!threadId) return result;
     if (useWorktree) {
       const directory = result.applied.workingDir;
       settings = {
@@ -693,12 +695,12 @@ export function createServer(
         worktreeDirUnconfirmed: directory.state === "unconfirmed" || directory.applied === null,
       };
     }
-    const previousTotal = threads.getTotalUsage(result.threadId);
+    const previousTotal = threads.getTotalUsage(threadId);
     const withTurnUsage =
       result.turnUsage === null && result.threadUsage && previousTotal
         ? { ...result, turnUsage: subtractUsage(result.threadUsage, previousTotal) }
         : result;
-    threads.record(result.threadId, settings, result.threadUsage);
+    threads.record(threadId, settings, result.threadUsage);
     return withTurnUsage;
   };
 
@@ -1346,15 +1348,14 @@ export function createServer(
         }));
 
         const settled = await settle(handle.result, invocation, inheritance.report, () => extra.signal.aborted);
-        // A spawned resume can fail before reporting its thread; its requested id still owns the label.
-        if (!settled.notStarted && settled.threadId === null) settled.threadId = args.thread_id;
+        // The requested id owns the baseline and label even when Codex reports no thread.
         const result = rememberThread(settled, {
           label,
           model,
           reasoningEffort: effort,
           ...(workingDir ? { workingDir } : {}),
           skipGitRepoCheck,
-        });
+        }, false, args.thread_id);
         recordUsage(result, invocation, "blocking", label, {
           use_worktree: false, target_files: false, acceptance_criteria: false, output_schema: outputSchema !== undefined,
         }, cliVersion);

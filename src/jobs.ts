@@ -137,7 +137,16 @@ export class JobRegistry {
         job.state = aborted ? "cancelled" : failure ? "failed" : "completed";
         if (job.state === "failed") job.error = failure;
         job.finishedAtMs = Date.now();
-        input.onSettled?.(job.result, job.finishedAtMs);
+        try {
+          input.onSettled?.(job.result, job.finishedAtMs);
+        } catch (error) {
+          // Recording usage must not change the settled outcome.
+          job.result.usageWrite = Promise.resolve({
+            written: false,
+            error: error instanceof Error ? error.message : String(error),
+            pruneError: null,
+          });
+        }
       })
       .catch((error: unknown) => {
         // The runner rejects outright when cancellation arrives before it
