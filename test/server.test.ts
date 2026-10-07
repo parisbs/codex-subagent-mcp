@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import cp from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
@@ -1917,4 +1918,222 @@ test("AC-2 (#135) with plugins all or a list every delegation tool still lists p
       assert.equal(pluginListCwds.length, 3, plugins);
     });
   }
+});
+
+// #149: a follow-up of a use_worktree run resumes where Codex applied it (ADR 20).
+
+const WORKTREE_THREAD = "worktree-thread";
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A directory standing in for the managed worktree Codex chose; removed after the body. */
+async function withWorktree<T>(body: (worktree: string) => Promise<T>): Promise<T> {
+  const worktree = mkdtempSync(join(tmpdir(), "codex-worktree-"));
+  try {
+    return await body(worktree);
+  } finally {
+    rmSync(worktree, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The session file of a worktree run. Model, effort and sandbox match the request, so the working
+ * directory is the only field Codex is recorded as having applied differently.
+ */
+function writeWorktreeSession(codexHome: ReturnType<typeof createCodexHome>, cwd: string | undefined): void {
+  codexHome.write({
+    threadId: WORKTREE_THREAD,
+    day: "2026-10-06",
+    lines: [
+      SESSION_META_LINE,
+      turnContextLine({ cwd, model: "cheap-model", effort: "low", sandbox_policy: { type: "workspace-write" } }),
+    ],
+  });
+}
+
+const worktreeDelegation = (extra: Record<string, unknown> = {}) => ({
+  prompt: "anything",
+  model: "cheap-model",
+  reasoning_effort: "low",
+  sandbox: "workspace-write",
+  use_worktree: true,
+  ...extra,
+});
+
+/** Waits until a background delegation leaves the running state and returns its result. */
+async function backgroundResult(
+  call: (name: string, args: unknown) => Promise<unknown>,
+  started: unknown,
+): Promise<string> {
+  const jobId = /[0-9a-f-]{36}/.exec(textOf(started))?.[0];
+  assert.ok(jobId, `no job id in ${textOf(started)}`);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const status = await call("codex_job_status", { job_id: jobId });
+    if (!/state: running/.test(textOf(status))) return textOf(await call("codex_job_result", { job_id: jobId }));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`job ${jobId} never finished`);
+}
+
+test("AC-1 (#149) resumes a follow-up of a worktree run in the worktree Codex applied", async () => {
+  await withWorktree(async (worktree) => {
+    await withServer({}, async (call, codexHome) => {
+      writeWorktreeSession(codexHome, worktree);
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      const delegated = textOf(await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir() })));
+      // Precondition: the run confirmed a worktree that differs from the request, and nothing else.
+      assert.ok(delegated.includes(`working directory: requested ${tmpdir()}, applied ${worktree}`), delegated);
+      assert.doesNotMatch(delegated, /- (model|effort|sandbox): requested/);
+
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+      });
+
+      assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+      assert.equal(spawnedCwds[1], worktree);
+      assert.match(textOf(followed), new RegExp(`Resuming in [^\\n]*${escapeRegExp(worktree)}`));
+    });
+  });
+});
+
+test("AC-1 (#149) records the applied worktree of a background delegation", async () => {
+  await withWorktree(async (worktree) => {
+    await withServer({}, async (call, codexHome) => {
+      writeWorktreeSession(codexHome, worktree);
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      const started = await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir(), mode: "background" }));
+      const delegated = await backgroundResult(call, started);
+      assert.ok(delegated.includes(`working directory: requested ${tmpdir()}, applied ${worktree}`), delegated);
+
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+      });
+
+      assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+      assert.equal(spawnedCwds[1], worktree);
+      assert.match(textOf(followed), new RegExp(`Resuming in [^\\n]*${escapeRegExp(worktree)}`));
+    });
+  });
+});
+
+test("AC-1 (#149) resumes in the applied worktree when the delegation named no working_dir", async () => {
+  await withWorktree(async (worktree) => {
+    await withServer({}, async (call, codexHome) => {
+      writeWorktreeSession(codexHome, worktree);
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      const delegated = textOf(await call("codex_delegate", worktreeDelegation()));
+      assert.ok(delegated.includes(`working directory: requested ${process.cwd()}, applied ${worktree}`), delegated);
+
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+      });
+
+      assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+      assert.equal(spawnedCwds[1], worktree);
+      assert.match(textOf(followed), new RegExp(`Resuming in [^\\n]*${escapeRegExp(worktree)}`));
+    });
+  });
+});
+
+test("AC-1 (#149) keeps the requested directory when the run did not use a worktree", async () => {
+  // ADR 20 lets the session file decide the directory only after a use_worktree run (and on
+  // recovery); any other confirmed difference stays a report.
+  await withWorktree(async (elsewhere) => {
+    await withServer({}, async (call, codexHome) => {
+      writeWorktreeSession(codexHome, elsewhere);
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      const delegated = textOf(
+        await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir(), use_worktree: false })),
+      );
+      assert.ok(delegated.includes(`working directory: requested ${tmpdir()}, applied ${elsewhere}`), delegated);
+
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+      });
+
+      assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+      assert.equal(spawnedCwds[1], tmpdir());
+    });
+  });
+});
+
+for (const [label, session, requested] of [
+  ["no session file was written", "none", "working_dir"],
+  ["the turn context carries no cwd", "no-cwd", "working_dir"],
+  ["the delegation named no working_dir", "none", "process"],
+] as const) {
+  test(`AC-2 (#149) refuses a follow-up of an unconfirmed worktree run without working_dir when ${label}`, async () => {
+    await withServer({}, async (call, codexHome) => {
+      if (session === "no-cwd") writeWorktreeSession(codexHome, undefined);
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      const requestedDir = requested === "working_dir" ? tmpdir() : process.cwd();
+      const delegated = textOf(
+        await call("codex_delegate", worktreeDelegation(requested === "working_dir" ? { working_dir: requestedDir } : {})),
+      );
+      assert.match(delegated, /applied=unconfirmed/, "precondition: the applied directory is unconfirmed");
+
+      const spawnsBefore = spawnedArgs.length;
+      const probesBefore = probedCwds.length;
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+      });
+      const text = textOf(followed);
+
+      assert.equal((followed as ToolResult).isError, true, text);
+      assert.match(text, /working_dir/);
+      assert.ok(text.includes(requestedDir), text);
+      assert.equal(spawnedArgs.length, spawnsBefore, "no Codex process may start");
+      assert.equal(probedCwds.length, probesBefore, "no CLI probe may run either");
+    });
+  });
+}
+
+test("AC-3 (#149) a follow-up's working_dir wins over a thread's applied worktree", async () => {
+  await withWorktree(async (worktree) => {
+    await withWorktree(async (chosen) => {
+      await withServer({}, async (call, codexHome) => {
+        writeWorktreeSession(codexHome, worktree);
+        nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+        await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir() }));
+
+        const followed = await call("codex_follow_up", {
+          thread_id: WORKTREE_THREAD,
+          prompt: "continue",
+          sandbox: "workspace-write",
+          working_dir: chosen,
+        });
+
+        assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+        assert.equal(spawnedCwds[1], chosen);
+      });
+    });
+  });
+});
+
+test("AC-3 (#149) a follow-up with working_dir runs after an unconfirmed worktree run", async () => {
+  await withWorktree(async (chosen) => {
+    await withServer({}, async (call) => {
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir() }));
+
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+        working_dir: chosen,
+      });
+
+      assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+      assert.equal(spawnedCwds[1], chosen);
+    });
+  });
 });
