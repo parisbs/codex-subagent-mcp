@@ -1,6 +1,6 @@
 # 15. Keep agent instructions in AGENTS.md and records immutable
 
-Status: Accepted
+Status: Accepted; the instructions in `AGENTS.md` superseded by [ADR 18](0018-keep-agent-instructions-in-claude-md-alone.md), and the status kept in the index alone by [ADR 19](0019-name-the-successor-in-the-status-line.md)
 
 Supersedes the exception in the contributing guide that allowed an accepted record to be edited to
 correct a statement of fact that had become untrue.

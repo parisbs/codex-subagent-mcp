@@ -1,6 +1,6 @@
 # 3. Read the model catalog from the CLI at runtime
 
-Status: Accepted
+Status: Accepted; the startup probe and the fallback superseded by [ADR 9](0009-preflight-the-codex-cli.md), and the recommendation matrix as the default path by [ADR 12](0012-mechanism-not-policy.md)
 
 ## Context
 
