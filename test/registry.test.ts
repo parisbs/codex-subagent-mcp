@@ -258,3 +258,14 @@ test("AC-8 the committed server.json lists every documented variable, none requi
     assert.notEqual(variable.isSecret, true, `${String(variable.name)} is marked secret`);
   }
 });
+
+for (const name of ["CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR", "CODEX_SUBAGENT_MAX_BACKGROUND_JOBS"]) {
+  test(`AC-15 (#62) ${name} is in the README's configuration table, in server.json and in docs/CONTROL.md`, () => {
+    const { serverJson, readme } = committed();
+    assert.ok(documentedVariables(readme).includes(name), `the README's configuration table does not list ${name}`);
+    const packages = (serverJson.packages ?? []) as { environmentVariables?: Record<string, unknown>[] }[];
+    const listed = (packages[0]?.environmentVariables ?? []).map((variable) => variable.name);
+    assert.ok(listed.includes(name), `server.json does not list ${name}`);
+    assert.ok(readFileSync(repoFile("docs/CONTROL.md"), "utf8").includes(name), `docs/CONTROL.md does not name ${name}`);
+  });
+}
