@@ -1,6 +1,6 @@
 # 23. Bound delegations per hour, in memory
 
-Status: Accepted
+Status: Accepted; the refusal when every slot is held by calls that have not spawned superseded by [ADR 25](0025-settle-the-open-details-of-the-delegation-bound.md)
 
 ## Context
 
