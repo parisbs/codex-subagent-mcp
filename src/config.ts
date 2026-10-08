@@ -47,6 +47,10 @@ export interface ServerConfig {
   maxEffort: ReasoningEffort | null;
   /** Whether each delegation process appends a line to the local usage log (ADR 22, ADR 24). */
   usageLog: boolean;
+  /** Spawned delegation processes allowed per rolling hour; null means unrestricted. */
+  maxDelegationsPerHour: number | null;
+  /** A user-set lower background cap; null keeps the built-in cap of eight. */
+  maxBackgroundJobs: number | null;
 }
 
 export interface LoadedConfig {
@@ -143,6 +147,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     return null;
   };
 
+  const readInteger = (name: string, max: number): number | null => {
+    const raw = env[`${ENV_PREFIX}${name}`]?.trim();
+    if (!raw) return null;
+    const value = Number(raw);
+    if (/^[0-9]+$/.test(raw) && Number.isSafeInteger(value) && value >= 1 && value <= max) {
+      return value;
+    }
+    errors.push(`${ENV_PREFIX}${name} is "${raw}"; use only decimal digits for an integer from 1 to ${max}.`);
+    return null;
+  };
+
+  const maxDelegationsPerHour = readInteger("MAX_DELEGATIONS_PER_HOUR", Number.MAX_SAFE_INTEGER);
+  const maxBackgroundJobs = readInteger("MAX_BACKGROUND_JOBS", 8);
   const usageLog = readEnum("USAGE_LOG", ["on", "off"]);
   const maxSandbox = readEnum("MAX_SANDBOX", SANDBOX_MODES);
   const defaultSandbox = readEnum("DEFAULT_SANDBOX", SANDBOX_MODES);
@@ -201,6 +218,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
       maxSandboxConfigured: maxSandbox !== null,
       maxEffort,
       usageLog: usageLog === "on",
+      maxDelegationsPerHour,
+      maxBackgroundJobs,
     },
     errors,
   };

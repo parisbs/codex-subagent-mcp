@@ -72,6 +72,36 @@ covered in full in [TOOLS.md](TOOLS.md#configuration); the ones that matter most
 - `CODEX_SUBAGENT_MAX_EFFORT` — keeps the expensive reasoning levels off the table.
 - `CODEX_SUBAGENT_ALLOWED_MODELS` — keeps delegations on the models you choose. A single entry also
   acts as the default model.
+- `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` — bounds spawned delegation processes per rolling hour.
+  Unset means unrestricted; set a decimal integer from 1 to 9007199254740991.
+- `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` — lowers the cap on running background jobs from its default
+  of eight; set a decimal integer from 1 to 8. Blocking calls do not use this cap.
+
+Both numeric variables are trimmed; empty means unset and leading zeros are allowed. Signs,
+fractions, exponents, separators and out-of-range values are configuration errors: delegations
+refuse while `codex_doctor` still runs and lists the errors. Configuration is read at startup;
+only you can raise a bound by changing it and restarting the server.
+
+The hourly bound counts each `codex exec` or `codex exec resume` process from a delegation or
+follow-up, including background runs. Probes never count. Calls reserve a slot before any await,
+including probes and follow-up session recovery; a reservation never expires by age and is released
+if the call fails before spawning. Once spawned, a process counts for sixty minutes even if it
+fails, times out or is cancelled. A background job stops using its background place when cancelled
+or settled, even while its process tree is still stopping; its hourly entry remains. A background
+request cancelled before its job exists creates no job and spawns nothing.
+
+The window belongs to this server process, starts empty on restart and is independent of the usage
+log. Separate registrations have separate windows. It uses the wall clock: sleep counts as elapsed
+time, moving the clock back keeps entries counted longer, and moving it forward expires them sooner.
+This counts invocations, never estimates quota, tokens or credits.
+
+An hourly refusal names your limit and tells the caller to ask you to raise it if needed. When any
+process is counted, it gives the oldest spawn's expiry as a UTC timestamp followed by whole minutes
+left rounded up, and says not to retry before then. That time does not guarantee acceptance: another
+call may take the slot and other checks still apply. A call still starting may release a slot sooner.
+When every slot is held by calls that have not spawned, there is no time to give: the caller must
+wait for their results before calling again. `codex_doctor` reports both bounds and live counts of
+spawned processes and calls holding slots before spawning, even when no hourly bound is set.
 
 A reasonable starting point for everyday use:
 
@@ -196,10 +226,9 @@ estimates subscription quota, usage-window share, credits or remaining allowance
 
 ## Being considered
 
-A limit on how many delegations a session can start
-([#62](https://github.com/parisbs/codex-subagent-mcp/issues/62)) is planned for 0.6.0. Refusing to
-run in a directory nobody chose ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)) is
-still being evaluated for 0.7.0. Neither is a promise until its release ships
+Refusing to run in a directory nobody chose
+([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)) is still being evaluated for 0.7.0.
+It is not a promise until its release ships
 ([VERSIONING.md](VERSIONING.md)).
 
 Asking you directly before expensive runs

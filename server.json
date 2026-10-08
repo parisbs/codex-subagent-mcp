@@ -19,6 +19,20 @@
       },
       "environmentVariables": [
         {
+          "name": "CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR",
+          "description": "Delegation and follow-up processes per rolling hour: decimal integer 1 to 9007199254740991; unset means unrestricted. In memory per server; probes never count.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "CODEX_SUBAGENT_MAX_BACKGROUND_JOBS",
+          "description": "Cap on running background jobs: decimal integer 1 to 8 (default 8). Blocking calls do not use this cap.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
           "name": "CODEX_SUBAGENT_USAGE_LOG",
           "description": "Opt-in local usage log: on or off (default off). Records counts and settings, never prompts, code or paths; labels are caller text.",
           "isRequired": false,

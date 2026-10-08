@@ -82,6 +82,8 @@ export interface RunOptions {
   codexPath?: string;
   /** Called for every parsed event, for progress reporting. */
   onEvent?: (event: CodexEvent, description: string | null) => void;
+  /** Called synchronously when spawn produced a process, before returning its handle. */
+  onSpawn?: (atMs: number) => void;
   /** Aborts the run; used by background job cancellation. */
   signal?: AbortSignal;
   /** Where Codex keeps its session files. Defaults to CODEX_HOME, else ~/.codex. */
@@ -207,6 +209,7 @@ export function runCodex(options: RunOptions): RunHandle {
   }
 
   const startedAt = Date.now();
+  if (child.pid !== undefined) options.onSpawn?.(startedAt);
   const parser = new JsonLinesParser();
   const agentMessages: string[] = [];
   const commands: ExecutedCommand[] = [];

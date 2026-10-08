@@ -55,6 +55,8 @@ export interface JobHooks {
 }
 
 export interface JobRegistryOptions {
+  /** User-set cap, validated by loadConfig; unset keeps the built-in cap. */
+  maxRunningJobs?: number;
   /** How long a finished job stays readable. */
   retentionMs?: number;
   /** Finished jobs kept at most, oldest dropped first. Running jobs never count. */
@@ -65,10 +67,14 @@ export class JobRegistry {
   private readonly jobs = new Map<string, Job>();
   private readonly retentionMs: number;
   private readonly maxFinishedJobs: number;
+  private readonly maxRunningJobs: number;
+  private readonly maxRunningJobsConfigured: boolean;
 
   constructor(options: JobRegistryOptions = {}) {
     this.retentionMs = options.retentionMs ?? RETENTION_MS;
     this.maxFinishedJobs = options.maxFinishedJobs ?? MAX_FINISHED_JOBS;
+    this.maxRunningJobs = options.maxRunningJobs ?? MAX_RUNNING_JOBS;
+    this.maxRunningJobsConfigured = options.maxRunningJobs !== undefined;
   }
 
   get runningCount(): number {
@@ -82,9 +88,10 @@ export class JobRegistry {
   start(input: StartJobInput): string {
     this.evictExpired();
 
-    if (this.runningCount >= MAX_RUNNING_JOBS) {
+    if (this.runningCount >= this.maxRunningJobs) {
+      const source = this.maxRunningJobsConfigured ? " from CODEX_SUBAGENT_MAX_BACKGROUND_JOBS" : "";
       throw new Error(
-        `Too many background delegations already running (limit ${MAX_RUNNING_JOBS}). ` +
+        `Too many background delegations already running (limit ${this.maxRunningJobs}${source}). ` +
           "Wait for one to finish or cancel it with codex_job_cancel.",
       );
     }

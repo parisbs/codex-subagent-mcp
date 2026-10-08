@@ -330,7 +330,8 @@ as given, because the server classifying prompts would be making policy
 
 The rest of the release only adds surface or fixes: a bound on how many delegations a session can
 start, counted in memory and set by the user
-([ADR 23](adr/0023-bound-delegations-in-memory.md)), a summary of `codex doctor --json`, and
+([ADR 23](adr/0023-bound-delegations-in-memory.md),
+[ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)), a summary of `codex doctor --json`, and
 skipping a plugin listing that has no effect under the default configuration. No breaking change is
 planned here ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 

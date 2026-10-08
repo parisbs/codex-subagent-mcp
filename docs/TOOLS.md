@@ -34,6 +34,8 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. A plugin list that cannot be checked turns every plugin off. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
 | `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | Opt-in local usage log, default `off`. Empty or whitespace means off; other values refuse delegations until restart with a valid value. |
+| `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` | Decimal integer from 1 to 9007199254740991 | Delegation processes (`codex exec` or `codex exec resume`) this server starts per rolling hour. Unset means unrestricted. Probes never count; a spawned run counts for sixty minutes whatever its outcome. See [Bounds on delegations](#bounds-on-delegations). |
+| `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` | Decimal integer from 1 to 8 | Background jobs allowed to run at once. Unset means eight. It can only lower the built-in cap; blocking calls never use it. |
 
 Two rules govern all of this, and are explained in
 [ADR 12](adr/0012-mechanism-not-policy.md) and
@@ -57,6 +59,10 @@ user's permissions; under `read-only`, a tool that declares itself read-only run
 The three variables above therefore start at nothing. A list is names separated by single commas:
 `none` and `all` stand alone, and an empty entry is an error rather than something to skip. Each
 result states what the run was allowed, on its own line, with every name quoted.
+
+Both numeric variables are trimmed and accept only the ASCII digits 0 to 9, leading zeros allowed;
+an empty value means unset. A sign, a decimal point, an exponent, a separator or a value out of
+range is a configuration error ([ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)).
 
 Invalid values are reported on the first tool call, not at startup — a server that refuses to start
 cannot explain why.
@@ -94,6 +100,11 @@ Reported states:
 | `config-error` | Installed, but Codex cannot load its configuration (a TOML syntax error, an invalid value, a removed setting such as the top-level `profile = "…"`). Codex's own message names the file and value. This is not a sign-in problem. | no |
 | `unknown` | Installed, but the sign-in check did not finish in time. | yes, with a warning |
 | `unsupported-shim` | Found only as a Windows `.cmd`/`.bat` shim, which cannot be spawned safely. | no |
+
+It also reports the bounds on delegations, computed on every call rather than cached with the
+diagnosis: `hourly delegation bound` (its value, `none` when unset, or `invalid`), `background job
+cap` (its value, `8 (default)`, or `invalid`), `delegation processes in the last hour`, and `calls
+holding a slot before spawning`. It never takes a slot itself.
 
 Every tool that reaches the Codex CLI runs this check first, so a broken installation is reported
 the same way whichever one you call. The three job tools (`codex_job_status`, `codex_job_result`,
@@ -371,9 +382,34 @@ The job's result keeps the output read until then and reports the run as cancell
 
 ---
 
+## Bounds on delegations
+
+Two restriction-only variables bound how much a session can start
+([ADR 23](adr/0023-bound-delegations-in-memory.md),
+[ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)). They count invocations,
+never tokens, credits or quota.
+
+`CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` counts the delegation processes of `codex_delegate`,
+blocking or background, and of `codex_follow_up`. A call reserves its slot before any probe or other
+await, so concurrent calls cannot both take the last one; the slot is released if nothing spawns,
+and a reservation never expires by age. Once spawned, a process counts for sixty minutes of wall-clock
+time, even if it failed, timed out or was cancelled. The window lives in this server's memory: it
+starts empty when the server restarts, does not depend on the usage log, and each registration has
+its own.
+
+A refused call fails with the variable, its value, and a statement that this is your limit. When a
+process is counted, it gives the time the oldest one leaves the window, in UTC, with the minutes
+left, and says not to retry before then; that time is not a promise that a call will be accepted.
+When every slot is held by calls that have not started Codex yet, it gives no time and asks the
+caller to wait for their results.
+
+A background request cancelled before its job is created starts nothing.
+
 ## Limits on background jobs
 
-At most eight run concurrently. Finished jobs are kept for an hour, and at most the 100 most recent,
+At most eight run concurrently, or fewer when `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` sets a lower cap.
+A job stops counting once it is cancelled or settled, even while its process tree is still being
+stopped. Finished jobs are kept for an hour, and at most the 100 most recent,
 then discarded. When the server shuts down — on SIGINT, SIGTERM, or its client closing stdin — every
 running delegation, background or blocking, is stopped with the commands it started, forced after a
 quarter of a second, and the server exits within about a third of a second. Hosts kill a server

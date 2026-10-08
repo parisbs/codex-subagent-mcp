@@ -102,7 +102,8 @@ whatever it needs; your conversation receives the conclusion.
 > me with the API layer.
 
 You get a `job_id` immediately. Ask for the status whenever you want, and read the result when it is
-done. Up to eight can run at once.
+done. Up to eight can run at once; `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` can lower that cap.
+A background request cancelled before its job is created starts nothing.
 
 ### Buy deep reasoning for one hard problem
 
@@ -226,6 +227,8 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `read-only` | Sandbox when a call specifies none; cannot exceed the ceiling. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `workspace-write` | Calls above it are refused; `danger-full-access` needs explicit opt-in. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Unrestricted | Higher effort is lowered to a supported level, or refused if none fits. |
+| `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` | Decimal integer from 1 to 9007199254740991 | Unrestricted | Bounds spawned delegation and follow-up processes per rolling hour, per server process; probes never count. |
+| `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` | Decimal integer from 1 to 8 | `8` | Lowers the cap on running background jobs; blocking calls do not use it. |
 | `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | `none` | MCP servers from Codex's config a delegation keeps; this server is always off. |
 | `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | `none` | Installed Codex plugins a delegation keeps, with the MCP servers they provide. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | `off` | Whether a delegation keeps Codex's apps (connectors to external services). |
@@ -235,6 +238,15 @@ Everything is optional, and set through environment variables on the MCP server:
 A model supports a subset of efforts; an unsupported effort is adjusted to the closest supported one
 with a note. See **[docs/TOOLS.md#configuration](docs/TOOLS.md#configuration)** for full semantics
 and [Safety](#safety) for the sandbox boundary.
+
+Both numeric bounds accept only ASCII digits after trimming, with leading zeros allowed; empty
+means unset. Invalid values refuse delegations and are listed by `codex_doctor`. Only you can raise
+these limits. The hourly window is kept in memory, resets on restart and is independent of the
+usage log. Every spawned run counts for sixty minutes, including failures, timeouts and cancellations.
+Pending calls reserve slots before any probe and release them if nothing spawns. A refusal gives
+the oldest counted process's expiry in UTC and minutes left, or asks the caller to wait for admitted
+calls' results when none has spawned yet. `codex_doctor` reports both bounds, spawned processes in
+the current window and calls still holding slots before spawning.
 
 Claude decides when to delegate; each run sends its prompt to OpenAI and spends your Codex usage, in
 any conversation where the server is available. **[docs/CONTROL.md](docs/CONTROL.md)** covers client
