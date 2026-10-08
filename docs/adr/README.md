@@ -38,3 +38,4 @@ choice changes. There is no exception for facts that became untrue; see
 | [0022](0022-keep-an-opt-in-local-usage-log.md) | Keep an opt-in local usage log | Accepted; the characters a label may contain superseded by [0024](0024-settle-the-open-details-of-the-usage-log.md) |
 | [0023](0023-bound-delegations-in-memory.md) | Bound delegations per hour, in memory | Accepted |
 | [0024](0024-settle-the-open-details-of-the-usage-log.md) | Settle the open details of the usage log | Accepted |
+| [0025](0025-settle-the-open-details-of-the-delegation-bound.md) | Settle the open details of the delegation bound | Proposed |
