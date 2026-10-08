@@ -1,6 +1,6 @@
 # 25. Settle the open details of the delegation bound
 
-Status: Proposed
+Status: Accepted
 
 Supersedes point 5 of [ADR 23](0023-bound-delegations-in-memory.md) for one case only: a refusal
 when every slot of the hourly bound is held by calls that have not spawned their delegation process
