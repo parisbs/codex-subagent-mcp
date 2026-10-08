@@ -34,8 +34,9 @@ choice changes. There is no exception for facts that became untrue; see
 | [0018](0018-keep-agent-instructions-in-claude-md-alone.md) | Keep agent instructions in CLAUDE.md alone | Accepted |
 | [0019](0019-name-the-successor-in-the-status-line.md) | Name the successor in a superseded record's status line | Accepted |
 | [0020](0020-let-the-session-file-decide-where-a-follow-up-resumes.md) | Let the session file decide where a follow-up resumes | Accepted |
-| [0021](0021-report-the-base-of-a-worktree-run.md) | Report the base of a worktree run | Accepted |
+| [0021](0021-report-the-base-of-a-worktree-run.md) | Report the base of a worktree run | Accepted; the read of the caller's working tree with git, and the prompt names and result notes built from it, superseded by [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) |
 | [0022](0022-keep-an-opt-in-local-usage-log.md) | Keep an opt-in local usage log | Accepted; the characters a label may contain superseded by [0024](0024-settle-the-open-details-of-the-usage-log.md) |
 | [0023](0023-bound-delegations-in-memory.md) | Bound delegations per hour, in memory | Accepted; the refusal when every slot is held by calls that have not spawned superseded by [0025](0025-settle-the-open-details-of-the-delegation-bound.md) |
 | [0024](0024-settle-the-open-details-of-the-usage-log.md) | Settle the open details of the usage log | Accepted |
 | [0025](0025-settle-the-open-details-of-the-delegation-bound.md) | Settle the open details of the delegation bound | Accepted |
+| [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) | Report a worktree run from the session file alone | Accepted |

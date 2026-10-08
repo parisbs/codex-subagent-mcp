@@ -353,10 +353,13 @@ already resumes in the worktree Codex applied
 is the worktree's path and base commit as a line of their own, and any word about what the worktree
 left out: it is made from the last commit, so uncommitted changes, untracked files and ignored files
 such as installed dependencies are not in it, and a probe saw Codex rewrite production code around a
-missing dependency. The server reads the caller's tree with git before the run, tells Codex in the
-prompt what its worktree lacks, takes the base commit from the session file rather than from the
-request, and reports what differs ([ADR 21](adr/0021-report-the-base-of-a-worktree-run.md)). It
-refuses nothing: denying a run from a dirty tree is a client-side hook's job.
+missing dependency. The server tells Codex in the prompt which kinds of files its worktree lacks and
+to report a missing dependency rather than work around it, and takes the path and the base commit
+from the session file rather than from the request
+([ADR 21](adr/0021-report-the-base-of-a-worktree-run.md)). It does not run git: listing what the
+caller's tree held depends on the user's git configuration and is already the caller's to read
+([ADR 26](adr/0026-report-a-worktree-run-from-the-session-file-alone.md)). It refuses nothing:
+denying a run from a dirty tree is a client-side hook's job.
 
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
 [#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
