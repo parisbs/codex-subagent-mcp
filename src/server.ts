@@ -35,6 +35,7 @@ import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
+import { DelegationBound, type DelegationReservation } from "./delegation-bound.js";
 import { ActiveRuns } from "./runs.js";
 import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
@@ -621,11 +622,33 @@ export function createServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {}, logging: {} } },
   );
-  const jobs = new JobRegistry();
+  const { config, errors: configErrors } = loadConfig();
+  const jobs = new JobRegistry({ maxRunningJobs: config.maxBackgroundJobs ?? undefined });
+  const delegationBound = new DelegationBound(config.maxDelegationsPerHour);
   const runs = new ActiveRuns();
   const threads = new ThreadRegistry();
-  const { config, errors: configErrors } = loadConfig();
   const usageDirectory = resolveUsageDirectory({ env: process.env, platform: process.platform, homedir: homedir() });
+
+  const reserveDelegation = (): DelegationReservation => {
+    const admission = delegationBound.reserve();
+    if (admission.ok) return admission.reservation;
+    const { oldestExpiresAtMs, pending } = admission.window;
+    const source = `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR=${config.maxDelegationsPerHour} is the user's limit. `;
+    const raise = "Ask the user to raise it if the work needs more.";
+    if (oldestExpiresAtMs === null) {
+      throw new Error(
+        source + "Every slot is held by admitted calls that have not started Codex. " +
+          "No time can be given until they start or fail. Wait for the results of those calls before calling again. " + raise,
+      );
+    }
+    const minutes = Math.max(1, Math.ceil((oldestExpiresAtMs - Date.now()) / 60_000));
+    throw new Error(
+      source + `The oldest counted process leaves the window at ${new Date(oldestExpiresAtMs).toISOString()} ` +
+        `(${minutes} minutes left). Do not retry before then. ` +
+        "That time does not promise that a call will be accepted: another call may take the slot and other checks still apply. " +
+        (pending > 0 ? "A call still starting may free a slot sooner. " : "") + raise,
+    );
+  };
 
   const recordUsage = (
     result: DelegationResult,
@@ -806,6 +829,11 @@ export function createServer(
           refresh: refresh ?? false,
           ...(working_dir ? { cwd: working_dir } : {}),
         });
+        const window = delegationBound.snapshot();
+        const boundSetting = (name: string, value: number | null, fallback: string): string =>
+          configErrors.some((error) => error.startsWith(`${ENV_PREFIX}${name} `))
+            ? "invalid (see the configuration errors above)"
+            : value === null ? fallback : `${value} (${ENV_PREFIX}${name})`;
         const lines = [
           // The diagnostic tool is the one place a misconfigured environment must
           // show up even though nothing is refused: it can be the first call, and
@@ -823,6 +851,10 @@ export function createServer(
           `codex binary: ${diagnosis.codexPath}`,
           `version: ${diagnosis.version ?? "not detected"}`,
           `signed in: ${diagnosis.authenticated === null ? "unknown" : diagnosis.authenticated ? "yes" : "no"}`,
+          `hourly delegation bound: ${boundSetting("MAX_DELEGATIONS_PER_HOUR", config.maxDelegationsPerHour, "none (CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR is unset)")}`,
+          `background job cap: ${boundSetting("MAX_BACKGROUND_JOBS", config.maxBackgroundJobs, "8 (default)")}`,
+          `delegation processes in the last hour: ${window.processes}`,
+          `calls holding a slot before spawning: ${window.pending}`,
           "",
           formatDiagnosis(diagnosis),
         ];
@@ -992,6 +1024,7 @@ export function createServer(
       annotations: { readOnlyHint: false, openWorldHint: true },
     },
     async (args, extra) => {
+      let reservation: DelegationReservation | undefined;
       try {
         requireValidConfig();
         if (args.label !== undefined) {
@@ -1007,6 +1040,8 @@ export function createServer(
         const sandbox: SandboxMode = (args.sandbox ?? config.defaultSandbox) as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
+
+        reservation = reserveDelegation();
 
         const { model, effort, notes, cliVersion } = await resolveModelAndEffort(
           args.model,
@@ -1074,6 +1109,7 @@ export function createServer(
           output_schema: outputSchema !== undefined,
         };
         if (args.mode === "background") {
+          if (extra.signal.aborted) throw new Error("Codex delegation was cancelled before it started.");
           const controller = new AbortController();
           const jobId = jobs.start({
             model,
@@ -1084,6 +1120,7 @@ export function createServer(
               settle(
                 runs.track(
                   runCodex({
+                    onSpawn: reservation?.spawned,
                     invocation,
                     prompt,
                     timeoutSeconds,
@@ -1127,6 +1164,7 @@ export function createServer(
         // Tracked so shutdown stops it too, not only background jobs (#40).
         const handle = runs.track(
           runCodex({
+            onSpawn: reservation.spawned,
             invocation,
             prompt,
             timeoutSeconds,
@@ -1144,6 +1182,8 @@ export function createServer(
         return textResult(renderResult(result, notes, config, await result.usageWrite), isFailure(result));
       } catch (error) {
         return errorResult(error);
+      } finally {
+        reservation?.release();
       }
     },
   );
@@ -1191,6 +1231,7 @@ export function createServer(
       annotations: { readOnlyHint: false, openWorldHint: true },
     },
     async (args, extra) => {
+      let reservation: DelegationReservation | undefined;
       try {
         requireValidConfig();
         if (args.label !== undefined) {
@@ -1215,6 +1256,8 @@ export function createServer(
         const sandbox: SandboxMode = (args.sandbox ?? config.defaultSandbox) as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
+
+        reservation = reserveDelegation();
 
         // A resumed session does not keep its model or effort: without them on
         // the argv, Codex takes both from the configuration of the directory it
@@ -1328,6 +1371,7 @@ export function createServer(
         let progress = 0;
 
         const handle = runs.track(runCodex({
+          onSpawn: reservation.spawned,
           invocation,
           // The contract is already in the session's history; a follow-up only
           // needs the new instruction, and a schema turn the output format.
@@ -1362,6 +1406,8 @@ export function createServer(
         return textResult(renderResult(result, notes, config, await result.usageWrite), isFailure(result));
       } catch (error) {
         return errorResult(error);
+      } finally {
+        reservation?.release();
       }
     },
   );
