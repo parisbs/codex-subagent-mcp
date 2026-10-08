@@ -1,6 +1,6 @@
 # 21. Report the base of a worktree run
 
-Status: Accepted
+Status: Accepted; the read of the caller's working tree with git, and the prompt names and result notes built from it, superseded by [ADR 26](0026-report-a-worktree-run-from-the-session-file-alone.md)
 
 Extends [ADR 13](0013-confirm-applied-settings.md) to a second line of Codex's session file and to the
 state of the caller's working tree, and [ADR 7](0007-inject-the-quality-contract.md) with a prompt
