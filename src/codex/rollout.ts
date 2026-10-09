@@ -261,9 +261,17 @@ async function lookup(threadId: string | null, codexHome: string): Promise<TurnC
 export function reportWorktree(lookupResult: TurnContextLookup): WorktreeReport {
   const path = lookupResult.context?.cwd ?? null;
   const baseCommit = lookupResult.baseCommit ?? null;
+  // `baseCommit` is null only when the file was read; when it is absent the file never was, and the
+  // lookup's own reason says why, so the report must not claim the file lacked a commit.
+  const fileRead = lookupResult.baseCommit !== undefined;
   const reasons: string[] = [];
   if (path === null) reasons.push(lookupResult.reason ?? "the turn context recorded no working directory");
-  if (baseCommit === null) reasons.push("the session file recorded no readable base commit");
+  if (baseCommit === null) {
+    const why = fileRead
+      ? "the session file recorded no readable base commit"
+      : (lookupResult.reason ?? "the session file was not read");
+    if (!reasons.includes(why)) reasons.push(why);
+  }
   return { path, baseCommit, reason: reasons.length > 0 ? reasons.join("; ") : null };
 }
 
