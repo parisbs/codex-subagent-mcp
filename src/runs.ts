@@ -1,5 +1,15 @@
-import type { RunHandle } from "./codex/runner.js";
+import type { CancelOptions } from "./codex/runner.js";
 import { readOnce, readProcessTable, type ProcessEntry } from "./codex/terminate.js";
+
+/**
+ * What the registry needs from a run to stop it: a delegation's handle, or the
+ * extended diagnosis's (#69), which settles with a different result.
+ */
+export interface ActiveRun {
+  pid: number | undefined;
+  cancel: (options?: CancelOptions) => void;
+  exited: Promise<void>;
+}
 
 export interface StopOptions {
   /** Grace between SIGTERM and SIGKILL for every run. */
@@ -25,14 +35,15 @@ export interface ActiveRunsOptions {
 }
 
 export class ActiveRuns {
-  private readonly runs = new Set<RunHandle>();
+  private readonly runs = new Set<ActiveRun>();
+  private stopping = false;
   private readonly readProcessTable: (timeoutMs?: number) => ProcessEntry[];
 
   constructor(options: ActiveRunsOptions = {}) {
     this.readProcessTable = options.readProcessTable ?? ((timeoutMs) => readProcessTable({ timeoutMs }));
   }
 
-  track(handle: RunHandle): RunHandle {
+  track<T extends ActiveRun>(handle: T): T {
     this.runs.add(handle);
     void handle.exited.then(() => this.runs.delete(handle));
     return handle;
@@ -42,11 +53,16 @@ export class ActiveRuns {
     return this.runs.size;
   }
 
+  get shuttingDown(): boolean {
+    return this.stopping;
+  }
+
   /**
    * Stops every run with the given grace and waits for them, up to the deadline.
    * Resolves with the process ids that could not be confirmed stopped in time.
    */
   async stopAll({ graceMs, deadlineMs, tableTimeoutMs }: StopOptions): Promise<number[]> {
+    this.stopping = true;
     const pending = [...this.runs];
     if (pending.length === 0) return [];
 
@@ -68,7 +84,7 @@ export class ActiveRuns {
     const processTables = { polite: readOnce(() => this.readProcessTable(tableTimeoutMs)), forced: null };
     for (const handle of pending) handle.cancel({ graceMs, killAt, processTables });
 
-    const stopped = new Set<RunHandle>();
+    const stopped = new Set<ActiveRun>();
     await Promise.race([
       Promise.all(pending.map((handle) => handle.exited.then(() => stopped.add(handle)))),
       deadline,

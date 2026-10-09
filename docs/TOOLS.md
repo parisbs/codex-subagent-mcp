@@ -82,12 +82,41 @@ reason to leave its explicit opt-in outside the repository.
 
 Checks whether the local Codex CLI is installed, recent enough, signed in and able to load its
 configuration, and reports the exact steps to fix it if not. Inspects only; it never installs or
-changes anything.
+repairs anything. The optional extended mode runs a slow, networked configuration report.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `refresh` | boolean | `false` | Re-probe the CLI instead of reusing the cached diagnosis. |
+| `extended` | boolean | `false` | Also run `codex doctor --json` and summarise Codex's own `config.load` check. Slow and networked; never run automatically. |
 | `working_dir` | string | the server's working directory | Absolute directory to run the check in. Codex loads the configuration of the directory it runs in, so pass the one a delegation would use. The result states which directory was checked. |
+
+With `extended: true`, the unchanged cheap diagnosis and its error state are followed by a second
+text item naming the directory and summarising only `config.load`; other doctor checks are not
+summarised. The extended run needs a resolved CLI with a parsed version, but still runs when the
+cheap diagnosis reports a configuration or sign-in failure. An unavailable CLI, an already
+cancelled request, or a server shutting down produces a skipped section instead.
+
+Expect seconds to over a minute: the subcommand has a 60 s deadline, and uncached cheap probes can
+add up to 20 s. It contacts the provider, update services, and every enabled HTTP MCP server,
+even when delegations disable MCP inheritance. It writes the support files any Codex run writes,
+such as temporary helpers and sqlite shared-memory files. It never runs from the shared preflight,
+at startup, or automatically. Every explicit call starts a fresh report, regardless of `refresh`;
+concurrent calls run independently, with no additional concurrency cap.
+
+The summary includes status, summary, remediation, configuration scope, configured model and
+provider, feature flags, startup warning count and texts, error and decimal line/column, and
+`config.toml parse` reduced to `ok` or `error`. It omits all other details, issues and notes.
+The configured model may differ from a delegation's applied model. Allowed text can contain paths;
+this is a relevance whitelist, not a promise of path removal. Strings are quoted and controls
+escaped. Each string is limited to 2,000 code points, warning texts to ten, and the section to
+16,384 code points, with explicit omission markers. Reported warning counts are kept even when
+they disagree with the texts.
+
+The process tree is stopped on the deadline, request cancellation, shutdown, or stdout exceeding
+1 MiB. Stderr is drained with at most 64 KiB retained; neither raw stream is echoed. Stopped runs
+produce no summary. A usable schemaVersion 1 report is summarised regardless of exit code;
+unsupported schemas, unsupported `--json`, usage errors and unusable reports are named explicitly.
+The tool retains `readOnlyHint: true` and declares `openWorldHint: true` for the networked mode.
 
 Reported states:
 

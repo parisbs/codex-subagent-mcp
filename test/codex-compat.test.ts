@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import { VERIFIED_CODEX_VERSION } from "../src/codex/doctor.ts";
+import { DOCTOR_REPORT_ARGS } from "../src/codex/doctor-report.ts";
 
 import {
   NEGATIVE_CONTROL,
@@ -70,6 +71,20 @@ test("AC-1 checks exec and resume shapes, each followed by --help", () => {
   assert.ok(helped.some((args) => args[0] === "exec" && args[1] !== "resume"));
   assert.ok(helped.some((args) => args[0] === "exec" && args[1] === "resume"));
   assert.ok(helped.length >= argvShapes("m", tmpdir()).length);
+});
+
+test("AC-13 (#69) checks the doctor --json argv of the extended diagnosis, with the negative control unchanged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "codex-compat-doctor-"));
+  try {
+    const shapes = argvShapes("some-model", dir);
+    assert.ok(
+      shapes.some((shape) => JSON.stringify(shape.argv) === JSON.stringify(DOCTOR_REPORT_ARGS)),
+      `no shape runs ${DOCTOR_REPORT_ARGS.join(" ")}`,
+    );
+    assert.deepEqual(NEGATIVE_CONTROL, ["exec", "--full-auto"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("AC-2 fails a rejected shape and names the version, the argv and the CLI's error", () => {

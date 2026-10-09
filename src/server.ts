@@ -17,6 +17,7 @@ import {
   type ServerConfig,
 } from "./config.js";
 import {
+  executableFor,
   formatDiagnosis,
   isUsable,
   runDoctor,
@@ -36,6 +37,7 @@ import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { DelegationBound, type DelegationReservation } from "./delegation-bound.js";
+import { canRunDoctorReport, classifyDoctorRun, formatExtendedDiagnosis, runDoctorReport, type ExtendedDiagnosis } from "./codex/doctor-report.js";
 import { ActiveRuns } from "./runs.js";
 import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
@@ -626,6 +628,8 @@ const delegateShape = {
 export interface ServerOptions {
   /** The file operations of the usage log, so that tests can make one fail (#29). */
   usageFileSystem?: UsageFileSystem;
+  /** Starts the extended diagnosis, so that tests can control its outcome and timing (#69). */
+  doctorReportRunner?: typeof runDoctorReport;
 }
 
 export function createServer(
@@ -822,8 +826,9 @@ export function createServer(
         "Check whether the local Codex CLI is installed, recent enough, signed in and able to load its configuration, and report the exact " +
         "steps to fix it if not. Run this when any other tool reports the CLI is unavailable, or before " +
         "relying on delegation for the first time. It only inspects the installation; it never installs or " +
-        "changes anything.",
+        "repairs anything. Opt in with extended for a slow, networked config.load report from codex doctor --json.",
       inputSchema: {
+        extended: z.boolean().default(false).describe("Run the slow, networked Codex doctor report in addition to the cheap diagnosis."),
         refresh: z
           .boolean()
           .optional()
@@ -833,9 +838,9 @@ export function createServer(
             "runs in, so pass the one a delegation would use. Defaults to this server's own.",
         ),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ refresh, working_dir }) => {
+    async ({ refresh, working_dir, extended }, extra) => {
       try {
         validateWorkingDir(working_dir);
         const diagnosis = await runDoctor({
@@ -873,7 +878,22 @@ export function createServer(
         ];
         // A server that refuses every delegation is not working, however
         // healthy the installation is.
-        return textResult(lines.join("\n"), !isUsable(diagnosis) || configErrors.length > 0);
+        const result = textResult(lines.join("\n"), !isUsable(diagnosis) || configErrors.length > 0);
+        if (extended) {
+          const directory = working_dir ?? process.cwd();
+          let report: ExtendedDiagnosis;
+          if (!canRunDoctorReport(diagnosis)) report = { kind: "skipped", reason: "cli-unavailable" };
+          else if (extra.signal.aborted) report = { kind: "skipped", reason: "cancelled" };
+          else if (runs.shuttingDown) report = { kind: "skipped", reason: "shutting-down" };
+          else {
+            const handle = runs.track((options.doctorReportRunner ?? runDoctorReport)({
+              executable: executableFor(diagnosis), cwd: directory, signal: extra.signal,
+            }));
+            report = classifyDoctorRun(await handle.result);
+          }
+          result.content.push({ type: "text", text: formatExtendedDiagnosis(report, { directory }) });
+        }
+        return result;
       } catch (error) {
         return errorResult(error);
       }

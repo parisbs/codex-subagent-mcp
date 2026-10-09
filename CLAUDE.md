@@ -48,6 +48,13 @@ subcommands and between versions. Two traps already found the hard way, both cov
   `turn.failed` as fatal. When a new warning shows up as an error, add its shape there rather than
   loosening the rule.
 
+- `codex doctor --json` exits 1 whenever any check fails, a network probe included, and still prints a
+  complete report first, so a non-zero exit is not a missing report (`src/codex/doctor-report.ts`
+  classifies by content first). It takes from seconds to over a minute: every enabled HTTP MCP
+  server is probed in turn, HEAD and then GET if HEAD fails, 3 s per attempt. Without `--json`, a CLI lacking the
+  subcommand would read `doctor` as a prompt and start the TUI, so `--json` is never dropped
+  (ADR 27).
+
 - A resumed session does not keep its model. `codex exec resume` without `--model` takes the model
   from the config of the directory it runs in, even when the thread was recorded on another one, and
   an effort missing from the argv comes from config even if the model does not support it. That is

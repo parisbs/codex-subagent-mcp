@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "1791569685s since unix epoch",
+  "overallStatus": "fail",
+  "codexVersion": "0.162.0",
+  "checks": {
+    "config.load": {
+      "id": "config.load",
+      "category": "config",
+      "status": "warning",
+      "summary": "config loaded",
+      "details": {
+        "CODEX_HOME": "/Users/example/.codex-alt/home-trust",
+        "active thread overrides": "not inspected",
+        "config.toml": "/Users/example/.codex-alt/home-trust/config.toml",
+        "config.toml parse": "ok",
+        "configuration load ms": "7",
+        "configuration scope": "invocation config, including cloud-managed policy",
+        "configured TUI mode": "fullscreen",
+        "cwd": "/Users/example/project",
+        "enabled feature flags": "daemon_auto_start, shell_tool, view_image, sleep_tool, unified_exec, unified_exec_tty, unified_exec_zsh_fork, shell_snapshot, content_item_kinds, code_mode_host, instant_interrupt, terminal_resize_reflow, sqlite, write_stdin_approval, hooks, api_key_model_discovery, enable_request_compression, unbounded_connection_retries, worktrees, system_proxy_fallback, multi_agent, apps, tool_search_always_defer_mcp_tools, tool_suggest, plugins, in_app_browser, browser_annotation_api, in_app_chat, in_app_dictation, in_app_voice, in_app_local_automation, in_app_updates, browser_use, browser_use_full_cdp_access, browser_use_external, computer_use, remote_plugin, plugin_sharing, image_generation, resize_all_images, item_ids, skill_mcp_dependency_install, skill_search, mentions_v2, steer, guardian_approval, guardian_reuse_parent_compaction, goals, collaboration_modes, tool_call_mcp_elicitation, auth_elicitation, fast_mode, ultrafast_mode, realtime_conversation, tui_app_server, compaction_image_budget, workspace_dependencies",
+        "feature flag overrides": "none",
+        "feature flags enabled": "57",
+        "log dir": "/Users/example/.codex-alt/home-trust/log",
+        "mcp servers": "0",
+        "model": "sentinel-configured-model",
+        "model provider": "openai",
+        "sqlite home": "/Users/example/.codex-alt/home-trust",
+        "startup warning": "Ignored unsupported project-local config keys in /Users/example/project/.codex/config.toml: openai_base_url, model_provider. If you want these settings to apply, manually set them in your user-level config.toml.",
+        "startup warning MCP": "1",
+        "startup warning deprecated": "0",
+        "startup warning hooks": "0",
+        "startup warning plugins": "0",
+        "startup warning skills": "0",
+        "startup warnings": "1"
+      },
+      "remediation": null,
+      "durationMs": 0
+    },
+    "network.provider_reachability": {
+      "id": "network.provider_reachability",
+      "category": "reachability",
+      "status": "ok",
+      "summary": "active provider endpoints are reachable over HTTP",
+      "details": {
+        "ChatGPT inference URL": "https://chatgpt.com/backend-api/<redacted> reachable (HTTP 405)",
+        "desktop assets CDN": "https://persistent.oaistatic.com/codex-app-prod/<redacted> reachable (HTTP 200)",
+        "reachability mode": "ChatGPT auth"
+      },
+      "remediation": null,
+      "durationMs": 514
+    },
+    "terminal.env": {
+      "id": "terminal.env",
+      "category": "terminal",
+      "status": "ok",
+      "summary": "terminal metadata was detected",
+      "details": {
+        "color output": "disabled (stdout is not a terminal)",
+        "stderr is terminal": "false",
+        "stdin is terminal": "false",
+        "stdout is terminal": "false",
+        "terminal": "unknown",
+        "terminal size": "unavailable (Resource temporarily unavailable (os error 35))"
+      },
+      "remediation": null,
+      "durationMs": 6
+    }
+  }
+}

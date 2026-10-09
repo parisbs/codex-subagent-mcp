@@ -258,10 +258,11 @@ one requested fails the delegation ([#55](https://github.com/parisbs/codex-subag
 [ADR 13](adr/0013-confirm-applied-settings.md)). The second is done too: the preflight and the
 catalog now run in the delegation's working directory and are cached per directory, so a trusted
 project's configuration is part of what they check
-([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)). What is left from that issue is
-summarising `codex doctor --json`, which is tracked separately
-([#69](https://github.com/parisbs/codex-subagent-mcp/issues/69)): the command takes about ten seconds
-and performs network reachability probes, so it cannot sit on a preflight path.
+([#56](https://github.com/parisbs/codex-subagent-mcp/issues/56)). What was left from that issue,
+summarising `codex doctor --json`, was tracked separately
+([#69](https://github.com/parisbs/codex-subagent-mcp/issues/69)) and ships in 0.6.0 as an opt-in of
+`codex_doctor` ([ADR 27](adr/0027-opt-in-to-the-extended-doctor-report.md)): the command takes from
+seconds to over a minute and performs network probes, so it never sits on a preflight path.
 
 ## 0.4.0 — Structured results, and runs that stop when told to
 
@@ -331,7 +332,8 @@ as given, because the server classifying prompts would be making policy
 The rest of the release only adds surface or fixes: a bound on how many delegations a session can
 start, counted in memory and set by the user
 ([ADR 23](adr/0023-bound-delegations-in-memory.md),
-[ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)), a summary of `codex doctor --json`, and
+[ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)), an opt-in summary of `codex doctor --json`
+([ADR 27](adr/0027-opt-in-to-the-extended-doctor-report.md)), and
 skipping a plugin listing that has no effect under the default configuration. No breaking change is
 planned here ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 
