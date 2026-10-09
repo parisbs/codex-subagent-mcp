@@ -45,21 +45,32 @@ export interface FakeCodex {
   descendantPid: () => number | null;
   /** Signals the stand-in recorded with `recordSignals`, in order. */
   signals: () => string[];
+  /** Replaces the scenario for the next run in the same directory. */
+  setScenario: (next: Scenario) => void;
   dispose: () => void;
+}
+
+export interface FakeCodexOptions {
+  /**
+   * The subcommand the argv starts with, and so the name the stand-in is copied
+   * under: `exec` for delegations, `doctor` for `codex doctor --json` (#69).
+   */
+  command?: "exec" | "doctor";
 }
 
 /**
  * Prepares a throwaway Codex stand-in that runs on Linux, macOS and Windows.
  *
- * The argv the server builds always begins with `exec`, so pointing the runner
- * at Node with this directory as cwd makes Node treat the copied `exec` file as
- * its entry point. No shebang, no `.cmd` shim, no shell — which is what lets the
- * same test cover all three platforms.
+ * The argv the server builds always begins with `exec` (or `doctor`, for the
+ * extended diagnosis), so pointing the runner at Node with this directory as cwd
+ * makes Node treat the copied file of that name as its entry point. No shebang,
+ * no `.cmd` shim, no shell — which is what lets the same test cover all three
+ * platforms.
  */
-export function createFakeCodex(scenario: Scenario): FakeCodex {
+export function createFakeCodex(scenario: Scenario, options: FakeCodexOptions = {}): FakeCodex {
   const workingDir = mkdtempSync(join(tmpdir(), "codex-subagent-fake-"));
 
-  copyFileSync(FAKE_SOURCE, join(workingDir, "exec"));
+  copyFileSync(FAKE_SOURCE, join(workingDir, options.command ?? "exec"));
   // An extensionless file is CommonJS unless an ancestor package.json says
   // otherwise. Pinning it here keeps the fixture independent of where the OS
   // puts its temporary directories.
@@ -83,6 +94,7 @@ export function createFakeCodex(scenario: Scenario): FakeCodex {
       const file = join(workingDir, "signals.log");
       return existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
     },
+    setScenario: (next) => writeFileSync(join(workingDir, "scenario.json"), JSON.stringify(next), "utf8"),
     dispose: () => rmSync(workingDir, { recursive: true, force: true }),
   };
 }

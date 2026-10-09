@@ -36,6 +36,7 @@ import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { DelegationBound, type DelegationReservation } from "./delegation-bound.js";
+import type { runDoctorReport } from "./codex/doctor-report.js";
 import { ActiveRuns } from "./runs.js";
 import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
@@ -626,6 +627,8 @@ const delegateShape = {
 export interface ServerOptions {
   /** The file operations of the usage log, so that tests can make one fail (#29). */
   usageFileSystem?: UsageFileSystem;
+  /** Starts the extended diagnosis, so that tests can control its outcome and timing (#69). */
+  doctorReportRunner?: typeof runDoctorReport;
 }
 
 export function createServer(

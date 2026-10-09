@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "1791569666s since unix epoch",
+  "overallStatus": "fail",
+  "codexVersion": "0.162.0",
+  "checks": {
+    "config.load": {
+      "id": "config.load",
+      "category": "config",
+      "status": "fail",
+      "summary": "config could not be loaded",
+      "details": {
+        "column": "10",
+        "error": "invalid configuration",
+        "file": "/Users/example/.codex-alt/home-broken/config.toml",
+        "line": "2"
+      },
+      "remediation": "Fix the reported config error, then rerun codex doctor.",
+      "durationMs": 0
+    },
+    "network.provider_reachability": {
+      "id": "network.provider_reachability",
+      "category": "reachability",
+      "status": "ok",
+      "summary": "active provider endpoints are reachable over HTTP",
+      "details": {
+        "ChatGPT inference URL": "https://chatgpt.com/backend-api/<redacted> reachable (HTTP 405)",
+        "reachability mode": "ChatGPT auth"
+      },
+      "remediation": null,
+      "durationMs": 272
+    },
+    "terminal.env": {
+      "id": "terminal.env",
+      "category": "terminal",
+      "status": "ok",
+      "summary": "terminal metadata was detected",
+      "details": {
+        "color output": "disabled (stdout is not a terminal)",
+        "stderr is terminal": "false",
+        "stdin is terminal": "false",
+        "stdout is terminal": "false",
+        "terminal": "unknown",
+        "terminal size": "unavailable (Resource temporarily unavailable (os error 35))"
+      },
+      "remediation": null,
+      "durationMs": 8
+    }
+  }
+}
