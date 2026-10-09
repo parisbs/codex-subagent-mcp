@@ -333,6 +333,19 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
 
   lines.push(...renderApplied(result, config));
 
+  if (result.worktree) {
+    const { path, baseCommit, reason } = result.worktree;
+    if (path !== null && baseCommit !== null) {
+      lines.push(`Worktree: ${path}, made from commit ${baseCommit}.`, "");
+    } else if (baseCommit !== null) {
+      lines.push(`Worktree: path unconfirmed (${reason}), made from commit ${baseCommit}.`, "");
+    } else if (path !== null) {
+      lines.push(`Worktree: ${path}, base commit unconfirmed (${reason}).`, "");
+    } else {
+      lines.push(`Worktree: path and base commit unconfirmed (${reason}).`, "");
+    }
+  }
+
   if (result.turnFailure) {
     lines.push(`Codex reported the turn as failed: ${result.turnFailure}`, "");
   }
@@ -1064,6 +1077,7 @@ export function createServer(
           targetFiles: args.target_files,
           acceptanceCriteria: args.acceptance_criteria,
           readOnly: sandbox === "read-only",
+          worktree: args.use_worktree ?? false,
           structuredOutput: outputSchema !== undefined,
         });
 

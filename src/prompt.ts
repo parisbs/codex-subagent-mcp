@@ -128,6 +128,20 @@ export function assemblePrompt(parts: PromptParts): string {
     );
   }
 
+  if (parts.worktree) {
+    blocks.push(
+      section(
+        "execution_mode",
+        "You are running in a git worktree made from a commit. Uncommitted changes to tracked files, " +
+          "untracked files and ignored files in the caller's tree, such as installed dependencies or " +
+          "build output, are not carried over. A tracked file holds its committed content. " +
+          "A missing dependency or file the task needs must be reported, with the verification it " +
+          "prevents, rather than worked around by changing production code, unless the task asks " +
+          "for that change.",
+      ),
+    );
+  }
+
   if (parts.systemInstructions?.trim()) {
     blocks.push(section("orchestrator_instructions", parts.systemInstructions));
   }
