@@ -36,6 +36,7 @@ export interface ActiveRunsOptions {
 
 export class ActiveRuns {
   private readonly runs = new Set<ActiveRun>();
+  private stopping = false;
   private readonly readProcessTable: (timeoutMs?: number) => ProcessEntry[];
 
   constructor(options: ActiveRunsOptions = {}) {
@@ -52,11 +53,16 @@ export class ActiveRuns {
     return this.runs.size;
   }
 
+  get shuttingDown(): boolean {
+    return this.stopping;
+  }
+
   /**
    * Stops every run with the given grace and waits for them, up to the deadline.
    * Resolves with the process ids that could not be confirmed stopped in time.
    */
   async stopAll({ graceMs, deadlineMs, tableTimeoutMs }: StopOptions): Promise<number[]> {
+    this.stopping = true;
     const pending = [...this.runs];
     if (pending.length === 0) return [];
 

@@ -282,7 +282,7 @@ claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -- n
 
 | Tool | What it does |
 | --- | --- |
-| `codex_doctor` | Check the Codex CLI installation and report how to fix it. |
+| `codex_doctor` | Check the Codex CLI installation and report how to fix it; opt in with `extended: true` for a slow, networked `config.load` report. |
 | `list_codex_models` | List available models and their reasoning-effort levels. |
 | `codex_recommend` | Suggest a model and effort for a described task. |
 | `codex_delegate` | Run a task, blocking or in the background, optionally returning JSON that matches a schema. |

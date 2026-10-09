@@ -25,6 +25,7 @@ import { pathToFileURL } from "node:url";
 
 import { buildCodexArgs, type CodexInvocation } from "../src/codex/args.ts";
 import { parseCatalog } from "../src/codex/catalog.ts";
+import { DOCTOR_REPORT_ARGS } from "../src/codex/doctor-report.ts";
 import { MCP_LIST_ARGS, parseMcpInventory, parsePluginInventory, resolveInheritance } from "../src/codex/inherited.ts";
 import type { InheritPolicy } from "../src/config.ts";
 import { NEWEST_VERIFIED_CODEX_VERSION, compareVersions, parseVersion } from "../src/codex/doctor.ts";
@@ -90,6 +91,7 @@ export function argvShapes(model: string, dir: string): Shape[] {
   };
 
   return [
+    { name: "doctor report", argv: [...DOCTOR_REPORT_ARGS] },
     ...SANDBOX_MODES.map((sandbox) => exec(`sandbox ${sandbox}`, { sandbox })),
     exec("approve-for-me", { sandbox: "workspace-write", autoApprove: true }),
     exec("model and effort", { model, reasoningEffort: "low" }),

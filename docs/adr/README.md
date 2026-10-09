@@ -40,3 +40,4 @@ choice changes. There is no exception for facts that became untrue; see
 | [0024](0024-settle-the-open-details-of-the-usage-log.md) | Settle the open details of the usage log | Accepted |
 | [0025](0025-settle-the-open-details-of-the-delegation-bound.md) | Settle the open details of the delegation bound | Accepted |
 | [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) | Report a worktree run from the session file alone | Accepted |
+| [0027](0027-opt-in-to-the-extended-doctor-report.md) | Opt in to the extended doctor report | Accepted |
