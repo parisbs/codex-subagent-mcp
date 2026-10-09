@@ -58,9 +58,11 @@ subcommands and between versions. Two traps already found the hard way, both cov
   why the delegation tools pass their `working_dir` to both.
 - What a run *applied* is not what it was *asked for*. The session file under
   `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` carries a `turn_context` line per
-  turn with the model, effort, sandbox and cwd Codex resolved. That format is internal and
-  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins real 0.154.0, 0.159.2 and 0.160.0 lines), and
-  keep every failure path reporting "unconfirmed" rather than guessing. A read of it changes nothing
+  turn with the model, effort, sandbox and cwd Codex resolved, and a `session_meta` line with
+  `git.commit_hash`, the commit the session started from. That format is internal and
+  undocumented: re-verify it on every CLI bump (`test/rollout.test.ts` pins real 0.154.0, 0.159.2,
+  0.160.0 and 0.162.0 lines), and keep every failure path reporting "unconfirmed" rather than
+  guessing. A read of it changes nothing
   but the report, except the directory a follow-up resumes in: on a registry miss (recovery) and
   after a `use_worktree` run, where the worktree path exists nowhere else. An unconfirmed read there
   degrades to the old behaviour or to a refusal, never to a guessed directory (ADR 20).
