@@ -3,7 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { Diagnosis } from "./doctor.js";
 import type { CancelOptions } from "./runner.js";
 import type { ActiveRun } from "../runs.js";
-import { descendantGroups, processGroupAlive, signalGroups, signalProcessTree } from "./terminate.js";
+import { descendantGroups, processGroupAlive, signalGroups, signalProcessTree, type ProcessEntry } from "./terminate.js";
 
 /**
  * The extended diagnosis: `codex doctor --json`, run only when `codex_doctor` is
@@ -341,6 +341,10 @@ export function runDoctorReport(options: DoctorReportOptions): DoctorReportHandl
   let groups: number[] = [];
   let killDueAt: number | null = null;
   let killTimer: NodeJS.Timeout | undefined;
+  // The reader for the forced stage, from the latest stop request that named one. A shutdown's
+  // null (no second read) is kept even when its instant is later than one already pending: the
+  // pending timer reads this, not the options of the request that armed it.
+  let forcedTable: (() => ProcessEntry[]) | null | undefined;
   let settleTimer: NodeJS.Timeout | undefined;
   let resolveResult!: (outcome: DoctorRunOutcome) => void;
   let markExited!: () => void;
@@ -374,6 +378,7 @@ export function runDoctorReport(options: DoctorReportOptions): DoctorReportHandl
   const stop = (reason: DoctorRunStop, cancel: CancelOptions = {}): void => {
     if (closed && killDueAt === null) return;
     const dueAt = cancel.killAt ?? Date.now() + (cancel.graceMs ?? options.killGraceMs ?? 5000);
+    if (cancel.processTables && forcedTable !== null) forcedTable = cancel.processTables.forced;
     if (stopped === null) {
       stopped = reason;
       if (alive()) groups = descendantGroups(child.pid, { listProcesses: cancel.processTables?.polite });
@@ -387,9 +392,9 @@ export function runDoctorReport(options: DoctorReportOptions): DoctorReportHandl
       killDueAt = dueAt;
       killTimer = setTimeout(() => {
         killDueAt = null;
-        if (cancel.processTables?.forced !== null && alive()) {
+        if (forcedTable !== null && alive()) {
           groups = [...new Set([...groups, ...descendantGroups(child.pid, {
-            listProcesses: cancel.processTables?.forced,
+            listProcesses: forcedTable,
           })])];
         }
         signalTree("SIGKILL");
