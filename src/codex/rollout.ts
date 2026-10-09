@@ -3,7 +3,7 @@ import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { AppliedSetting, AppliedSettings, ReasoningEffort, SandboxMode } from "../types.js";
+import type { AppliedSetting, AppliedSettings, ReasoningEffort, SandboxMode, WorktreeReport } from "../types.js";
 import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
 
 /**
@@ -51,6 +51,11 @@ export interface TurnContextLookup {
   context: TurnContext | null;
   /** Why nothing could be read. Null when `context` is set. */
   reason: string | null;
+  /**
+   * The commit the session started from, `session_meta.git.commit_hash`, read
+   * independently of `context`. Null or absent when it could not be read.
+   */
+  baseCommit?: string | null;
 }
 
 /** The complete subset of a turn context that can safely seed a resume. */
@@ -121,11 +126,43 @@ export function parseTurnContextLine(line: string): TurnContext | null {
   return Object.values(context).some((value) => value !== null) ? context : null;
 }
 
-/** Reads a session file from the start, keeping the last turn context it contains. */
-async function readLastTurnContext(file: string): Promise<TurnContext | null> {
+/**
+ * Extracts the commit a session started from out of one `session_meta` line.
+ *
+ * Returns null for any other line and for a commit that is missing or is not a
+ * full hexadecimal object name, so a format change degrades to "unconfirmed".
+ */
+export function parseSessionMetaCommit(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed.includes("session_meta")) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  const envelope = asRecord(parsed);
+  if (envelope?.type !== "session_meta") return null;
+  const payload = asRecord(envelope.payload);
+  const git = asRecord(payload?.git);
+  const commit = asString(git?.commit_hash);
+  return commit !== null && (commit.length === 40 || commit.length === 64) && !/[^0-9a-f]/.test(commit)
+    ? commit
+    : null;
+}
+
+/** Reads the base commit and last turn context independently in one pass. */
+async function readSession(file: string): Promise<TurnContextLookup> {
   let last: TurnContext | null = null;
+  let baseCommit: string | null = null;
   let buffer = "";
   let read = 0;
+  const readLine = (line: string): void => {
+    last = parseTurnContextLine(line) ?? last;
+    baseCommit = baseCommit ?? parseSessionMetaCommit(line);
+  };
 
   const stream = createReadStream(file, { encoding: "utf8" });
   try {
@@ -134,7 +171,7 @@ async function readLastTurnContext(file: string): Promise<TurnContext | null> {
       buffer += chunk as string;
       let newline = buffer.indexOf("\n");
       while (newline !== -1) {
-        last = parseTurnContextLine(buffer.slice(0, newline)) ?? last;
+        readLine(buffer.slice(0, newline));
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf("\n");
       }
@@ -146,7 +183,8 @@ async function readLastTurnContext(file: string): Promise<TurnContext | null> {
     stream.destroy();
   }
 
-  return parseTurnContextLine(buffer) ?? last;
+  readLine(buffer);
+  return { context: last, baseCommit, reason: last ? null : "the session file recorded no turn context" };
 }
 
 async function listDirectory(dir: string): Promise<string[]> {
@@ -212,14 +250,29 @@ async function lookup(threadId: string | null, codexHome: string): Promise<TurnC
   }
 
   try {
-    const context = await readLastTurnContext(file);
-    return context
-      ? { context, reason: null }
-      : { context: null, reason: "the session file recorded no turn context" };
+    return await readSession(file);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { context: null, reason: `the session file could not be read: ${message}` };
   }
+}
+
+/** Keeps each confirmed worktree field even when the other could not be read. */
+export function reportWorktree(lookupResult: TurnContextLookup): WorktreeReport {
+  const path = lookupResult.context?.cwd ?? null;
+  const baseCommit = lookupResult.baseCommit ?? null;
+  // `baseCommit` is null only when the file was read; when it is absent the file never was, and the
+  // lookup's own reason says why, so the report must not claim the file lacked a commit.
+  const fileRead = lookupResult.baseCommit !== undefined;
+  const reasons: string[] = [];
+  if (path === null) reasons.push(lookupResult.reason ?? "the turn context recorded no working directory");
+  if (baseCommit === null) {
+    const why = fileRead
+      ? "the session file recorded no readable base commit"
+      : (lookupResult.reason ?? "the session file was not read");
+    if (!reasons.includes(why)) reasons.push(why);
+  }
+  return { path, baseCommit, reason: reasons.length > 0 ? reasons.join("; ") : null };
 }
 
 /**

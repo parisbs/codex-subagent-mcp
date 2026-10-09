@@ -16,7 +16,7 @@ import {
   signalProcessTree,
   type ProcessEntry,
 } from "./terminate.js";
-import { compareApplied, readTurnContext } from "./rollout.js";
+import { compareApplied, readTurnContext, reportWorktree } from "./rollout.js";
 import {
   JsonLinesParser,
   describeEvent,
@@ -565,15 +565,21 @@ export function runCodex(options: RunOptions): RunHandle {
       };
       try {
         const lookup = await readTurnContext({ threadId: base.threadId, codexHome });
-        resolve({ ...base, applied: await compareApplied(requested, lookup) });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
         resolve({
           ...base,
-          applied: await compareApplied(requested, {
-            context: null,
-            reason: `the applied settings could not be checked: ${message}`,
-          }),
+          applied: await compareApplied(requested, lookup),
+          ...(invocation.useWorktree ? { worktree: reportWorktree(lookup) } : {}),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const lookup = {
+          context: null,
+          reason: `the applied settings could not be checked: ${message}`,
+        };
+        resolve({
+          ...base,
+          applied: await compareApplied(requested, lookup),
+          ...(invocation.useWorktree ? { worktree: reportWorktree(lookup) } : {}),
         });
       }
     };

@@ -128,7 +128,9 @@ resume.
 > so my working tree stays clean.
 
 `use_worktree` sends the run's edits to `~/.codex/worktrees/`; results list the files it touched and
-where each landed, up to a thousand distinct files, then report the omitted count. The server does
+where each landed, up to a thousand distinct files, then report the omitted count, and a line names
+the worktree and the commit it was made from. Codex is told beforehand that uncommitted changes,
+untracked files and ignored files such as installed dependencies are not in it. The server does
 not clean worktrees up: they may hold unapplied work. The experimental feature is enabled only for
 that invocation; your Codex configuration is unchanged. A follow-up continues in the same worktree;
 when Codex's session file could not confirm where that was, the follow-up asks for `working_dir`

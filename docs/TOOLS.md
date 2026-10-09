@@ -284,6 +284,18 @@ explicitly so it does not waste the run discovering the restriction. Writing req
 `use_worktree` sends those writes to a managed git worktree, which the server does not clean up —
 a worktree may hold changes you have not applied yet.
 
+For `use_worktree`, blocking and background results include their own line:
+`Worktree: <path>, made from commit <hash>.` The path comes from the session file's
+`turn_context`, and the base commit from `session_meta`. Each unreadable field is reported as
+unconfirmed with a reason; the server never runs git or fills a missing value from the caller's tree.
+
+The prompt tells a worktree run that uncommitted changes to tracked files, untracked files and
+ignored files in the caller's tree, such as installed dependencies or build output, are not carried
+over, and that tracked files hold their committed content. A missing dependency or file must be
+reported with the verification it prevents, rather than worked around by changing production code,
+unless the task asks for that change. This fixed notice has its own `execution_mode` section; a
+read-only worktree run receives both notices. Follow-ups do not repeat the worktree notice.
+
 The prompt also explains two limits of read-only verification. Commands that need to create
 temporary, cache or build files can be denied by the sandbox; when that specific denial prevents a
 check, the result should say the verification could not be completed rather than call it a code

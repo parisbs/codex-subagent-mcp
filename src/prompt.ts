@@ -90,6 +90,8 @@ export interface PromptParts {
   readOnly?: boolean;
   /** Set when the turn passes an output schema: the final message must be only JSON. */
   structuredOutput?: boolean;
+  /** Set when the run is in a managed git worktree made from the last commit (ADR 26). */
+  worktree?: boolean;
 }
 
 function section(tag: string, body: string): string {
@@ -122,6 +124,20 @@ export function assemblePrompt(parts: PromptParts): string {
           "behaviour under investigation. Shell commands have no network access in this mode. " +
           "When the task needs current external information, use the web-search tool if it is " +
           "enabled for this run.",
+      ),
+    );
+  }
+
+  if (parts.worktree) {
+    blocks.push(
+      section(
+        "execution_mode",
+        "You are running in a git worktree made from a commit. Uncommitted changes to tracked files, " +
+          "untracked files and ignored files in the caller's tree, such as installed dependencies or " +
+          "build output, are not carried over. A tracked file holds its committed content. " +
+          "A missing dependency or file the task needs must be reported, with the verification it " +
+          "prevents, rather than worked around by changing production code, unless the task asks " +
+          "for that change.",
       ),
     );
   }

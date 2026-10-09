@@ -121,6 +121,16 @@ export interface AppliedSettings {
  */
 export type StructuredResult = { ok: true; json: string } | { ok: false; error: string };
 
+/** Where a `use_worktree` run made its edits, as Codex recorded it (ADR 21, ADR 26). */
+export interface WorktreeReport {
+  /** The directory from the session file's `turn_context`; null when unconfirmed. */
+  path: string | null;
+  /** The commit from the session file's `session_meta`; null when unconfirmed. */
+  baseCommit: string | null;
+  /** Why a field could not be confirmed. Null when both are. */
+  reason: string | null;
+}
+
 export interface DelegationResult {
   /** Present only once Node reported the delegation process pid. */
   spawnedAtMs?: number;
@@ -139,6 +149,8 @@ export interface DelegationResult {
   workingDir: string;
   /** What Codex recorded as applied, compared against the requested fields. */
   applied: AppliedSettings;
+  /** Present only for a `use_worktree` run. */
+  worktree?: WorktreeReport;
   /** Every completed command observed, including commands omitted from `commands`. */
   commandCount: number;
   commands: ExecutedCommand[];

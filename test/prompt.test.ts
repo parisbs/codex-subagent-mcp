@@ -117,3 +117,66 @@ test("AC-9 says the instruction supersedes earlier ones and never carries a sche
   assert.match(STRUCTURED_OUTPUT_INSTRUCTION, /supersedes/);
   assert.doesNotMatch(STRUCTURED_OUTPUT_INSTRUCTION, /"type"|additionalProperties/);
 });
+
+// #150: a use_worktree run is told what its worktree lacks before it starts (ADR 26).
+
+const WORKTREE_NOTICE = /not carried over/;
+
+const executionModeSections = (prompt: string): string[] =>
+  prompt.match(/<execution_mode>[\s\S]*?<\/execution_mode>/g) ?? [];
+
+/** The one `execution_mode` section that carries the worktree notice, so content is checked inside it. */
+function worktreeSection(prompt: string): string {
+  const found = executionModeSections(prompt).filter((section) => WORKTREE_NOTICE.test(section));
+  assert.equal(found.length, 1, `expected one execution_mode section with the worktree notice:\n${prompt}`);
+  return found[0]!;
+}
+
+test("AC-4 (#150) tells a worktree run what its worktree lacks and to report a missing dependency", () => {
+  const section = worktreeSection(assemblePrompt({ task: "Fix the bug", worktree: true }));
+  for (const fact of [
+    /git worktree/i,
+    /uncommitted changes/i,
+    /untracked files/i,
+    /ignored files/i,
+    /installed dependencies/i,
+    /committed content/i,
+    /missing dependency/i,
+    /reported/i,
+    /production code/i,
+  ]) {
+    assert.match(section, fact);
+  }
+});
+
+test("AC-4 (#150) puts the worktree notice in the slot of the read-only notice", () => {
+  const prompt = assemblePrompt({ task: "Fix the bug", systemInstructions: "Be terse", worktree: true });
+  const notice = prompt.indexOf(worktreeSection(prompt));
+  assert.ok(notice > prompt.indexOf(NO_FURTHER_DELEGATION_INSTRUCTION));
+  assert.ok(notice < prompt.indexOf("<orchestrator_instructions>"));
+});
+
+test("AC-4 (#150) gives a read-only worktree run both notices, each in its own section and slot", () => {
+  const prompt = assemblePrompt({ task: "Audit it", systemInstructions: "Be terse", readOnly: true, worktree: true });
+  const readOnly = executionModeSections(prompt).filter((section) => /read-only sandbox/.test(section));
+  assert.equal(readOnly.length, 1, prompt);
+  const worktree = worktreeSection(prompt);
+  assert.notEqual(readOnly[0], worktree, "the two notices share one section");
+  for (const section of [readOnly[0]!, worktree]) {
+    const at = prompt.indexOf(section);
+    assert.ok(at > prompt.indexOf(NO_FURTHER_DELEGATION_INSTRUCTION));
+    assert.ok(at < prompt.indexOf("<orchestrator_instructions>"));
+  }
+});
+
+test("AC-5 (#150) leaves a run without a worktree with no worktree notice or section", () => {
+  for (const parts of [{}, { worktree: false }, { readOnly: true }, { readOnly: true, worktree: false }]) {
+    const prompt = assemblePrompt({ task: "Fix the bug", ...parts });
+    assert.doesNotMatch(prompt, WORKTREE_NOTICE, JSON.stringify(parts));
+    assert.deepEqual(
+      executionModeSections(prompt).filter((section) => /worktree/i.test(section)),
+      [],
+      JSON.stringify(parts),
+    );
+  }
+});
