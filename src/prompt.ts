@@ -90,6 +90,8 @@ export interface PromptParts {
   readOnly?: boolean;
   /** Set when the turn passes an output schema: the final message must be only JSON. */
   structuredOutput?: boolean;
+  /** Set when the run is in a managed git worktree made from the last commit (ADR 26). */
+  worktree?: boolean;
 }
 
 function section(tag: string, body: string): string {

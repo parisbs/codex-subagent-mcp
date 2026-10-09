@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   codexHomeDir,
   compareApplied,
+  parseSessionMetaCommit,
   parseTurnContextLine,
   recoverThreadSettings,
   readTurnContext,
@@ -320,6 +321,179 @@ test("reads a turn context recorded by codex-cli 0.160.0", async () => {
       sandbox: "read-only",
       approvalPolicy: "never",
     });
+  } finally {
+    home.dispose();
+  }
+});
+
+// #150: the commit a use_worktree run's worktree was made from, read from the session file (ADR 26).
+
+/** session_meta recorded by codex-cli 0.154.0. Base instructions, account ids, paths and remote replaced. */
+const REAL_SESSION_META_0154 =
+  "{\"timestamp\":\"2026-09-21T19:37:10.828Z\",\"ordinal\":0,\"type\":\"session_meta\",\"payload\":{\"session_id\":\"01a0c578-e879-7453-94ae-2b35721751d2\",\"id\":\"01a0c578-e879-7453-94ae-2b35721751d2\",\"timestamp\":\"2026-09-21T19:37:10.570Z\",\"cwd\":\"/workspace/project\",\"originator\":\"codex_exec\",\"cli_version\":\"0.154.0\",\"source\":\"exec\",\"thread_source\":\"user\",\"model_provider\":\"openai\",\"base_instructions\":{\"text\":\"(omitted)\",\"provenance\":{\"type\":\"model\",\"model\":\"gpt-5.6-sol\"}},\"history_mode\":\"paginated\",\"context_window\":{\"window_id\":\"01a0c578-e879-7453-94ae-2b49f1370995\"},\"git\":{\"commit_hash\":\"e5d8e2babb467cbd86582939679ddf5f8bb86333\",\"branch\":\"main\",\"repository_url\":\"git@github.com:example/project.git\"}}}";
+
+/** session_meta recorded by codex-cli 0.159.2. Base instructions, account ids, paths and remote replaced. */
+const REAL_SESSION_META_0159 =
+  "{\"timestamp\":\"2026-10-02T00:07:25.197Z\",\"ordinal\":0,\"type\":\"session_meta\",\"payload\":{\"creator_user_id\":\"user-00000000000000000000000\",\"creator_account_id\":\"00000000-0000-0000-0000-000000000000\",\"session_id\":\"01a0f9ef-ea9b-74a0-b3d6-af6452cf7cb7\",\"id\":\"01a0f9ef-ea9b-74a0-b3d6-af6452cf7cb7\",\"timestamp\":\"2026-10-02T00:07:25.120Z\",\"cwd\":\"/workspace/project\",\"runtime_workspace_roots\":[\"/workspace/project\"],\"originator\":\"codex_exec\",\"cli_version\":\"0.159.2\",\"source\":\"exec\",\"thread_source\":\"user\",\"model_provider\":\"openai\",\"base_instructions\":{\"text\":\"(omitted)\",\"provenance\":{\"type\":\"model\",\"model\":\"gpt-6.1-sol\"}},\"history_mode\":\"paginated\",\"context_window\":{\"window_id\":\"01a0f9ef-ea9d-73f2-9de3-21f85a2a1431\"},\"git\":{\"commit_hash\":\"63ba9288fac849994b09c370dca1750fddcf80ea\",\"branch\":\"test/inheritance-override-readback\",\"repository_url\":\"git@github.com:example/project.git\"}}}";
+
+/** session_meta recorded by codex-cli 0.159.2 outside a git repository. Base instructions, account ids, paths and remote replaced. */
+const REAL_SESSION_META_0159_NO_GIT =
+  "{\"timestamp\":\"2026-10-02T00:08:59.479Z\",\"ordinal\":0,\"type\":\"session_meta\",\"payload\":{\"creator_user_id\":\"user-00000000000000000000000\",\"creator_account_id\":\"00000000-0000-0000-0000-000000000000\",\"session_id\":\"01a0f9f1-5b2a-7301-a6e2-fcca977897fa\",\"id\":\"01a0f9f1-5b2a-7301-a6e2-fcca977897fa\",\"timestamp\":\"2026-10-02T00:08:59.437Z\",\"cwd\":\"/tmp/scratch\",\"runtime_workspace_roots\":[\"/tmp/scratch\"],\"originator\":\"codex_exec\",\"cli_version\":\"0.159.2\",\"source\":\"exec\",\"thread_source\":\"user\",\"model_provider\":\"openai\",\"base_instructions\":{\"text\":\"(omitted)\",\"provenance\":{\"type\":\"model\",\"model\":\"gpt-5.6-luna\"}},\"history_mode\":\"paginated\",\"context_window\":{\"window_id\":\"01a0f9f1-5b2c-7ef3-97a9-425696bbeb93\"}}}";
+
+/** session_meta recorded by codex-cli 0.160.0. Base instructions, account ids, paths and remote replaced. */
+const REAL_SESSION_META_0160 =
+  "{\"timestamp\":\"2026-10-02T18:15:13.266Z\",\"ordinal\":0,\"type\":\"session_meta\",\"payload\":{\"creator_user_id\":\"user-00000000000000000000000\",\"creator_account_id\":\"00000000-0000-0000-0000-000000000000\",\"session_id\":\"01a0fdd3-d387-7730-b89e-85f58165d1a8\",\"id\":\"01a0fdd3-d387-7730-b89e-85f58165d1a8\",\"timestamp\":\"2026-10-02T18:15:13.090Z\",\"cwd\":\"/workspace/project\",\"runtime_workspace_roots\":[\"/workspace/project\"],\"originator\":\"codex_exec\",\"cli_version\":\"0.160.0\",\"source\":\"exec\",\"thread_source\":\"user\",\"model_provider\":\"openai\",\"base_instructions\":{\"text\":\"(omitted)\",\"provenance\":{\"type\":\"model\",\"model\":\"gpt-6.1-sol\"}},\"history_mode\":\"paginated\",\"context_window\":{\"window_id\":\"01a0fdd3-d397-78c3-9f66-e1da4a240dc8\"},\"git\":{\"commit_hash\":\"26676c3635426bd3c6d864b2d09fcee3bfc52ef4\",\"branch\":\"main\",\"repository_url\":\"git@github.com:example/project.git\"}}}";
+
+/** session_meta recorded by codex-cli 0.162.0 in a use_worktree run. Base instructions, account ids, paths and remote replaced. */
+const REAL_SESSION_META_0162_WORKTREE =
+  "{\"timestamp\":\"2026-10-08T21:49:12.732Z\",\"ordinal\":0,\"type\":\"session_meta\",\"payload\":{\"creator_user_id\":\"user-00000000000000000000000\",\"creator_account_id\":\"00000000-0000-0000-0000-000000000000\",\"session_id\":\"01a11d7d-e5c4-7cb3-8087-b6a057595717\",\"id\":\"01a11d7d-e5c4-7cb3-8087-b6a057595717\",\"timestamp\":\"2026-10-08T21:49:12.559Z\",\"cwd\":\"/home/user/.codex/worktrees/425f/project\",\"runtime_workspace_roots\":[\"/home/user/.codex/worktrees/425f/project\"],\"originator\":\"codex_exec\",\"cli_version\":\"0.162.0\",\"source\":\"exec\",\"thread_source\":\"user\",\"model_provider\":\"openai\",\"base_instructions\":{\"text\":\"(omitted)\",\"provenance\":{\"type\":\"model\",\"model\":\"gpt-6-luna\"}},\"history_mode\":\"paginated\",\"context_window\":{\"window_id\":\"01a11d7d-e5c7-7fd3-b22d-74a7b4d9cd1c\"},\"git\":{\"commit_hash\":\"0b3396c23a5985c6c308b77566e3b7fa6dd2756b\"}}}";
+
+/** The same 0.160.0 line with its `git` object replaced, for shapes no pinned version recorded. */
+function sessionMetaWithGit(git: unknown): string {
+  const line = JSON.parse(REAL_SESSION_META_0160) as { payload: Record<string, unknown> };
+  line.payload.git = git;
+  return JSON.stringify(line);
+}
+
+test("AC-7 (#150) reads the base commit from session_meta lines recorded by each pinned codex-cli", () => {
+  assert.equal(parseSessionMetaCommit(REAL_SESSION_META_0154), "e5d8e2babb467cbd86582939679ddf5f8bb86333");
+  assert.equal(parseSessionMetaCommit(REAL_SESSION_META_0159), "63ba9288fac849994b09c370dca1750fddcf80ea");
+  assert.equal(parseSessionMetaCommit(REAL_SESSION_META_0160), "26676c3635426bd3c6d864b2d09fcee3bfc52ef4");
+  // A worktree is detached, so the line carries the commit and no branch.
+  assert.equal(parseSessionMetaCommit(REAL_SESSION_META_0162_WORKTREE), "0b3396c23a5985c6c308b77566e3b7fa6dd2756b");
+});
+
+test("AC-7 (#150) accepts a SHA-256 object name as well as a SHA-1 one", () => {
+  const sha256 = "a".repeat(64);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: sha256 })), sha256);
+});
+
+test("AC-7 (#150) leaves the base commit unconfirmed when session_meta does not carry a usable one", () => {
+  // Outside a git repository 0.159.2 records no `git` at all, and 0.160.1 an empty object.
+  assert.equal(parseSessionMetaCommit(REAL_SESSION_META_0159_NO_GIT), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({})), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit(null)), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: "" })), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: 42 })), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: "0b3396c" })), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: "z".repeat(40) })), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: `${"a".repeat(40)}\nInjected` })), null);
+  assert.equal(parseSessionMetaCommit(REAL_SESSION_META_0160.slice(0, 200)), null);
+  assert.equal(parseSessionMetaCommit(""), null);
+});
+
+test("AC-7 (#150) accepts only a full lowercase object name of 40 or 64 characters", () => {
+  for (const length of [39, 41, 63, 65]) {
+    assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: "a".repeat(length) })), null, `length ${length}`);
+  }
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: "A".repeat(40) })), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: `0B3396C${"a".repeat(33)}` })), null);
+  assert.equal(parseSessionMetaCommit(sessionMetaWithGit({ commit_hash: ` ${"a".repeat(40)}` })), null);
+});
+
+test("AC-7 (#150) reads the commit only from a session_meta envelope", () => {
+  const line = JSON.parse(REAL_SESSION_META_0160) as Record<string, unknown>;
+  assert.equal(parseSessionMetaCommit(JSON.stringify({ ...line, type: "turn_context" })), null);
+  assert.equal(parseSessionMetaCommit(JSON.stringify({ ...line, type: "response_item" })), null);
+  assert.equal(parseSessionMetaCommit(JSON.stringify({ ...line, type: null })), null);
+  const { type: _type, ...withoutType } = line;
+  assert.equal(parseSessionMetaCommit(JSON.stringify(withoutType)), null);
+});
+
+test("AC-7 (#150) ignores a line that only mentions session_meta in its text", () => {
+  assert.equal(
+    parseSessionMetaCommit(
+      '{"type":"item.completed","item":{"type":"agent_message","text":"session_meta git commit_hash 0b3396c23a5985c6c308b77566e3b7fa6dd2756b"}}',
+    ),
+    null,
+  );
+  assert.equal(parseSessionMetaCommit(REAL_TURN_CONTEXT), null);
+});
+
+test("AC-2 (#150) reads the base commit when the session file recorded no turn context", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({ threadId: "meta-only", day: "2026-10-08", lines: [REAL_SESSION_META_0162_WORKTREE] });
+    const lookup = await lookupIn(home, "meta-only");
+    assert.equal(lookup.context, null);
+    assert.match(lookup.reason ?? "", /no turn context/);
+    assert.equal(lookup.baseCommit, "0b3396c23a5985c6c308b77566e3b7fa6dd2756b");
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#150) reads the turn context when session_meta carries no base commit", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({ threadId: "context-only", day: "2026-10-01", lines: [REAL_SESSION_META_0159_NO_GIT, REAL_TURN_CONTEXT_0159] });
+    const lookup = await lookupIn(home, "context-only");
+    assert.equal(lookup.context?.cwd, "/workspace/project");
+    assert.equal(lookup.baseCommit ?? null, null);
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#150) reads both from one session file", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "both",
+      day: "2026-10-08",
+      // The two lines name different directories, and the commit is not one any other test uses, so
+      // the test tells which line each value came from.
+      lines: [
+        sessionMetaWithGit({ commit_hash: "1f0d1f0d1f0d1f0d1f0d1f0d1f0d1f0d1f0d1f0d" }),
+        turnContext({ cwd: "/home/user/.codex/worktrees/9ef9/project" }),
+      ],
+    });
+    const lookup = await lookupIn(home, "both");
+    assert.equal(lookup.context?.cwd, "/home/user/.codex/worktrees/9ef9/project");
+    assert.equal(lookup.baseCommit, "1f0d1f0d1f0d1f0d1f0d1f0d1f0d1f0d1f0d1f0d");
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#150) keeps the base commit when the turn context is malformed", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "malformed-context",
+      day: "2026-10-08",
+      lines: [REAL_SESSION_META_0162_WORKTREE, '{"type":"turn_context","payload":{"cwd":'],
+    });
+    const lookup = await lookupIn(home, "malformed-context");
+    assert.equal(lookup.context, null);
+    assert.equal(lookup.baseCommit, "0b3396c23a5985c6c308b77566e3b7fa6dd2756b");
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#150) keeps the turn context when session_meta is malformed", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "malformed-meta",
+      day: "2026-10-01",
+      lines: ['{"type":"session_meta","payload":', REAL_TURN_CONTEXT_0159],
+    });
+    const lookup = await lookupIn(home, "malformed-meta");
+    assert.equal(lookup.context?.cwd, "/workspace/project");
+    assert.equal(lookup.baseCommit ?? null, null);
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#150) leaves both unconfirmed when there is no session file", async () => {
+  const home = createCodexHome();
+  try {
+    const lookup = await lookupIn(home, "absent");
+    assert.equal(lookup.context, null);
+    assert.equal(lookup.baseCommit ?? null, null);
   } finally {
     home.dispose();
   }

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import cp from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { syncBuiltinESMExports } from "node:module";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
@@ -52,6 +52,10 @@ const CATALOG = {
 };
 
 let spawnedArgs: string[][] = [];
+/** The executable of every process the server started through spawn or execFile (#150, AC-6). */
+let startedFiles: string[] = [];
+/** A commit that exists only in the caller's tree as the tests fake it, never in a session file. */
+const CALLER_TREE_COMMIT = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
 let spawnedCwds: (string | undefined)[] = [];
 /** What each spawned run received on stdin, and the schema file's content at spawn time (#28). */
 let spawnedStdins: string[] = [];
@@ -80,10 +84,11 @@ let catalogByCwd = new Map<string, unknown>();
 let probedCwds: (string | undefined)[] = [];
 
 const fakeExecFile = async (
-  _file: string,
+  file: string,
   args: string[],
   options?: { cwd?: string },
 ): Promise<{ stdout: string; stderr: string }> => {
+  startedFiles.push(file);
   probedCwds.push(options?.cwd);
   if (args[0] === "--version") return { stdout: fakeVersion, stderr: "" };
   if (args[0] === "mcp") {
@@ -100,13 +105,19 @@ const fakeExecFile = async (
     const local = options?.cwd === undefined ? undefined : catalogByCwd.get(options.cwd);
     return { stdout: JSON.stringify(local ?? CATALOG), stderr: "" };
   }
+  // A caller-tree probe (`git rev-parse HEAD`) gets a commit no session file holds, so a result that
+  // reports it shows the commit was taken from the caller's tree (#150, AC-2).
+  if (args.includes("rev-parse")) return { stdout: `${CALLER_TREE_COMMIT}\n`, stderr: "" };
   return { stdout: "Logged in using ChatGPT", stderr: "" };
 };
 
-cp.execFile = (() => {}) as unknown as typeof cp.execFile;
+cp.execFile = ((file: string) => {
+  startedFiles.push(file);
+}) as unknown as typeof cp.execFile;
 (cp.execFile as unknown as Record<symbol, unknown>)[promisify.custom] = fakeExecFile;
 
-cp.spawn = ((_file: string, args: string[], options?: { cwd?: string }) => {
+cp.spawn = ((file: string, args: string[], options?: { cwd?: string }) => {
+  startedFiles.push(file);
   spawnedArgs.push(args);
   spawnedCwds.push(options?.cwd);
   const schemaAt = args.indexOf("--output-schema");
@@ -189,6 +200,7 @@ async function withServer<T>(
   }
 
   spawnedArgs = [];
+  startedFiles = [];
   spawnedCwds = [];
   spawnedStdins = [];
   spawnedSchemas = [];
@@ -1969,7 +1981,9 @@ async function backgroundResult(
 ): Promise<string> {
   const jobId = /[0-9a-f-]{36}/.exec(textOf(started))?.[0];
   assert.ok(jobId, `no job id in ${textOf(started)}`);
-  for (let attempt = 0; attempt < 200; attempt++) {
+  // Poll by time, not attempts: reading the session file may take up to its 2 s bound on a slow runner.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
     const status = await call("codex_job_status", { job_id: jobId });
     if (!/state: running/.test(textOf(status))) return textOf(await call("codex_job_result", { job_id: jobId }));
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -2138,5 +2152,232 @@ test("AC-3 (#149) a follow-up with working_dir runs after an unconfirmed worktre
       assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
       assert.equal(spawnedCwds[1], chosen);
     });
+  });
+});
+
+// #150: a use_worktree run reports its worktree and base commit from the session file (ADR 26).
+
+const BASE_COMMIT = "0b3396c23a5985c6c308b77566e3b7fa6dd2756b";
+const WORKTREE_NOTICE = /not carried over/;
+const WORKTREE_LINE = /^Worktree: .*$/m;
+
+/**
+ * The session file of a worktree run. `session_meta` names the caller's directory, as no real run
+ * does, so a line that took its path from there rather than from `turn_context` is caught.
+ */
+function writeWorktreeRun(
+  codexHome: ReturnType<typeof createCodexHome>,
+  options: { cwd: string | null; commit?: string | null; turnContext?: boolean },
+): void {
+  const git = options.commit === null ? {} : { commit_hash: options.commit ?? BASE_COMMIT };
+  const lines = [
+    JSON.stringify({
+      timestamp: "2026-10-08T21:49:12.732Z",
+      ordinal: 0,
+      type: "session_meta",
+      payload: { cwd: tmpdir(), originator: "codex_exec", cli_version: "0.162.0", source: "exec", git },
+    }),
+  ];
+  if (options.turnContext !== false) {
+    lines.push(
+      turnContextLine({ cwd: options.cwd, model: "cheap-model", effort: "low", sandbox_policy: { type: "workspace-write" } }),
+    );
+  }
+  codexHome.write({ threadId: WORKTREE_THREAD, day: "2026-10-08", lines });
+}
+
+/**
+ * A caller directory whose `.git/HEAD` names a commit no session file holds. With the faked
+ * `git rev-parse`, it baits every way of taking the commit from the caller's tree.
+ */
+async function withCallerTree<T>(body: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "codex-caller-"));
+  try {
+    mkdirSync(join(dir, ".git"));
+    writeFileSync(join(dir, ".git", "HEAD"), `${CALLER_TREE_COMMIT}\n`);
+    return await body(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const worktreeLineOf = (text: string): string => {
+  const line = WORKTREE_LINE.exec(text)?.[0];
+  assert.ok(line, `no worktree line in:\n${text}`);
+  return line;
+};
+
+/** The `execution_mode` sections of a prompt that carry the worktree notice. */
+const worktreeSectionsOf = (prompt: string): string[] =>
+  (prompt.match(/<execution_mode>[\s\S]*?<\/execution_mode>/g) ?? []).filter((section) => /worktree/i.test(section));
+
+/** No git process was started (AC-6). */
+function assertNoGit(): void {
+  const git = startedFiles.filter((file) => /^git(\.exe)?$/i.test(win32.basename(file)));
+  assert.deepEqual(git, [], `started: ${startedFiles.join(", ")}`);
+}
+
+/** Waits until a background delegation has settled, without asking for its result. */
+async function settledJob(call: (name: string, args: unknown) => Promise<unknown>, started: unknown): Promise<string> {
+  const jobId = /[0-9a-f-]{36}/.exec(textOf(started))?.[0];
+  assert.ok(jobId, `no job id in ${textOf(started)}`);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (!/state: running/.test(textOf(await call("codex_job_status", { job_id: jobId })))) return jobId;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`job ${jobId} never finished`);
+}
+
+const CONFIRMED_LINE = (worktree: string) => `Worktree: ${worktree}, made from commit ${BASE_COMMIT}.`;
+const PATH_UNCONFIRMED = new RegExp(`^Worktree: path unconfirmed \\(.+\\), made from commit ${BASE_COMMIT}\\.$`);
+const COMMIT_UNCONFIRMED = (worktree: string) =>
+  new RegExp(`^Worktree: ${escapeRegExp(worktree)}, base commit unconfirmed \\(.+\\)\\.$`);
+const BOTH_UNCONFIRMED = /^Worktree: path and base commit unconfirmed \(.+\)\.$/;
+
+/** Every shape of session file a worktree run can leave, and the line each one must produce. */
+const WORKTREE_CASES: {
+  name: string;
+  session: { cwd: "worktree" | null; commit?: null; turnContext?: false } | null;
+  exitCode: number;
+  expect: (worktree: string) => string | RegExp;
+}[] = [
+  { name: "both confirmed", session: { cwd: "worktree" }, exitCode: 0, expect: CONFIRMED_LINE },
+  { name: "a failed run", session: { cwd: "worktree" }, exitCode: 1, expect: CONFIRMED_LINE },
+  { name: "no turn context", session: { cwd: null, turnContext: false }, exitCode: 0, expect: () => PATH_UNCONFIRMED },
+  { name: "a turn context with no directory", session: { cwd: null }, exitCode: 0, expect: () => PATH_UNCONFIRMED },
+  { name: "no commit in session_meta", session: { cwd: "worktree", commit: null }, exitCode: 0, expect: COMMIT_UNCONFIRMED },
+  { name: "no session file", session: null, exitCode: 0, expect: () => BOTH_UNCONFIRMED },
+];
+
+function checkLine(text: string, expected: string | RegExp, label: string): void {
+  const line = worktreeLineOf(text);
+  if (typeof expected === "string") assert.equal(line, expected, label);
+  else assert.match(line, expected, label);
+  // The caller's tree holds a commit; nothing may report it or fill a gap with it.
+  assert.ok(!text.includes(CALLER_TREE_COMMIT), `${label}: ${line}`);
+}
+
+test("AC-1 AC-2 AC-6 (#150) reports the worktree and its base commit, or which is unconfirmed, without running git", async () => {
+  for (const scenario of WORKTREE_CASES) {
+    await withWorktree(async (worktree) => {
+      await withCallerTree(async (caller) => {
+        await withServer({}, async (call, codexHome) => {
+          if (scenario.session) {
+            writeWorktreeRun(codexHome, { ...scenario.session, cwd: scenario.session.cwd === "worktree" ? worktree : null });
+          }
+          nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: scenario.exitCode };
+          const result = await call("codex_delegate", worktreeDelegation({ working_dir: caller }));
+
+          if (scenario.exitCode !== 0) assert.equal((result as ToolResult).isError, true, scenario.name);
+          checkLine(textOf(result), scenario.expect(worktree), scenario.name);
+          assertNoGit();
+        });
+      });
+    });
+  }
+});
+
+test("AC-1 (#150) puts the worktree line on a line of its own, with nothing else on it", async () => {
+  await withWorktree(async (worktree) => {
+    await withServer({}, async (call, codexHome) => {
+      writeWorktreeRun(codexHome, { cwd: worktree });
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      const text = textOf(await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir() })));
+
+      assert.ok(text.split("\n").includes(CONFIRMED_LINE(worktree)), text);
+    });
+  });
+});
+
+test("AC-3 AC-6 (#150) reports the same line in a background result, from the finished run", async () => {
+  for (const scenario of WORKTREE_CASES) {
+    await withWorktree(async (worktree) => {
+      await withCallerTree(async (caller) => {
+        await withServer({}, async (call, codexHome) => {
+          if (scenario.session) {
+            writeWorktreeRun(codexHome, { ...scenario.session, cwd: scenario.session.cwd === "worktree" ? worktree : null });
+          }
+          nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: scenario.exitCode };
+          const started = await call("codex_delegate", worktreeDelegation({ working_dir: caller, mode: "background" }));
+          const jobId = await settledJob(call, started);
+
+          // The report belongs to the finished run: the session file is gone before the result is first asked for.
+          rmSync(join(codexHome.path, "sessions"), { recursive: true, force: true });
+          const result = await call("codex_job_result", { job_id: jobId });
+
+          checkLine(textOf(result), scenario.expect(worktree), scenario.name);
+          assertNoGit();
+        });
+      });
+    });
+  }
+});
+
+test("AC-4 (#150) sends the worktree notice to a worktree delegation and not to its follow-up", async () => {
+  await withWorktree(async (worktree) => {
+    await withServer({}, async (call, codexHome) => {
+      writeWorktreeRun(codexHome, { cwd: worktree });
+      nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+      await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir() }));
+      assert.equal(worktreeSectionsOf(spawnedStdins[0] ?? "").filter((section) => WORKTREE_NOTICE.test(section)).length, 1);
+
+      const followed = await call("codex_follow_up", {
+        thread_id: WORKTREE_THREAD,
+        prompt: "continue",
+        sandbox: "workspace-write",
+      });
+      assert.notEqual((followed as ToolResult).isError, true, textOf(followed));
+      assert.equal(spawnedStdins.length, 2);
+      assert.doesNotMatch(spawnedStdins[1] ?? "", WORKTREE_NOTICE);
+      assert.deepEqual(worktreeSectionsOf(spawnedStdins[1] ?? ""), []);
+      // A follow-up resumes a worktree; it does not make one, so it reports none.
+      assert.doesNotMatch(textOf(followed), WORKTREE_LINE);
+    });
+  });
+});
+
+test("AC-4 (#150) sends both notices, each in an execution_mode section, to a read-only worktree delegation", async () => {
+  await withServer({}, async (call) => {
+    await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir(), sandbox: "read-only" }));
+    const stdin = spawnedStdins[0] ?? "";
+
+    const sections = stdin.match(/<execution_mode>[\s\S]*?<\/execution_mode>/g) ?? [];
+    assert.ok(sections.some((section) => /read-only sandbox/.test(section)), stdin);
+    assert.ok(sections.some((section) => WORKTREE_NOTICE.test(section)), stdin);
+  });
+});
+
+test("AC-5 (#150) adds no worktree line or section to a delegation without use_worktree", async () => {
+  for (const flag of [{}, { use_worktree: false }]) {
+    for (const mode of ["blocking", "background"] as const) {
+      await withServer({}, async (call, codexHome) => {
+        writeWorktreeRun(codexHome, { cwd: process.cwd() });
+        nextRun = { events: [threadStarted(WORKTREE_THREAD), answered], exitCode: 0 };
+        const label = `${JSON.stringify(flag)} ${mode}`;
+        const delegated = await call("codex_delegate", {
+          prompt: "anything",
+          model: "cheap-model",
+          reasoning_effort: "low",
+          sandbox: "workspace-write",
+          mode,
+          ...flag,
+        });
+        const text = mode === "background" ? await backgroundResult(call, delegated) : textOf(delegated);
+
+        assert.doesNotMatch(text, WORKTREE_LINE, label);
+        assert.doesNotMatch(spawnedStdins[0] ?? "", WORKTREE_NOTICE, label);
+        assert.deepEqual(worktreeSectionsOf(spawnedStdins[0] ?? ""), [], label);
+      });
+    }
+  }
+});
+
+test("AC-6 (#150) the harness sees the processes a delegation starts", async () => {
+  // Precondition for the no-git assertions above: the recording is not empty for a real delegation.
+  await withServer({}, async (call) => {
+    await call("codex_delegate", worktreeDelegation({ working_dir: tmpdir() }));
+    assert.ok(startedFiles.length > 0);
+    assert.equal(spawnedArgs.length, 1);
   });
 });

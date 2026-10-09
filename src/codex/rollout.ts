@@ -51,6 +51,11 @@ export interface TurnContextLookup {
   context: TurnContext | null;
   /** Why nothing could be read. Null when `context` is set. */
   reason: string | null;
+  /**
+   * The commit the session started from, `session_meta.git.commit_hash`, read
+   * independently of `context`. Null or absent when it could not be read.
+   */
+  baseCommit?: string | null;
 }
 
 /** The complete subset of a turn context that can safely seed a resume. */
@@ -119,6 +124,16 @@ export function parseTurnContextLine(line: string): TurnContext | null {
   // A line whose shape is right but carries none of these fields says nothing.
   // Returning it would let a malformed tail overwrite a context already read.
   return Object.values(context).some((value) => value !== null) ? context : null;
+}
+
+/**
+ * Extracts the commit a session started from out of one `session_meta` line.
+ *
+ * Returns null for any other line and for a commit that is missing or is not a
+ * full hexadecimal object name, so a format change degrades to "unconfirmed".
+ */
+export function parseSessionMetaCommit(line: string): string | null {
+  throw new Error("not implemented");
 }
 
 /** Reads a session file from the start, keeping the last turn context it contains. */
