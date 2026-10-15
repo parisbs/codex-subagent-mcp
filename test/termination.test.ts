@@ -137,12 +137,14 @@ test("AC-2 AC-3 leaves no descendant alive after a cancelled run's grace period"
   );
 });
 
-test("AC-2 AC-3 leaves no descendant alive after a timed-out run's grace period", async () => {
+test("AC-2 AC-3 (#169 AC-3) leaves no descendant alive after a timed-out run's grace period", async () => {
   await runAndStop(
     {
       chunks: [THREAD],
       stayRunning: true,
       descendant: { holdMs: 20_000, holdPipes: true, ignoreSigterm: POSIX },
+      // Starting after the 1 s timeout, as on a loaded machine (#169).
+      startDelayMs: 1200,
     },
     { timeoutSeconds: 1 },
     async (outcome, pid) => {
@@ -219,8 +221,9 @@ test("AC-1 (#107) stops a command Codex started in its own process group when th
   });
 });
 
-test("AC-2 (#107) stops a command Codex started in its own process group when the run times out", async () => {
-  await runAndStop(OWN_GROUP_COMMAND, { timeoutSeconds: 1 }, async (outcome, pid) => {
+test("AC-2 (#107) (#169 AC-3) stops a command Codex started in its own process group when the run times out", async () => {
+  // Starting after the 1 s timeout, as on a loaded machine (#169).
+  await runAndStop({ ...OWN_GROUP_COMMAND, startDelayMs: 1200 }, { timeoutSeconds: 1 }, async (outcome, pid) => {
     assert.equal(outcome.timedOut, true);
     assert.notEqual(pid, null);
     await sleep(GRACE_MS + 500);

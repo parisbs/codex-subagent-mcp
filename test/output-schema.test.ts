@@ -127,8 +127,9 @@ test("AC-7 removes the file after a run that exits 1", async () => {
 
 const STUBBORN: Scenario = { chunks: [THREAD], stayRunning: true, ignoreSigterm: POSIX };
 
-test("AC-7 keeps the file through a timed-out run's forced stage, then removes it", async () => {
-  await withRun(STUBBORN, async (h) => {
+test("AC-7 (#169 AC-1) keeps the file through a timed-out run's forced stage, then removes it", async () => {
+  // Starting after the 1 s timeout, as on a loaded machine (#169).
+  await withRun({ ...STUBBORN, startDelayMs: 1200 }, async (h) => {
     const handle = h.start({ timeoutSeconds: 1, killGraceMs: 600 });
     const outcome = await within(handle.result, 5000, "the timeout");
     assert.equal(outcome.timedOut, true);
@@ -141,8 +142,9 @@ test("AC-7 keeps the file through a timed-out run's forced stage, then removes i
   });
 });
 
-test("AC-7 keeps the file through a cancelled run's forced stage, then removes it", async () => {
-  await withRun(STUBBORN, async (h) => {
+test("AC-7 (#169 AC-1) keeps the file through a cancelled run's forced stage, then removes it", async () => {
+  // A start as slow as on a loaded machine (#169).
+  await withRun({ ...STUBBORN, startDelayMs: 400 }, async (h) => {
     let handle!: RunHandle;
     handle = h.start({
       killGraceMs: 600,

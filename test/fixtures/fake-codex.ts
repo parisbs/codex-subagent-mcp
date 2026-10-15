@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 const FAKE_SOURCE = fileURLToPath(new URL("./fake-codex.cjs", import.meta.url));
 
 export interface Scenario {
+  /**
+   * Postpones everything the stand-in does, as a slow process start on a loaded
+   * machine would (#169): reading stdin, installing its signal handlers, writing
+   * `received.json`, starting descendants and writing chunks.
+   */
+  startDelayMs?: number;
   /** Written to stdout in order, verbatim. Split a JSON line across entries to
    * exercise the incremental parser. */
   chunks?: string[];

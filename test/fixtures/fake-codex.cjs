@@ -25,12 +25,9 @@ const { tmpdir } = require("node:os");
 const scenario = JSON.parse(readFileSync(join(process.cwd(), "scenario.json"), "utf8"));
 
 let stdin = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {
-  stdin += chunk;
-});
 
-process.stdin.on("end", () => {
+/** Everything the stand-in does once the prompt has arrived on stdin. */
+function run() {
   // Record what actually arrived, so a test can assert on the argv the server
   // built and on the prompt surviving stdin byte for byte.
   // What `--output-schema` pointed at, read the way the real CLI would (#28).
@@ -138,4 +135,21 @@ process.stdin.on("end", () => {
   };
 
   writeNext();
-});
+}
+
+function start() {
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    stdin += chunk;
+  });
+  process.stdin.on("end", run);
+}
+
+// A slow process start, as on a loaded machine (#169): until the delay has
+// passed the stand-in reads nothing, installs no signal handler, writes no
+// file, starts no descendant and writes no output.
+if (scenario.startDelayMs) {
+  setTimeout(start, scenario.startDelayMs);
+} else {
+  start();
+}

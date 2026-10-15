@@ -48,16 +48,31 @@ test("kills a child that outlives its timeout and reports it", POSIX_ONLY, async
   assert.ok(Date.now() - started < 20_000, "the run should not hang past the grace period");
 });
 
-test("still parses the events emitted before the timeout", POSIX_ONLY, async () => {
-  const { result } = runCodex({
-    invocation: INVOCATION,
-    prompt: "irrelevant",
-    timeoutSeconds: 1,
-    codexPath: STUBBORN_CODEX,
+/**
+ * The cross-platform stand-in, but still POSIX-only: it ignores SIGTERM and
+ * SIGINT, which Windows cannot send.
+ */
+test("AC-2 (#169) still parses the events emitted before the timeout", POSIX_ONLY, async () => {
+  const fake = createFakeCodex({
+    chunks: [jsonl({ type: "thread.started", thread_id: "stub-thread" }), jsonl({ type: "turn.started" })],
+    stayRunning: true,
+    ignoreSigterm: true,
+    // Starting after the 1 s timeout, as on a loaded machine (#169).
+    startDelayMs: 1200,
   });
+  try {
+    const { result } = runCodex({
+      invocation: { ...INVOCATION, workingDir: fake.workingDir },
+      prompt: "irrelevant",
+      timeoutSeconds: 1,
+      codexPath: fake.codexPath,
+    });
 
-  const outcome = await result;
-  assert.equal(outcome.threadId, "stub-thread");
+    const outcome = await result;
+    assert.equal(outcome.threadId, "stub-thread");
+  } finally {
+    fake.dispose();
+  }
 });
 
 test("survives a cancel racing the timeout without hanging", POSIX_ONLY, async () => {
@@ -99,11 +114,13 @@ test("reports a codex binary that cannot be started", async () => {
  * being merely unverified there. The fix itself is platform-independent: what
  * cannot be exercised on Windows is the situation it protects against.
  */
-test("settles at the timeout when an exited child leaves its pipes open", POSIX_ONLY, async () => {
+test("AC-2 (#169) settles at the timeout when an exited child leaves its pipes open", POSIX_ONLY, async () => {
   const fake = createFakeCodex({
     chunks: [jsonl({ type: "thread.started", thread_id: "parent-exited" })],
     descendantHoldMs: 4000,
     exitCode: 0,
+    // Starting after the 1 s timeout, as on a loaded machine (#169).
+    startDelayMs: 1200,
   });
   try {
     const handle = runCodex({
