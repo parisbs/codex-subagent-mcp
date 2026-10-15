@@ -330,7 +330,6 @@ export function runDoctorReport(options: DoctorReportOptions): DoctorReportHandl
     return finished({ ...empty, stopped: "spawn-failed", spawnError: error instanceof Error ? error.message : String(error) });
   }
 
-  const startedAt = Date.now();
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let stdoutBytes = 0;
@@ -412,8 +411,9 @@ export function runDoctorReport(options: DoctorReportOptions): DoctorReportHandl
     finish();
   };
   const onAbort = (): void => stop("cancelled");
-  const timeoutTimer = setTimeout(() => stop("timed-out"),
-    Math.max(0, startedAt + (options.timeoutMs ?? DOCTOR_REPORT_TIMEOUT_MS) - Date.now()));
+  // A fixed delay, not one counted from a clock read at spawn: only synchronous code runs between
+  // spawn and here, and a delay derived from `Date.now()` made a mocked-timer test depend on real time (#176).
+  const timeoutTimer = setTimeout(() => stop("timed-out"), options.timeoutMs ?? DOCTOR_REPORT_TIMEOUT_MS);
   timeoutTimer.unref?.();
 
   child.stdout.on("data", (chunk: Buffer) => {
