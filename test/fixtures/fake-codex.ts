@@ -43,6 +43,12 @@ export interface Scenario {
     keepWriting?: boolean;
     /** Start it as the leader of its own process group, as the real CLI does with commands. */
     ownGroup?: boolean;
+    /**
+     * Postpones installing its signal handlers, writing `descendant.ready` and
+     * writing output, as a slow start on a loaded machine would (#174). Its pid
+     * is recorded at once: it is running, it just cannot ignore anything yet.
+     */
+    startDelayMs?: number;
   };
   /** Append each SIGINT or SIGTERM received to `signals.log`, then exit. */
   recordSignals?: boolean;

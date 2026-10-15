@@ -50,7 +50,7 @@ function run() {
   // A descendant started before any output, standing in for a command Codex
   // runs. Its pid is recorded so a test can check whether it outlived the run.
   if (scenario.descendant) {
-    const { holdMs, holdPipes, ignoreSigterm, keepWriting, ownGroup } = scenario.descendant;
+    const { holdMs, holdPipes, ignoreSigterm, keepWriting, ownGroup, startDelayMs } = scenario.descendant;
     const ignore = ignoreSigterm ? 'process.on("SIGTERM", () => {}); process.on("SIGINT", () => {});' : "";
     // `descendant.ready` says its signal handlers are in place: until then a
     // signal it is meant to ignore still ends it (#169).
@@ -62,7 +62,10 @@ function run() {
         " const next = () => process.stdout.write(lines, (error) => { if (!error) setImmediate(next); });" +
         " next();"
       : "";
-    const body = `${ignore} ${ready} ${write} setTimeout(() => {}, ${Number(holdMs)});`;
+    const work = `${ignore} ${ready} ${write} setTimeout(() => {}, ${Number(holdMs)});`;
+    // A slow start of the command itself (#174): until the delay has passed it
+    // installs no signal handler and writes nothing, but it is already running.
+    const body = startDelayMs ? `setTimeout(() => { ${work} }, ${Number(startDelayMs)});` : work;
     const descendant = spawn(process.execPath, ["-e", body, join(process.cwd(), "descendant.ready")], {
       shell: false,
       stdio: holdPipes ? ["ignore", process.stdout, process.stderr] : "ignore",

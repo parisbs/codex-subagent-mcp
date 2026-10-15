@@ -68,9 +68,21 @@ async function until(condition: () => boolean): Promise<void> {
 const TIMEOUT_SECONDS = 1;
 
 /**
+ * How much later than on an idle machine the descendant of the cancelled runs
+ * can ignore a signal (#174), so their cancel would reach it too early unless
+ * it waits for that.
+ */
+const DESCENDANT_START_DELAY_MS = 500;
+
+/**
  * Starts a run against the stand-in and cancels it once `cancelOn` has been
  * seen, or lets the timeout end it. Always kills the descendant afterwards,
  * so a failing assertion never leaves a process behind.
+ *
+ * A run cancelled on `thread.started` is cancelled only once the descendant,
+ * if the scenario has one, can ignore the polite request it is meant to ignore
+ * (#174): the stand-in starts it just before that event, and a request that
+ * arrives before its handlers are in place ends it without the forced stage.
  *
  * A timed-out run is driven on the mocked clock `timeOutOnThread` (#169): the
  * stand-in may start late on a loaded machine, so the deadline passes only once
@@ -103,18 +115,21 @@ async function runAndStop(
       killGraceMs: GRACE_MS,
       onEvent: (event) => {
         if (event.type === "thread.started") seen();
-        const due =
-          (options.cancelOnThread && event.type === "thread.started") ||
-          (options.cancelOnMessage && event.type === "item.completed");
-        if (due && cancelledAt === 0) {
+        if (options.cancelOnMessage && event.type === "item.completed" && cancelledAt === 0) {
           cancelledAt = Date.now();
           handle?.cancel();
         }
       },
     });
-    if (timers) {
+    if (options.cancelOnThread || timers) {
       await within(started, 10_000, "thread.started did not arrive");
       if (scenario.descendant) await within(until(fake.descendantReady), 10_000, "the descendant was not ready");
+    }
+    if (options.cancelOnThread) {
+      cancelledAt = Date.now();
+      handle.cancel();
+    }
+    if (timers) {
       timers.tick(TIMEOUT_SECONDS * 1000);
       const codexPid = handle.pid!;
       await within(until(() => !isAlive(codexPid)), 5000, "Codex did not exit on the polite request");
@@ -146,12 +161,13 @@ async function runAndStop(
 
 const THREAD = jsonl({ type: "thread.started", thread_id: "tree" });
 
-test("AC-1 settles a cancelled run while a descendant holds its pipes", async () => {
+test("AC-1 (#174 AC-2 AC-3) settles a cancelled run while a descendant holds its pipes", async () => {
   await runAndStop(
     {
       chunks: [THREAD],
       stayRunning: true,
-      descendant: { holdMs: 20_000, holdPipes: true, ignoreSigterm: POSIX },
+      // Ready after `thread.started`, as on a loaded machine (#174).
+      descendant: { holdMs: 20_000, holdPipes: true, ignoreSigterm: POSIX, startDelayMs: DESCENDANT_START_DELAY_MS },
     },
     { cancelOnThread: true },
     async (outcome, _pid, cancelledAt) => {
@@ -162,12 +178,13 @@ test("AC-1 settles a cancelled run while a descendant holds its pipes", async ()
   );
 });
 
-test("AC-2 AC-3 leaves no descendant alive after a cancelled run's grace period", async () => {
+test("AC-2 AC-3 (#174 AC-1 AC-3) leaves no descendant alive after a cancelled run's grace period", async () => {
   await runAndStop(
     {
       chunks: [THREAD],
       stayRunning: true,
-      descendant: { holdMs: 20_000, holdPipes: false, ignoreSigterm: POSIX },
+      // Ready after `thread.started`, as on a loaded machine (#174).
+      descendant: { holdMs: 20_000, holdPipes: false, ignoreSigterm: POSIX, startDelayMs: DESCENDANT_START_DELAY_MS },
     },
     { cancelOnThread: true },
     async (_outcome, pid) => {
