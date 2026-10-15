@@ -240,6 +240,13 @@ export function runCodex(options: RunOptions): RunHandle {
   let killTimer: NodeJS.Timeout | undefined;
   /** When the pending SIGKILL is due; null when none is pending (never armed, sent or cleared). */
   let killDueAt: number | null = null;
+  /**
+   * The reader for the forced stage, from the latest stop request that named one.
+   * A shutdown's null (no second read) is kept even when its instant is later than
+   * one already pending, and no later request turns the read back on: the pending
+   * timer reads this, not the options of the request that armed it (#168).
+   */
+  let forcedTable: (() => ProcessEntry[]) | null | undefined;
   let settleTimer: NodeJS.Timeout | undefined;
   let closed = false;
   /** Process groups Codex's commands run in, recorded while it was alive (#107). */
@@ -381,7 +388,7 @@ export function runCodex(options: RunOptions): RunHandle {
    * Schedules the forced stage. A later request can only bring it forward: the
    * server's shutdown has a fraction of a second where a cancellation has five.
    */
-  const armKill = (dueAt: number, listProcesses?: (() => ProcessEntry[]) | null): void => {
+  const armKill = (dueAt: number): void => {
     if (killDueAt !== null && killDueAt <= dueAt) return;
     clearTimeout(killTimer);
     killDueAt = dueAt;
@@ -389,8 +396,8 @@ export function runCodex(options: RunOptions): RunHandle {
       killDueAt = null;
       // Commands Codex started during the grace are in the table only while it
       // lives. A shutdown skips this read: it cannot afford the wait (#116).
-      if (listProcesses !== null && codexAlive()) {
-        commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid, { listProcesses: listProcesses ?? undefined })])];
+      if (forcedTable !== null && codexAlive()) {
+        commandGroups = [...new Set([...commandGroups, ...descendantGroups(child.pid, { listProcesses: forcedTable })])];
       }
       signalTree("SIGKILL");
       signalGroups(commandGroups, "SIGKILL");
@@ -442,7 +449,8 @@ export function runCodex(options: RunOptions): RunHandle {
         settleTimer.unref?.();
       }
     }
-    armKill(options.killAt ?? Date.now() + graceMs, options.processTables?.forced);
+    if (options.processTables && forcedTable !== null) forcedTable = options.processTables.forced;
+    armKill(options.killAt ?? Date.now() + graceMs);
     if (reason === "timeout") settleNow();
   };
 
