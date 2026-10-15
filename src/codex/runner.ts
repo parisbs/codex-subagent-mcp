@@ -355,15 +355,26 @@ export function runCodex(options: RunOptions): RunHandle {
   const anythingLeft = (): boolean =>
     processGroupAlive(child.pid) || commandGroups.some((group) => processGroupAlive(group));
 
+  /** Whether a settlement without close is scheduled; the timeout and the grace can both ask for one. */
+  let settling = false;
+
   /**
-   * Settles with what has been read so far. An exited child can leave
-   * descendants holding its pipes open, so close is not a reliable deadline.
+   * Settles without waiting for close: an exited child can leave descendants
+   * holding its pipes open, so close is not a reliable deadline. Its callers
+   * are timers, and the loop polls for I/O between the timers phase and the
+   * immediates, so that poll reads what the CLI wrote before the deadline but
+   * a busy server had not read yet (#172). Nothing after it is waited for: a
+   * descendant that keeps writing cannot hold the settlement back.
    */
   const settleNow = (): void => {
-    finish(child.exitCode);
-    child.stdin.destroy();
-    child.stdout.destroy();
-    child.stderr.destroy();
+    if (settling) return;
+    settling = true;
+    setImmediate(() => {
+      finish(child.exitCode);
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+    });
   };
 
   /**
