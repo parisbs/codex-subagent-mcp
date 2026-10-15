@@ -25,12 +25,9 @@ const { tmpdir } = require("node:os");
 const scenario = JSON.parse(readFileSync(join(process.cwd(), "scenario.json"), "utf8"));
 
 let stdin = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {
-  stdin += chunk;
-});
 
-process.stdin.on("end", () => {
+/** Everything the stand-in does once the prompt has arrived on stdin. */
+function run() {
   // Record what actually arrived, so a test can assert on the argv the server
   // built and on the prompt surviving stdin byte for byte.
   // What `--output-schema` pointed at, read the way the real CLI would (#28).
@@ -59,8 +56,11 @@ process.stdin.on("end", () => {
   if (scenario.descendant) {
     const { holdMs, holdPipes, ignoreSigterm, ownGroup } = scenario.descendant;
     const ignore = ignoreSigterm ? 'process.on("SIGTERM", () => {}); process.on("SIGINT", () => {});' : "";
-    const body = `${ignore} setTimeout(() => {}, ${Number(holdMs)});`;
-    const descendant = spawn(process.execPath, ["-e", body], {
+    // `descendant.ready` says its signal handlers are in place: until then a
+    // signal it is meant to ignore still ends it (#169).
+    const ready = 'try { require("node:fs").writeFileSync(process.argv[1], ""); } catch {}';
+    const body = `${ignore} ${ready} setTimeout(() => {}, ${Number(holdMs)});`;
+    const descendant = spawn(process.execPath, ["-e", body, join(process.cwd(), "descendant.ready")], {
       shell: false,
       stdio: holdPipes ? ["ignore", process.stdout, process.stderr] : "ignore",
       cwd: tmpdir(),
@@ -105,25 +105,13 @@ process.stdin.on("end", () => {
 
   const writeNext = () => {
     if (index >= chunks.length) {
-      // Setting the code rather than calling process.exit() lets the pending
-      // stdout writes drain; process.exit() would truncate them.
-      if (scenario.descendantHoldMs) {
-        const descendant = spawn(process.execPath, [
-          "-e", "setTimeout(() => {}, Number(process.argv[1]))", String(scenario.descendantHoldMs),
-        ], {
-          shell: false,
-          stdio: ["ignore", process.stdout, process.stderr],
-          // Windows keeps a process's cwd busy until it exits. The descendant
-          // must not prevent disposing the fixture after the timeout settles.
-          cwd: tmpdir(),
-        });
-        descendant.unref();
-      }
       if (scenario.stayRunning) {
         // Keep working until terminated, like a turn that has not finished.
         setInterval(() => {}, 1000);
         return;
       }
+      // Setting the code rather than calling process.exit() lets the pending
+      // stdout writes drain; process.exit() would truncate them.
       process.exitCode = scenario.exitCode ?? 0;
       return;
     }
@@ -138,4 +126,21 @@ process.stdin.on("end", () => {
   };
 
   writeNext();
-});
+}
+
+function start() {
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    stdin += chunk;
+  });
+  process.stdin.on("end", run);
+}
+
+// A slow process start, as on a loaded machine (#169): until the delay has
+// passed the stand-in reads nothing, installs no signal handler, writes no
+// file, starts no descendant and writes no output.
+if (scenario.startDelayMs) {
+  setTimeout(start, scenario.startDelayMs);
+} else {
+  start();
+}

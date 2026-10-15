@@ -6,14 +6,18 @@ import { fileURLToPath } from "node:url";
 const FAKE_SOURCE = fileURLToPath(new URL("./fake-codex.cjs", import.meta.url));
 
 export interface Scenario {
+  /**
+   * Postpones everything the stand-in does, as a slow process start on a loaded
+   * machine would (#169): reading stdin, installing its signal handlers, writing
+   * `received.json`, starting descendants and writing chunks.
+   */
+  startDelayMs?: number;
   /** Written to stdout in order, verbatim. Split a JSON line across entries to
    * exercise the incremental parser. */
   chunks?: string[];
   chunkDelayMs?: number;
   stderr?: string;
   exitCode?: number;
-  /** A descendant keeps stdout and stderr open after the CLI exits. */
-  descendantHoldMs?: number;
   /** Keep running after the last chunk until terminated, instead of exiting. */
   stayRunning?: boolean;
   /** Ignore SIGTERM and SIGINT, so only SIGKILL ends the stand-in. POSIX only. */
@@ -43,6 +47,8 @@ export interface FakeCodex {
   received: () => { argv: string[]; stdin: string; schema: string | null };
   /** The pid of `scenario.descendant`, once the stand-in has started it. */
   descendantPid: () => number | null;
+  /** Whether `scenario.descendant` is running with its signal handlers in place. */
+  descendantReady: () => boolean;
   /** Signals the stand-in recorded with `recordSignals`, in order. */
   signals: () => string[];
   /** Replaces the scenario for the next run in the same directory. */
@@ -90,6 +96,7 @@ export function createFakeCodex(scenario: Scenario, options: FakeCodexOptions = 
       const file = join(workingDir, "descendant.pid");
       return existsSync(file) ? Number(readFileSync(file, "utf8")) : null;
     },
+    descendantReady: () => existsSync(join(workingDir, "descendant.ready")),
     signals: () => {
       const file = join(workingDir, "signals.log");
       return existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];

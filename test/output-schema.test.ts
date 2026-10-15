@@ -20,7 +20,12 @@ const SCHEMA = '{"type":"object","properties":{"n":{"type":"integer"}},"required
 const THREAD = jsonl({ type: "thread.started", thread_id: "schema-thread" });
 const message = (text: string) => jsonl({ type: "item.completed", item: { type: "agent_message", text } });
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Captured before any test mocks the clock (#169), so the helpers below keep
+// waiting in real time while a test drives the runner's timers.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+
+const sleep = (ms: number) => new Promise((resolve) => realSetTimeout(resolve, ms));
 
 async function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -28,11 +33,20 @@ async function within<T>(promise: Promise<T>, ms: number, what: string): Promise
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${what} did not happen within ${ms} ms`)), ms);
+        timer = realSetTimeout(() => reject(new Error(`${what} did not happen within ${ms} ms`)), ms);
       }),
     ]);
   } finally {
-    clearTimeout(timer);
+    realClearTimeout(timer);
+  }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -127,31 +141,84 @@ test("AC-7 removes the file after a run that exits 1", async () => {
 
 const STUBBORN: Scenario = { chunks: [THREAD], stayRunning: true, ignoreSigterm: POSIX };
 
-test("AC-7 keeps the file through a timed-out run's forced stage, then removes it", async () => {
-  await withRun(STUBBORN, async (h) => {
-    const handle = h.start({ timeoutSeconds: 1, killGraceMs: 600 });
-    const outcome = await within(handle.result, 5000, "the timeout");
-    assert.equal(outcome.timedOut, true);
-    if (POSIX) {
-      // The stand-in ignores SIGINT: it is still running, and may still read the file.
-      assert.equal(existsSync(h.schemaPath()!), true, "removed before the process exited");
+/** The grace of the forced-stage tests below. */
+const GRACE_MS = 600;
+
+/**
+ * How long before the SIGKILL those tests check the file. The runner computes
+ * the kill's delay from the real clock, so on the mocked one it can come due a
+ * millisecond or so before the full grace; this margin keeps the check ahead of it.
+ */
+const BEFORE_KILL_MS = 100;
+
+/*
+ * The forced-stage tests run on a mocked clock (#169): the stand-in may start
+ * late on a loaded machine, so the deadline and the SIGKILL are ticked only
+ * after it has been seen running. The clock is restored before `withRun`
+ * cleans up, so a failed assertion cannot leave the run unstoppable.
+ */
+
+test("AC-7 (#169 AC-1) keeps the file through a timed-out run's forced stage, then removes it", async (t) => {
+  // Starting after the 1 s timeout, as on a loaded machine (#169).
+  await withRun({ ...STUBBORN, startDelayMs: 1200 }, async (h) => {
+    // The runner arms its deadline as the run starts.
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let handle!: RunHandle;
+    try {
+      let seen!: () => void;
+      const started = new Promise<void>((resolve) => { seen = resolve; });
+      handle = h.start({
+        timeoutSeconds: 1,
+        killGraceMs: GRACE_MS,
+        onEvent: (event) => { if (event.type === "thread.started") seen(); },
+      });
+      await within(started, 10_000, "the start");
+      t.mock.timers.tick(1000);
+      const outcome = await within(handle.result, 5000, "the timeout");
+      assert.equal(outcome.timedOut, true);
+      t.mock.timers.tick(GRACE_MS - BEFORE_KILL_MS);
+      if (POSIX) {
+        // The stand-in ignores SIGINT: it is still running, and may still read the file.
+        assert.equal(isAlive(handle.pid!), true, "the stand-in stopped before the forced stage");
+        assert.equal(existsSync(h.schemaPath()!), true, "removed before the process exited");
+      }
+      t.mock.timers.tick(BEFORE_KILL_MS);
+    } finally {
+      t.mock.timers.reset();
     }
     await within(handle.exited, 5000, "exit");
     assert.deepEqual(h.leftovers(), []);
   });
 });
 
-test("AC-7 keeps the file through a cancelled run's forced stage, then removes it", async () => {
-  await withRun(STUBBORN, async (h) => {
+test("AC-7 (#169 AC-1) keeps the file through a cancelled run's forced stage, then removes it", async (t) => {
+  // A start as slow as on a loaded machine (#169).
+  await withRun({ ...STUBBORN, startDelayMs: 400 }, async (h) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
     let handle!: RunHandle;
-    handle = h.start({
-      killGraceMs: 600,
-      onEvent: (event) => {
-        if (event.type === "thread.started") handle.cancel();
-      },
-    });
-    await sleep(200);
-    if (POSIX) assert.equal(existsSync(h.schemaPath()!), true, "removed before the process exited");
+    try {
+      let seen!: () => void;
+      const cancelled = new Promise<void>((resolve) => { seen = resolve; });
+      handle = h.start({
+        killGraceMs: GRACE_MS,
+        onEvent: (event) => {
+          if (event.type === "thread.started") {
+            handle.cancel();
+            seen();
+          }
+        },
+      });
+      await within(cancelled, 10_000, "the cancellation");
+      t.mock.timers.tick(GRACE_MS - BEFORE_KILL_MS);
+      if (POSIX) {
+        // The stand-in ignores SIGINT: it is still running, and may still read the file.
+        assert.equal(isAlive(handle.pid!), true, "the stand-in stopped before the forced stage");
+        assert.equal(existsSync(h.schemaPath()!), true, "removed before the process exited");
+      }
+      t.mock.timers.tick(BEFORE_KILL_MS);
+    } finally {
+      t.mock.timers.reset();
+    }
     await within(handle.exited, 5000, "exit");
     assert.deepEqual(h.leftovers(), []);
   });
