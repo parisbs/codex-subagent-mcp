@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import { runCodex, type RunHandle } from "../src/codex/runner.ts";
 import { describeFailure } from "../src/outcome.ts";
@@ -35,44 +35,74 @@ function isAlive(pid: number): boolean {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Captured before any test mocks the clock (#169), so the helpers below keep
+// waiting in real time while a test drives the runner's timers.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
 
-/** Fails by assertion instead of hanging the suite when a result never settles. */
-async function settleWithin(result: Promise<DelegationResult>, ms: number): Promise<DelegationResult> {
+const sleep = (ms: number) => new Promise((resolve) => realSetTimeout(resolve, ms));
+
+/** Fails by assertion instead of hanging the suite when `promise` never settles. */
+async function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`the run did not settle within ${ms} ms`)), ms);
+    timer = realSetTimeout(() => reject(new Error(`${what} within ${ms} ms`)), ms);
   });
   try {
-    return await Promise.race([result, deadline]);
+    return await Promise.race([promise, deadline]);
   } finally {
-    clearTimeout(timer);
+    realClearTimeout(timer);
   }
 }
 
+/** Fails by assertion instead of hanging the suite when a result never settles. */
+const settleWithin = (result: Promise<DelegationResult>, ms: number): Promise<DelegationResult> =>
+  within(result, ms, "the run did not settle");
+
+/** Resolves once `condition` holds, checking in real time. */
+async function until(condition: () => boolean): Promise<void> {
+  while (!condition()) await sleep(10);
+}
+
+/** The deadline of the timed-out runs, ticked on a mocked clock. */
+const TIMEOUT_SECONDS = 1;
+
 /**
  * Starts a run against the stand-in and cancels it once `cancelOn` has been
- * seen, or lets `timeoutSeconds` end it. Always kills the descendant afterwards,
+ * seen, or lets the timeout end it. Always kills the descendant afterwards,
  * so a failing assertion never leaves a process behind.
+ *
+ * A timed-out run is driven on the mocked clock `timeOutOnThread` (#169): the
+ * stand-in may start late on a loaded machine, so the deadline passes only once
+ * `thread.started` has been seen, which implies the descendant's pid, and once
+ * the descendant can ignore the polite request it is meant to ignore. The grace
+ * is ticked once Codex has exited on that request, the order a real run goes
+ * through, and the clock is restored before any check runs.
  */
 async function runAndStop(
   scenario: Scenario,
-  options: { cancelOnThread?: boolean; cancelOnMessage?: boolean; timeoutSeconds?: number },
+  options: { cancelOnThread?: boolean; cancelOnMessage?: boolean; timeOutOnThread?: TestContext["mock"]["timers"] },
   check: (outcome: DelegationResult, descendantPid: number | null, cancelledAt: number) => Promise<void>,
 ): Promise<void> {
   const fake = createFakeCodex(scenario);
+  const timers = options.timeOutOnThread;
   let descendantPid: number | null = null;
+  let handle: RunHandle | undefined;
   try {
     let cancelledAt = 0;
-    let handle: RunHandle | undefined;
+    let seen!: () => void;
+    const started = new Promise<void>((resolve) => { seen = resolve; });
+    // The runner arms its deadline as the run starts.
+    timers?.enable({ apis: ["setTimeout"] });
     handle = runCodex({
       invocation: { kind: "exec", sandbox: "read-only", workingDir: fake.workingDir },
       prompt: "irrelevant",
       codexPath: fake.codexPath,
       codexHome: fake.workingDir,
-      timeoutSeconds: options.timeoutSeconds ?? 60,
+      timeoutSeconds: timers ? TIMEOUT_SECONDS : 60,
       killGraceMs: GRACE_MS,
       onEvent: (event) => {
+        if (event.type === "thread.started") seen();
         const due =
           (options.cancelOnThread && event.type === "thread.started") ||
           (options.cancelOnMessage && event.type === "item.completed");
@@ -82,13 +112,24 @@ async function runAndStop(
         }
       },
     });
-    const outcome = await settleWithin(
-      handle.result,
-      (options.timeoutSeconds ?? 0) * 1000 + GRACE_MS + SETTLE_SLACK_MS + 1000,
-    );
+    if (timers) {
+      await within(started, 10_000, "thread.started did not arrive");
+      if (scenario.descendant) await within(until(fake.descendantReady), 10_000, "the descendant was not ready");
+      timers.tick(TIMEOUT_SECONDS * 1000);
+      const codexPid = handle.pid!;
+      await within(until(() => !isAlive(codexPid)), 5000, "Codex did not exit on the polite request");
+      timers.tick(GRACE_MS);
+      timers.reset();
+    }
+    const outcome = await settleWithin(handle.result, GRACE_MS + SETTLE_SLACK_MS + 1000);
     descendantPid = fake.descendantPid();
     await check(outcome, descendantPid, cancelledAt);
   } finally {
+    if (timers) {
+      // Real time again, so a failure above can still stop the run.
+      timers.reset();
+      handle?.cancel({ graceMs: 0 });
+    }
     descendantPid ??= fake.descendantPid();
     if (descendantPid !== null && isAlive(descendantPid)) {
       try {
@@ -137,7 +178,7 @@ test("AC-2 AC-3 leaves no descendant alive after a cancelled run's grace period"
   );
 });
 
-test("AC-2 AC-3 (#169 AC-3) leaves no descendant alive after a timed-out run's grace period", async () => {
+test("AC-2 AC-3 (#169 AC-3) leaves no descendant alive after a timed-out run's grace period", async (t) => {
   await runAndStop(
     {
       chunks: [THREAD],
@@ -146,7 +187,7 @@ test("AC-2 AC-3 (#169 AC-3) leaves no descendant alive after a timed-out run's g
       // Starting after the 1 s timeout, as on a loaded machine (#169).
       startDelayMs: 1200,
     },
-    { timeoutSeconds: 1 },
+    { timeOutOnThread: t.mock.timers },
     async (outcome, pid) => {
       assert.equal(outcome.timedOut, true);
       assert.notEqual(pid, null, "the stand-in should have started its descendant");
@@ -221,9 +262,9 @@ test("AC-1 (#107) stops a command Codex started in its own process group when th
   });
 });
 
-test("AC-2 (#107) (#169 AC-3) stops a command Codex started in its own process group when the run times out", async () => {
+test("AC-2 (#107) (#169 AC-3) stops a command Codex started in its own process group when the run times out", async (t) => {
   // Starting after the 1 s timeout, as on a loaded machine (#169).
-  await runAndStop({ ...OWN_GROUP_COMMAND, startDelayMs: 1200 }, { timeoutSeconds: 1 }, async (outcome, pid) => {
+  await runAndStop({ ...OWN_GROUP_COMMAND, startDelayMs: 1200 }, { timeOutOnThread: t.mock.timers }, async (outcome, pid) => {
     assert.equal(outcome.timedOut, true);
     assert.notEqual(pid, null);
     await sleep(GRACE_MS + 500);

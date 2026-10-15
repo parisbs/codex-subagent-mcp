@@ -56,8 +56,11 @@ function run() {
   if (scenario.descendant) {
     const { holdMs, holdPipes, ignoreSigterm, ownGroup } = scenario.descendant;
     const ignore = ignoreSigterm ? 'process.on("SIGTERM", () => {}); process.on("SIGINT", () => {});' : "";
-    const body = `${ignore} setTimeout(() => {}, ${Number(holdMs)});`;
-    const descendant = spawn(process.execPath, ["-e", body], {
+    // `descendant.ready` says its signal handlers are in place: until then a
+    // signal it is meant to ignore still ends it (#169).
+    const ready = 'try { require("node:fs").writeFileSync(process.argv[1], ""); } catch {}';
+    const body = `${ignore} ${ready} setTimeout(() => {}, ${Number(holdMs)});`;
+    const descendant = spawn(process.execPath, ["-e", body, join(process.cwd(), "descendant.ready")], {
       shell: false,
       stdio: holdPipes ? ["ignore", process.stdout, process.stderr] : "ignore",
       cwd: tmpdir(),

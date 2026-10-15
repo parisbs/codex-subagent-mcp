@@ -49,6 +49,8 @@ export interface FakeCodex {
   received: () => { argv: string[]; stdin: string; schema: string | null };
   /** The pid of `scenario.descendant`, once the stand-in has started it. */
   descendantPid: () => number | null;
+  /** Whether `scenario.descendant` is running with its signal handlers in place. */
+  descendantReady: () => boolean;
   /** Signals the stand-in recorded with `recordSignals`, in order. */
   signals: () => string[];
   /** Replaces the scenario for the next run in the same directory. */
@@ -96,6 +98,7 @@ export function createFakeCodex(scenario: Scenario, options: FakeCodexOptions = 
       const file = join(workingDir, "descendant.pid");
       return existsSync(file) ? Number(readFileSync(file, "utf8")) : null;
     },
+    descendantReady: () => existsSync(join(workingDir, "descendant.ready")),
     signals: () => {
       const file = join(workingDir, "signals.log");
       return existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
