@@ -835,6 +835,64 @@ test("AC-5 (fake clock) stops the process tree 60 s after spawn and parses no pa
   );
 });
 
+/**
+ * Starts a run while every `Date.now()` read returns a second more than the
+ * previous one, so real time "elapses" between spawn and arming the deadline
+ * deterministically (#176). The stub covers the synchronous start only.
+ */
+function startWithAdvancingClock(start: Start, options: Parameters<Start>[0]): DoctorReportHandle {
+  let now = Date.now();
+  const stub = mock.method(Date, "now", () => (now += 1_000));
+  try {
+    return start(options);
+  } finally {
+    stub.mock.restore();
+  }
+}
+
+/**
+ * Ticks the mocked clock to one millisecond before `deadlineMs`, checks the run
+ * is still going, then to the deadline and checks it stopped the tree as timed-out.
+ */
+async function assertTimesOutAt(fake: ReturnType<typeof createFakeCodex>, handle: DoctorReportHandle, deadlineMs: number): Promise<void> {
+  let settled = false;
+  void handle.result.then(() => {
+    settled = true;
+  });
+  await waitFor(() => fake.descendantPid() !== null, 10_000, "the stand-in and its descendant to start");
+  mock.timers.tick(deadlineMs - 1);
+  await sleep(50);
+  assert.equal(settled, false, "stopped before the deadline");
+  assert.equal(isAlive(handle.pid!), true);
+  mock.timers.tick(1);
+  for (let i = 0; i < 200 && !settled; i++) {
+    await sleep(10);
+    mock.timers.tick(100);
+  }
+  const result = await within(handle.result, SETTLE_SLACK_MS, "the timed-out run");
+  assert.equal(result.stopped, "timed-out");
+  for (let i = 0; i < 100; i++) mock.timers.tick(100);
+  const descendant = fake.descendantPid()!;
+  await waitFor(() => !isAlive(descendant), SETTLE_SLACK_MS, `descendant ${descendant} to stop`);
+  await waitFor(() => !isAlive(handle.pid!), SETTLE_SLACK_MS, "the doctor process to stop");
+}
+
+test("AC-1, AC-2 (#176) the 60 s deadline does not depend on real time elapsed between spawn and arming", async () => {
+  await withDoctor({ chunks: [], stayRunning: true, descendant: { holdMs: 30_000 } }, async (fake, start) => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const handle = startWithAdvancingClock(start, { killGraceMs: GRACE_MS });
+    await assertTimesOutAt(fake, handle, DOCTOR_REPORT_TIMEOUT_MS);
+  });
+});
+
+test("AC-3 (#176) a timeoutMs deadline does not depend on real time elapsed between spawn and arming", async () => {
+  await withDoctor({ chunks: [], stayRunning: true, descendant: { holdMs: 30_000 } }, async (fake, start) => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const handle = startWithAdvancingClock(start, { killGraceMs: GRACE_MS, timeoutMs: 5_000 });
+    await assertTimesOutAt(fake, handle, 5_000);
+  });
+});
+
 test("AC-10 starts nothing when the request was cancelled before spawn", async () => {
   await withDoctor({ chunks: [HEALTHY] }, async (fake, start) => {
     const controller = new AbortController();
