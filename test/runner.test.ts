@@ -70,8 +70,25 @@ async function until(condition: () => boolean): Promise<void> {
   while (!condition()) await new Promise((resolve) => realSetTimeout(resolve, 10));
 }
 
+/**
+ * Waits for `condition` without ever yielding: the event loop does not run
+ * meanwhile, so the runner reads nothing a child writes in the time (#172).
+ * Fails instead of hanging the suite when `condition` never holds.
+ */
+function blockUntil(condition: () => boolean, ms: number, what: string): void {
+  const deadline = Date.now() + ms;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`${what} did not happen within ${ms} ms`);
+    Atomics.wait(pause, 0, 0, 1);
+  }
+}
+
 /** The grace of the mocked-clock tests below; ticked, never waited for. */
 const GRACE_MS = 300;
+
+/** How long after the forced stage a cancelled run settles regardless (`SETTLE_MARGIN_MS` in the runner). */
+const SETTLE_MARGIN_MS = 1000;
 
 test("kills a child that outlives its timeout and reports it", POSIX_ONLY, async () => {
   const started = Date.now();
@@ -219,6 +236,140 @@ test("AC-2 (#169) settles at the timeout when an exited child leaves its pipes o
     assert.equal(alive(fake.descendantPid()!), true, "the descendant was gone before the settlement");
     handle.cancel();
     assert.equal(await handle.result, outcome);
+    t.mock.timers.tick(GRACE_MS);
+  } finally {
+    // Real time again, so a failure above can still stop the descendant.
+    t.mock.timers.reset();
+    handle?.cancel({ graceMs: 0 });
+    await within(handle?.exited ?? Promise.resolve(), 5000, "exit").catch(() => {});
+    fake.dispose();
+  }
+});
+
+/**
+ * A run settled without waiting for close used to keep only what it had read,
+ * dropping what the CLI had written before the deadline but a busy server had
+ * not read yet: the thread id, messages and stderr (#172).
+ *
+ * The stand-in writes nothing until the test lets it, and the test does so only
+ * once it has stopped yielding to the event loop. From there until the run
+ * settles, on a mocked clock, the runner cannot have read any of it. Cross-
+ * platform: whatever the platform's termination does, it does in the same
+ * window, while the output sits unread in the pipes.
+ */
+const UNREAD = {
+  chunks: [jsonl(
+    { type: "thread.started", thread_id: "unread-thread" },
+    { type: "item.completed", item: { type: "agent_message", text: "Written before the settlement." } },
+  )],
+  stderr: "Written to stderr before the settlement.\n",
+  holdOutput: true,
+  stayRunning: true,
+};
+
+for (const path of ["timeout", "grace"] as const) {
+  const name =
+    path === "timeout"
+      ? "AC-1, AC-3 (#172) a run that times out keeps the stdout and stderr written before the deadline"
+      : "AC-2, AC-3 (#172) a cancelled run settled at the end of its grace keeps the stdout and stderr written before then";
+  test(name, async (t) => {
+    const fake = createFakeCodex(UNREAD);
+    // The runner arms its deadline as the run starts.
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let handle: RunHandle | undefined;
+    try {
+      handle = runCodex({
+        invocation: { ...INVOCATION, workingDir: fake.workingDir },
+        prompt: "irrelevant",
+        // Far enough off for a cancelled run to settle at the end of its grace.
+        timeoutSeconds: path === "timeout" ? 1 : 60,
+        killGraceMs: GRACE_MS,
+        codexPath: fake.codexPath,
+      });
+      // The prompt reaches the stand-in only while the event loop runs.
+      await within(until(fake.started), 10_000, "the stand-in's start");
+
+      // No yielding from here to the settlement.
+      fake.releaseOutput();
+      blockUntil(fake.outputWritten, 10_000, "the stand-in's output");
+      if (path === "timeout") {
+        t.mock.timers.tick(1000);
+      } else {
+        handle.cancel();
+        t.mock.timers.tick(GRACE_MS + SETTLE_MARGIN_MS);
+      }
+
+      const outcome = await within(handle.result, 5000, "the settlement");
+      assert.equal(outcome.timedOut, path === "timeout");
+      assert.equal(outcome.cancelled, path === "grace");
+      assert.deepEqual(
+        { threadId: outcome.threadId, agentMessages: outcome.agentMessages, stderr: outcome.stderr },
+        {
+          threadId: "unread-thread",
+          agentMessages: ["Written before the settlement."],
+          stderr: "Written to stderr before the settlement.",
+        },
+      );
+      if (path === "timeout") t.mock.timers.tick(GRACE_MS);
+    } finally {
+      // Real time again, so a failure above can still stop the stand-in.
+      t.mock.timers.reset();
+      handle?.cancel({ graceMs: 0 });
+      await within(handle?.exited ?? Promise.resolve(), 5000, "exit").catch(() => {});
+      fake.dispose();
+    }
+  });
+}
+
+/**
+ * Reading what is there must not become waiting for the pipes to go quiet: a
+ * descendant that keeps writing would then hold the settlement back for as
+ * long as it lives (#172). POSIX only, like the test above it: on Windows close
+ * arrives as soon as the CLI exits, so its pipes are never left open.
+ */
+test("AC-4 (#172) settles at the timeout while an exited child's descendant keeps writing", POSIX_ONLY, async (t) => {
+  const fake = createFakeCodex({
+    chunks: [jsonl({ type: "thread.started", thread_id: "still-writing" })],
+    descendant: { holdMs: 20_000, holdPipes: true, ignoreSigterm: true, keepWriting: true },
+    exitCode: 0,
+  });
+  // The runner arms its deadline as the run starts.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let handle: RunHandle | undefined;
+  try {
+    let threadSeen = false;
+    let written = 0;
+    handle = runCodex({
+      invocation: { ...INVOCATION, workingDir: fake.workingDir },
+      prompt: "irrelevant",
+      codexPath: fake.codexPath,
+      timeoutSeconds: 1,
+      killGraceMs: GRACE_MS,
+      onEvent: (event) => {
+        if (event.type === "thread.started") threadSeen = true;
+        if (event.type === "descendant.output") written += 1;
+      },
+    });
+    let settled = false;
+    handle.result.then(() => { settled = true; }, () => {});
+    const pid = handle.pid!;
+    await within(until(() => threadSeen), 10_000, "the start");
+    await within(until(fake.descendantReady), 10_000, "the descendant's start");
+    await within(until(() => !alive(pid)), 5000, "the stand-in's exit");
+    const writtenAtExit = written;
+    await within(until(() => written > writtenAtExit), 5000, "the descendant's writing");
+
+    // The premise: the stand-in has exited, its descendant keeps writing to
+    // the pipes, and nothing but the deadline can settle the run.
+    assert.equal(alive(fake.descendantPid()!), true, "the descendant no longer holds the pipes");
+    assert.equal(settled, false, "settled before the timeout");
+
+    t.mock.timers.tick(1000);
+    const outcome = await within(handle.result, 5000, "the settlement at the timeout");
+    assert.equal(outcome.timedOut, true);
+    assert.equal(outcome.threadId, "still-writing");
+    // It settled while the descendant, ignoring SIGINT, was still there to write.
+    assert.equal(alive(fake.descendantPid()!), true, "the descendant was gone before the settlement");
     t.mock.timers.tick(GRACE_MS);
   } finally {
     // Real time again, so a failure above can still stop the descendant.

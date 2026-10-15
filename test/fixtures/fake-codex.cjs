@@ -17,7 +17,7 @@
  */
 "use strict";
 
-const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const { appendFileSync, existsSync, readFileSync, writeFileSync } = require("node:fs");
 const { spawn } = require("node:child_process");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
@@ -47,19 +47,22 @@ function run() {
     "utf8",
   );
 
-  if (scenario.stderr) {
-    process.stderr.write(scenario.stderr);
-  }
-
   // A descendant started before any output, standing in for a command Codex
   // runs. Its pid is recorded so a test can check whether it outlived the run.
   if (scenario.descendant) {
-    const { holdMs, holdPipes, ignoreSigterm, ownGroup } = scenario.descendant;
+    const { holdMs, holdPipes, ignoreSigterm, keepWriting, ownGroup } = scenario.descendant;
     const ignore = ignoreSigterm ? 'process.on("SIGTERM", () => {}); process.on("SIGINT", () => {});' : "";
     // `descendant.ready` says its signal handlers are in place: until then a
     // signal it is meant to ignore still ends it (#169).
     const ready = 'try { require("node:fs").writeFileSync(process.argv[1], ""); } catch {}';
-    const body = `${ignore} ${ready} setTimeout(() => {}, ${Number(holdMs)});`;
+    // Events as fast as the pipe takes them, until the reader goes away (#172).
+    const write = keepWriting
+      ? 'process.stdout.on("error", () => {});' +
+        ' const lines = (JSON.stringify({ type: "descendant.output" }) + "\\n").repeat(32);' +
+        " const next = () => process.stdout.write(lines, (error) => { if (!error) setImmediate(next); });" +
+        " next();"
+      : "";
+    const body = `${ignore} ${ready} ${write} setTimeout(() => {}, ${Number(holdMs)});`;
     const descendant = spawn(process.execPath, ["-e", body, join(process.cwd(), "descendant.ready")], {
       shell: false,
       stdio: holdPipes ? ["ignore", process.stdout, process.stderr] : "ignore",
@@ -102,9 +105,21 @@ function run() {
 
   const chunks = scenario.chunks ?? [];
   let index = 0;
+  let stderrWritten = !scenario.stderr;
+  let stdoutWritten = false;
+
+  // `output.written` says all of the output has been handed to the pipes,
+  // where the server can read it (#172).
+  const markWritten = () => {
+    if (scenario.holdOutput && stderrWritten && stdoutWritten) {
+      writeFileSync(join(process.cwd(), "output.written"), "", "utf8");
+    }
+  };
 
   const writeNext = () => {
     if (index >= chunks.length) {
+      stdoutWritten = true;
+      markWritten();
       if (scenario.stayRunning) {
         // Keep working until terminated, like a turn that has not finished.
         setInterval(() => {}, 1000);
@@ -125,7 +140,25 @@ function run() {
     });
   };
 
-  writeNext();
+  const output = () => {
+    if (scenario.stderr) {
+      process.stderr.write(scenario.stderr, () => {
+        stderrWritten = true;
+        markWritten();
+      });
+    }
+    writeNext();
+  };
+
+  // Output the server must not have read when its run settles (#172): nothing
+  // is written until the test creates `output.go`, which it does only once it
+  // has stopped letting the server's event loop run.
+  if (scenario.holdOutput) {
+    const release = () => (existsSync(join(process.cwd(), "output.go")) ? output() : setTimeout(release, 5));
+    release();
+  } else {
+    output();
+  }
 }
 
 function start() {
