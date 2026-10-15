@@ -17,6 +17,11 @@ export interface Scenario {
   chunks?: string[];
   chunkDelayMs?: number;
   stderr?: string;
+  /**
+   * Write neither `stderr` nor `chunks` until `releaseOutput` is called, and
+   * report through `outputWritten` once all of it is in the pipes (#172).
+   */
+  holdOutput?: boolean;
   exitCode?: number;
   /** Keep running after the last chunk until terminated, instead of exiting. */
   stayRunning?: boolean;
@@ -31,6 +36,11 @@ export interface Scenario {
     holdPipes?: boolean;
     /** Ignore SIGTERM and SIGINT. Meaningful on POSIX only. */
     ignoreSigterm?: boolean;
+    /**
+     * Write `descendant.output` events to the inherited stdout as fast as the
+     * pipe takes them, until it is closed. Needs `holdPipes`.
+     */
+    keepWriting?: boolean;
     /** Start it as the leader of its own process group, as the real CLI does with commands. */
     ownGroup?: boolean;
   };
@@ -45,6 +55,12 @@ export interface FakeCodex {
   workingDir: string;
   /** What the child actually received. Only valid after the run finishes. */
   received: () => { argv: string[]; stdin: string; schema: string | null };
+  /** Whether the stand-in has read its prompt, and so recorded what it received. */
+  started: () => boolean;
+  /** Lets a `holdOutput` stand-in write its output. */
+  releaseOutput: () => void;
+  /** Whether a `holdOutput` stand-in has handed all of its output to the pipes. */
+  outputWritten: () => boolean;
   /** The pid of `scenario.descendant`, once the stand-in has started it. */
   descendantPid: () => number | null;
   /** Whether `scenario.descendant` is running with its signal handlers in place. */
@@ -92,6 +108,9 @@ export function createFakeCodex(scenario: Scenario, options: FakeCodexOptions = 
         stdin: string;
         schema: string | null;
       },
+    started: () => existsSync(join(workingDir, "received.json")),
+    releaseOutput: () => writeFileSync(join(workingDir, "output.go"), "", "utf8"),
+    outputWritten: () => existsSync(join(workingDir, "output.written")),
     descendantPid: () => {
       const file = join(workingDir, "descendant.pid");
       return existsSync(file) ? Number(readFileSync(file, "utf8")) : null;
