@@ -182,8 +182,6 @@ test(
     t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: START });
     const layer = fakeProcessLayer();
     try {
-      // The skip arrives after a cancellation armed the default reader, and is due
-      // later; a third request names a reader again.
       const late = startRun();
       late.cancel();
       // The skip is due earlier and re-arms the stage; a later request, due earlier
@@ -199,6 +197,8 @@ test(
       assert.deepEqual(named.calls, [], "a later request turned the read back on after a skip");
       assert.deepEqual(layer.reads, [], "the process table was read after a skip");
 
+      // The skip arrives after a cancellation armed the default reader, and is due
+      // later; a third request names a reader again.
       t.mock.timers.tick(4_600);
       late.cancel({ killAt: Date.now() + 250, processTables: tables(null) });
       late.cancel({ killAt: Date.now() + 300, processTables: tables(namedReader(late.pid!).read) });
