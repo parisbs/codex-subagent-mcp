@@ -18,8 +18,6 @@ export interface Scenario {
   chunkDelayMs?: number;
   stderr?: string;
   exitCode?: number;
-  /** A descendant keeps stdout and stderr open after the CLI exits. */
-  descendantHoldMs?: number;
   /** Keep running after the last chunk until terminated, instead of exiting. */
   stayRunning?: boolean;
   /** Ignore SIGTERM and SIGINT, so only SIGKILL ends the stand-in. POSIX only. */
