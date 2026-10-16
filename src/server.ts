@@ -699,9 +699,6 @@ export function serverInstructions(loaded: LoadedConfig): string {
         `${inherited.join(", ")}.`,
     );
   }
-  if (config.mcpServers.kind !== "none") {
-    parts.push("This server itself is always turned off in a delegation.");
-  }
 
   return parts.join(" ");
 }
