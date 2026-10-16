@@ -54,9 +54,6 @@ const BUILT_IN_WORKSPACE_WRITE =
 
 const DEFAULT_READ_ONLY = "Default sandbox when a call sets none: read-only.";
 
-/** Added whenever MCP servers may be kept: the recursion guard turns this server off whatever the policy. */
-const SELF_ALWAYS_OFF = "This server itself is always turned off in a delegation.";
-
 const MISCONFIGURED =
   "This server is misconfigured: every tool that reaches the Codex CLI, except codex_doctor, refuses until its " +
   "environment variables are fixed, and codex_doctor lists the errors.";
@@ -244,12 +241,11 @@ test("AC-4 inherited tools are stated by kind and count, never by name", () => {
       DEFAULT_READ_ONLY,
       "Delegations may keep these tools from the Codex configuration, which the sandbox does not confine: " +
         "every MCP server, 2 plugins, apps.",
-      SELF_ALWAYS_OFF,
     ].join(" "),
   );
 });
 
-test("AC-4 plugins or apps alone say nothing about this server, which only MCP servers concern", () => {
+test("AC-4 plugins and apps are stated on their own when no MCP server may be kept", () => {
   const loaded = loadConfig({ CODEX_SUBAGENT_PLUGINS: "all", CODEX_SUBAGENT_APPS: "on" });
   assert.equal(
     serverInstructions(loaded),
@@ -276,7 +272,6 @@ test("AC-4 a single inherited name is counted once and in the singular", () => {
       DEFAULT_READ_ONLY,
       "Delegations may keep these tools from the Codex configuration, which the sandbox does not confine: " +
         "1 MCP server, every plugin.",
-      SELF_ALWAYS_OFF,
     ].join(" "),
   );
 });
