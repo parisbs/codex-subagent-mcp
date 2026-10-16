@@ -1126,8 +1126,8 @@ export function createServer(
         "Everything passed in prompt, context and target_files is sent to OpenAI, and every run spends the user's own " +
         "Codex usage, so do not delegate what you can answer directly, and tell the user when you delegate. " +
         "Codex runs read-only unless a different default sandbox is configured. " +
-        "Set sandbox to workspace-write to let it edit files, if this server's sandbox ceiling allows it: the server " +
-        "instructions state the ceiling, and a call above it is refused. " +
+        "Set sandbox to workspace-write to let it edit files, if this server's sandbox ceiling allows it: a correctly " +
+        "configured server states the ceiling in its instructions, and a call above it is refused. " +
         "Codex cannot see this conversation, so pass everything it needs in prompt, context, and target_files.",
       inputSchema: delegateShape,
       annotations: { readOnlyHint: false, openWorldHint: true },
