@@ -337,17 +337,15 @@ start, counted in memory and set by the user
 skipping a plugin listing that has no effect under the default configuration. No breaking change is
 planned here ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 
-It also lets each registration describe itself. A user who registers the server twice with different
-ceilings, one read-only for reviews and one that can write, today gets two identical sets of tools:
-the descriptions are fixed strings, so a read-only registration still invites a writing sandbox, and
-the server sends no instructions when a client connects. The descriptions and the instructions will
-state what the configuration already says — the sandbox ceiling and default, the effort ceiling,
-whether a default model makes `codex_recommend` unnecessary — plus, optionally, a purpose the user
-writes in their own words and the server passes on without interpreting. That is reporting the
-user's policy, not making one ([ADR 12](adr/0012-mechanism-not-policy.md)). Task intents
-([#136](https://github.com/parisbs/codex-subagent-mcp/issues/136)) would change what the orchestrator
-is told per call; this is about what each instance says about itself, and it does not wait for that
-decision.
+It also lets each registration describe itself. Server instructions state the registration's
+sandbox ceiling and its source, sandbox default, configured model and effort defaults, and counts of
+the inherited tool kinds a delegation may keep. Tool descriptions remain true under every
+configuration, except that the `codex_delegate` model guidance tells the caller to omit `model` when
+a valid configured or implied default applies, instead of routing through `codex_recommend`. A
+misconfigured registration states no fallback values and points to `codex_doctor`. This makes two
+registrations with different ceilings distinguishable before tool search loads their descriptions,
+without adding configuration or putting recommendation policy on the execution path
+([ADR 28](adr/0028-describe-the-instance-in-server-instructions.md)).
 
 Worktree runs become something a caller can integrate without parsing a mismatch report. A follow-up
 already resumes in the worktree Codex applied
@@ -367,7 +365,7 @@ denying a run from a dirty tree is a client-side hook's job.
 [#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
 [#69](https://github.com/parisbs/codex-subagent-mcp/issues/69),
 [#135](https://github.com/parisbs/codex-subagent-mcp/issues/135),
-[#143](https://github.com/parisbs/codex-subagent-mcp/issues/143),
+[#180](https://github.com/parisbs/codex-subagent-mcp/issues/180),
 [#149](https://github.com/parisbs/codex-subagent-mcp/issues/149),
 [#150](https://github.com/parisbs/codex-subagent-mcp/issues/150)
 

@@ -24,14 +24,14 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | --- | --- | --- |
 | `CODEX_BIN` | Executable path | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
 | `CODEX_HOME` | Directory path | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings are looked up. Unset means `~/.codex`. |
-| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Model used when a call specifies none. When unset, the only entry in a single-entry `CODEX_SUBAGENT_ALLOWED_MODELS` is used; otherwise the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. An empty entry, such as a trailing comma or a value of only commas, is a configuration error rather than being ignored, since dropping it could leave no restriction at all. |
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
-| `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. This server is always off, whatever the value. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
-| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. A plugin list that cannot be checked turns every plugin off. |
+| `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. The recursion guard turns this server off for each delegation. If the MCP listing fails under `all`, or this server's own entry has a dot or `=` in its name, the result says the guard was not applied. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
+| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. When a plugin listing cannot be checked, `none` or a list turns every plugin off; `all` keeps every plugin without checking. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
 | `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | Opt-in local usage log, default `off`. Empty or whitespace means off; other values refuse delegations until restart with a valid value. |
 | `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` | Decimal integer from 1 to 9007199254740991 | Delegation processes (`codex exec` or `codex exec resume`) this server starts per rolling hour. Unset means unrestricted. Probes never count; a spawned run counts for sixty minutes whatever its outcome. See [Bounds on delegations](#bounds-on-delegations). |
@@ -75,6 +75,16 @@ keeps only `.git`, `.codex` and `.agents` read-only there — not `.mcp.json`. A
 take effect the next time the server starts; an edited default could make later delegations write
 without asking for a sandbox. `danger-full-access` removes that boundary entirely, which is one more
 reason to leave its explicit opt-in outside the repository.
+
+### Server instructions
+
+When a client connects, the server instructions describe this registration before any tool is
+loaded: its sandbox ceiling and whether that ceiling is configured or built in, its default
+sandbox, and any configured default model and reasoning effort. They also count the kinds of MCP
+servers, plugins and apps a delegation may keep, without naming them. This lets an orchestrator
+choose between registrations with different policies. If the configuration has an error, the
+instructions state only that the server is misconfigured, that delegation tools refuse, and that
+`codex_doctor` lists the errors; they do not present fallback values as policy.
 
 ---
 
@@ -175,9 +185,12 @@ and reconciles it against the live catalog.
 | `priority` | `quality` \| `balanced` \| `latency` \| `cost` | `balanced` | Biases the effort up or down. |
 | `working_dir` | string | the server's working directory | Absolute directory whose Codex configuration and model catalog are used. A trusted project can define its own catalog, so pass the directory the delegation would use. |
 
-When no default model is set, the tool descriptions tell Claude to call `codex_recommend` first,
-announce the suggested model and effort alongside the delegation, then call `codex_delegate` with
-both explicit. This is guidance to a model, not enforcement.
+When no default model is configured or implied, the `codex_delegate` description tells Claude to
+call `codex_recommend` first, announce the suggested model and effort alongside the delegation, then
+call `codex_delegate` with both explicit. A configured `CODEX_SUBAGENT_DEFAULT_MODEL`, or exactly one
+model in `CODEX_SUBAGENT_ALLOWED_MODELS`, instead tells Claude to omit `model` so that default
+applies. A configuration error keeps the recommendation guidance because no fallback is advertised.
+This is guidance to a model, not enforcement.
 
 The recommendation routes mechanical edits to a fast model at `low`, everyday work to a balanced
 one at `medium`, multi-file migrations to an agentic workhorse at `high`, and hard reasoning
@@ -193,7 +206,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `prompt` | string | required | The task. Self-contained. |
-| `model` | string | required unless configured | A slug from `list_codex_models`. Omitted with no `CODEX_SUBAGENT_DEFAULT_MODEL` set means the call is refused with a suggestion. |
+| `model` | string | required unless configured or implied | A slug from `list_codex_models`. When omitted, `CODEX_SUBAGENT_DEFAULT_MODEL` applies, or failing that the only model in a single-entry `CODEX_SUBAGENT_ALLOWED_MODELS`; otherwise the call is refused with a suggestion. |
 | `reasoning_effort` | `none` … `ultra` | configured default, else the model's | Adjusted to the closest level the model supports within `CODEX_SUBAGENT_MAX_EFFORT`, with a note. |
 | `system_instructions` | string | — | Persona or extra rules, layered on the built-in quality contract. |
 | `context` | string | — | Background: prior findings, constraints, relevant excerpts. |
@@ -334,10 +347,12 @@ information must use Codex's web-search tool, when enabled for the run.
 
 Before every new delegation and follow-up, the server runs `codex mcp list --json` in the directory
 that run will use. It disables entries that point back to this server with
-`mcp_servers.<name>.enabled=false`. If the listing fails, execution remains fail-open, but the result
-says the recursion guard could not be applied. The injected prompt separately instructs the
-delegated agent not to delegate further. That prompt layer is an instruction, not a control, and
-covers configurations the server could not enumerate.
+`mcp_servers.<name>.enabled=false`. If this server's own entry has a dot or `=` in its name, it cannot
+be turned off for the run, and the result says the guard was not applied. If the listing fails, the
+delegation runs only when `CODEX_SUBAGENT_MCP_SERVERS` is `all`, with the result saying the recursion
+guard could not be applied; under `none` or a list, it is refused and nothing runs. The injected
+prompt separately instructs the delegated agent not to delegate further. That prompt layer is an
+instruction, not a control, and covers configurations the server could not enumerate.
 
 Self-reference recognition is by shape: the string `codex-subagent-mcp`, a `codex-subagent`
 executable basename, or this server's exact entry script path. A registration pointing at a copy of

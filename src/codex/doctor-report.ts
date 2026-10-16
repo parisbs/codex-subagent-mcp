@@ -272,11 +272,15 @@ export function formatExtendedDiagnosis(diagnosis: ExtendedDiagnosis, context: E
   return points.length <= SECTION_LIMIT ? section : points.slice(0, SECTION_LIMIT - marker.length).join("") + marker;
 }
 
+/** A JSON string literal with controls that JSON.stringify leaves literal escaped too. */
+export function quoteJsonString(value: string): string {
+  return JSON.stringify(value).replace(/[\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 function quote(value: string): string {
   const points = [...value];
-  const literal = JSON.stringify(points.slice(0, SUMMARY_STRING_LIMIT).join(""))
-    .replace(/[\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]/g,
-      (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  const literal = quoteJsonString(points.slice(0, SUMMARY_STRING_LIMIT).join(""));
   return literal + (points.length > SUMMARY_STRING_LIMIT ? ` (${points.length - SUMMARY_STRING_LIMIT} code points omitted)` : "");
 }
 
