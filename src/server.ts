@@ -640,17 +640,71 @@ export interface ServerOptions {
  * (ADR 28). Tool descriptions stay true under every configuration and point here.
  */
 export function serverInstructions(loaded: LoadedConfig): string {
-  throw new Error("not implemented");
+  const intro =
+    "This server delegates tasks to the local OpenAI Codex CLI, with the model and reasoning effort chosen per call.";
+  if (loaded.errors.length > 0) {
+    return (
+      intro +
+      " This server is misconfigured: every tool that reaches the Codex CLI, except codex_doctor, refuses until its " +
+      "environment variables are fixed, and codex_doctor lists the errors."
+    );
+  }
+
+  const { config } = loaded;
+  const parts = [
+    intro,
+    config.maxSandboxConfigured
+      ? `Sandbox ceiling: ${config.maxSandbox}, set by ${ENV_PREFIX}MAX_SANDBOX; a call that asks for more is refused.`
+      : `Sandbox ceiling: ${config.maxSandbox}, the built-in one, since ${ENV_PREFIX}MAX_SANDBOX is unset; ` +
+        "a call that asks for more is refused.",
+    `Default sandbox when a call sets none: ${config.defaultSandbox}.`,
+  ];
+
+  const model = impliedModel(config);
+  if (model !== null) {
+    const source = config.defaultModel
+      ? `set by ${ENV_PREFIX}DEFAULT_MODEL and checked against`
+      : `the only model ${ENV_PREFIX}ALLOWED_MODELS allows, checked against`;
+    parts.push(
+      `Default model when a call names none: ${JSON.stringify(model)}, ${source} ` +
+        "the Codex catalog only when a call runs.",
+    );
+  }
+  if (config.defaultEffort !== null) {
+    parts.push(
+      `Default reasoning effort when a call sets none: ${config.defaultEffort}, set by ${ENV_PREFIX}DEFAULT_EFFORT.`,
+    );
+  }
+
+  const inherited: string[] = [];
+  const describePolicy = (singular: string, plural: string, policy: ServerConfig["mcpServers"]): void => {
+    if (policy.kind === "all") inherited.push(`every ${singular}`);
+    if (policy.kind === "list") {
+      inherited.push(`${policy.names.length} ${policy.names.length === 1 ? singular : plural}`);
+    }
+  };
+  describePolicy("MCP server", "MCP servers", config.mcpServers);
+  describePolicy("plugin", "plugins", config.plugins);
+  if (config.apps) inherited.push("apps");
+  if (inherited.length > 0) {
+    parts.push(
+      "Delegations keep these tools from the Codex configuration, which the sandbox does not confine: " +
+        `${inherited.join(", ")}.`,
+    );
+  }
+
+  return parts.join(" ");
 }
 
 export function createServer(
   options: ServerOptions = {},
 ): { server: McpServer; jobs: JobRegistry; runs: ActiveRuns } {
+  const loaded = options.config ?? loadConfig();
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {}, logging: {} } },
+    { capabilities: { tools: {}, logging: {} }, instructions: serverInstructions(loaded) },
   );
-  const { config, errors: configErrors } = loadConfig();
+  const { config, errors: configErrors } = loaded;
   const jobs = new JobRegistry({ maxRunningJobs: config.maxBackgroundJobs ?? undefined });
   const delegationBound = new DelegationBound(config.maxDelegationsPerHour);
   const runs = new ActiveRuns();
@@ -1057,12 +1111,16 @@ export function createServer(
         "Delegate a task to the local Codex CLI (OpenAI's coding agent), choosing model and reasoning effort. " +
         "Use it when the user asks for Codex, or when handing work off clearly serves their request: a second opinion " +
         "from a different model family, or an investigation that would otherwise flood this conversation. " +
-        "When the user has not named a model, call codex_recommend first and present its suggested model and effort " +
-        "to the user in the same message in which you say you are going to delegate, then pass both explicitly here. " +
-        "That recommendation is advice for an already-authorised delegation, not a replacement for the user's own preference. " +
+        (configErrors.length === 0 && impliedModel(config) !== null
+          ? "When the user has not named a model, omit model: the default model configured for this server applies. "
+          : "When the user has not named a model, call codex_recommend first and present its suggested model and effort " +
+            "to the user in the same message in which you say you are going to delegate, then pass both explicitly here. " +
+            "That recommendation is advice for an already-authorised delegation, not a replacement for the user's own preference. ") +
         "Everything passed in prompt, context and target_files is sent to OpenAI, and every run spends the user's own " +
         "Codex usage, so do not delegate what you can answer directly, and tell the user when you delegate. " +
-        "Codex runs read-only unless a different default sandbox is configured. Set sandbox to workspace-write to let it edit files. " +
+        "Codex runs read-only unless a different default sandbox is configured. " +
+        "Set sandbox to workspace-write to let it edit files, if this server's sandbox ceiling allows it: the server " +
+        "instructions state the ceiling, and a call above it is refused. " +
         "Codex cannot see this conversation, so pass everything it needs in prompt, context, and target_files.",
       inputSchema: delegateShape,
       annotations: { readOnlyHint: false, openWorldHint: true },
