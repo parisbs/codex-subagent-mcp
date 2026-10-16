@@ -257,7 +257,8 @@ rules stay yours; see [ADR 12](docs/adr/0012-mechanism-not-policy.md) and
 [ADR 14](docs/adr/0014-user-controlled-sandbox-defaults.md) for the policy split.
 
 At connection time, the server instructions identify that registration's sandbox ceiling and
-default, configured model and effort defaults, and the kinds of inherited tools a delegation keeps.
+default, configured model and effort defaults, and the kinds of inherited tools a delegation may
+keep. When MCP servers may be kept, they also state that this server itself is always turned off.
 An orchestrator can therefore distinguish registrations with different policies before it loads
 their tool descriptions. A misconfigured registration states that its delegation tools refuse and
 points to `codex_doctor`, without advertising fallback values.

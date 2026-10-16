@@ -24,7 +24,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | --- | --- | --- |
 | `CODEX_BIN` | Executable path | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
 | `CODEX_HOME` | Directory path | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings are looked up. Unset means `~/.codex`. |
-| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Model used when a call specifies none. Unset means the call is refused with a suggestion rather than guessed at. |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Model used when a call specifies none. When unset, the only entry in a single-entry `CODEX_SUBAGENT_ALLOWED_MODELS` is used; otherwise the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. An empty entry, such as a trailing comma or a value of only commas, is a configuration error rather than being ignored, since dropping it could leave no restriction at all. |
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
@@ -67,16 +67,6 @@ range is a configuration error ([ADR 25](adr/0025-settle-the-open-details-of-the
 Invalid values are reported on the first tool call, not at startup — a server that refuses to start
 cannot explain why.
 
-### Server instructions
-
-When a client connects, the server instructions describe this registration before any tool is
-loaded: its sandbox ceiling and whether that ceiling is configured or built in, its default
-sandbox, and any configured default model and reasoning effort. They also count the kinds of MCP
-servers, plugins and apps a delegation keeps, without naming them. This lets an orchestrator choose
-between registrations with different policies. If the configuration has an error, the instructions
-state only that the server is misconfigured, that delegation tools refuse, and that `codex_doctor`
-lists the errors; they do not present fallback values as policy.
-
 **Keep sandbox defaults and ceilings out of the working tree.** Set them where a delegation cannot edit them: Claude
 Code's default `local` scope or `--scope user` (both stored in your home directory), or Claude
 Desktop's own config file. Avoid `--scope project` for them, which writes a `.mcp.json` into the
@@ -85,6 +75,17 @@ keeps only `.git`, `.codex` and `.agents` read-only there — not `.mcp.json`. A
 take effect the next time the server starts; an edited default could make later delegations write
 without asking for a sandbox. `danger-full-access` removes that boundary entirely, which is one more
 reason to leave its explicit opt-in outside the repository.
+
+### Server instructions
+
+When a client connects, the server instructions describe this registration before any tool is
+loaded: its sandbox ceiling and whether that ceiling is configured or built in, its default
+sandbox, and any configured default model and reasoning effort. They also count the kinds of MCP
+servers, plugins and apps a delegation may keep, without naming them. Whenever MCP servers may be
+kept, the instructions state separately that this server itself is always turned off. This lets an
+orchestrator choose between registrations with different policies. If the configuration has an
+error, the instructions state only that the server is misconfigured, that delegation tools refuse,
+and that `codex_doctor` lists the errors; they do not present fallback values as policy.
 
 ---
 
@@ -206,7 +207,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `prompt` | string | required | The task. Self-contained. |
-| `model` | string | required unless configured | A slug from `list_codex_models`. Omitted with no `CODEX_SUBAGENT_DEFAULT_MODEL` set means the call is refused with a suggestion. |
+| `model` | string | required unless configured or implied | A slug from `list_codex_models`. When omitted, `CODEX_SUBAGENT_DEFAULT_MODEL` applies, or failing that the only model in a single-entry `CODEX_SUBAGENT_ALLOWED_MODELS`; otherwise the call is refused with a suggestion. |
 | `reasoning_effort` | `none` … `ultra` | configured default, else the model's | Adjusted to the closest level the model supports within `CODEX_SUBAGENT_MAX_EFFORT`, with a note. |
 | `system_instructions` | string | — | Persona or extra rules, layered on the built-in quality contract. |
 | `context` | string | — | Background: prior findings, constraints, relevant excerpts. |
