@@ -38,7 +38,14 @@ import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { DelegationBound, type DelegationReservation } from "./delegation-bound.js";
-import { canRunDoctorReport, classifyDoctorRun, formatExtendedDiagnosis, runDoctorReport, type ExtendedDiagnosis } from "./codex/doctor-report.js";
+import {
+  canRunDoctorReport,
+  classifyDoctorRun,
+  formatExtendedDiagnosis,
+  quoteJsonString,
+  runDoctorReport,
+  type ExtendedDiagnosis,
+} from "./codex/doctor-report.js";
 import { ActiveRuns } from "./runs.js";
 import { assemblePrompt, followUpPrompt } from "./prompt.js";
 import { recommend, type Priority } from "./recommend.js";
@@ -666,7 +673,7 @@ export function serverInstructions(loaded: LoadedConfig): string {
       ? `set by ${ENV_PREFIX}DEFAULT_MODEL and checked against`
       : `the only model ${ENV_PREFIX}ALLOWED_MODELS allows, checked against`;
     parts.push(
-      `Default model when a call names none: ${JSON.stringify(model)}, ${source} ` +
+      `Default model when a call names none: ${quoteJsonString(model)}, ${source} ` +
         "the Codex catalog only when a call runs.",
     );
   }
@@ -688,9 +695,12 @@ export function serverInstructions(loaded: LoadedConfig): string {
   if (config.apps) inherited.push("apps");
   if (inherited.length > 0) {
     parts.push(
-      "Delegations keep these tools from the Codex configuration, which the sandbox does not confine: " +
+      "Delegations may keep these tools from the Codex configuration, which the sandbox does not confine: " +
         `${inherited.join(", ")}.`,
     );
+  }
+  if (config.mcpServers.kind !== "none") {
+    parts.push("This server itself is always turned off in a delegation.");
   }
 
   return parts.join(" ");
