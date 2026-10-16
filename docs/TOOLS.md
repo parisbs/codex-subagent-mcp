@@ -67,6 +67,16 @@ range is a configuration error ([ADR 25](adr/0025-settle-the-open-details-of-the
 Invalid values are reported on the first tool call, not at startup — a server that refuses to start
 cannot explain why.
 
+### Server instructions
+
+When a client connects, the server instructions describe this registration before any tool is
+loaded: its sandbox ceiling and whether that ceiling is configured or built in, its default
+sandbox, and any configured default model and reasoning effort. They also count the kinds of MCP
+servers, plugins and apps a delegation keeps, without naming them. This lets an orchestrator choose
+between registrations with different policies. If the configuration has an error, the instructions
+state only that the server is misconfigured, that delegation tools refuse, and that `codex_doctor`
+lists the errors; they do not present fallback values as policy.
+
 **Keep sandbox defaults and ceilings out of the working tree.** Set them where a delegation cannot edit them: Claude
 Code's default `local` scope or `--scope user` (both stored in your home directory), or Claude
 Desktop's own config file. Avoid `--scope project` for them, which writes a `.mcp.json` into the
@@ -175,9 +185,12 @@ and reconciles it against the live catalog.
 | `priority` | `quality` \| `balanced` \| `latency` \| `cost` | `balanced` | Biases the effort up or down. |
 | `working_dir` | string | the server's working directory | Absolute directory whose Codex configuration and model catalog are used. A trusted project can define its own catalog, so pass the directory the delegation would use. |
 
-When no default model is set, the tool descriptions tell Claude to call `codex_recommend` first,
-announce the suggested model and effort alongside the delegation, then call `codex_delegate` with
-both explicit. This is guidance to a model, not enforcement.
+When no default model is configured or implied, the `codex_delegate` description tells Claude to
+call `codex_recommend` first, announce the suggested model and effort alongside the delegation, then
+call `codex_delegate` with both explicit. A configured `CODEX_SUBAGENT_DEFAULT_MODEL`, or exactly one
+model in `CODEX_SUBAGENT_ALLOWED_MODELS`, instead tells Claude to omit `model` so that default
+applies. A configuration error keeps the recommendation guidance because no fallback is advertised.
+This is guidance to a model, not enforcement.
 
 The recommendation routes mechanical edits to a fast model at `low`, everyday work to a balanced
 one at `medium`, multi-file migrations to an agentic workhorse at `high`, and hard reasoning

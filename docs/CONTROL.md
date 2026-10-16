@@ -114,6 +114,22 @@ Register defaults and ceilings outside the repository — Claude Code's default 
 delegation could edit. A changed ceiling could widen what later calls may request, and a changed
 default sandbox could make later calls write without requesting a sandbox at all.
 
+For separate review and editing paths, register the server twice under different names and ceilings:
+
+```bash
+claude mcp add codex-review -e CODEX_SUBAGENT_MAX_SANDBOX=read-only -- npx -y codex-subagent-mcp@^0.5.0
+claude mcp add codex-write -e CODEX_SUBAGENT_MAX_SANDBOX=workspace-write -- npx -y codex-subagent-mcp@^0.5.0
+```
+
+Each registration's server instructions state its own ceiling and defaults, so Claude can choose the
+read-only instance for investigation and the write-capable one only when edits are needed. Tool
+permissions are also per registered name: for example, allowing
+`mcp__codex-review__codex_doctor` says nothing about `mcp__codex-write__codex_doctor`. Keep
+`mcp__codex-review__codex_delegate`, `mcp__codex-write__codex_delegate` and each registration's
+`codex_follow_up` tool on confirmation if that is the boundary you want. Permission to call the
+write registration is distinct from permission to call the review registration; the registered
+name, not the package name, forms the permission prefix.
+
 ## 3. The version you run
 
 `npx -y codex-subagent-mcp` always runs the newest published version, so a new release — including

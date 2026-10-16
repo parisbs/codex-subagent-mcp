@@ -256,6 +256,12 @@ permission prompts, server ceilings, version ranges and your own `CLAUDE.md` esc
 rules stay yours; see [ADR 12](docs/adr/0012-mechanism-not-policy.md) and
 [ADR 14](docs/adr/0014-user-controlled-sandbox-defaults.md) for the policy split.
 
+At connection time, the server instructions identify that registration's sandbox ceiling and
+default, configured model and effort defaults, and the kinds of inherited tools a delegation keeps.
+An orchestrator can therefore distinguish registrations with different policies before it loads
+their tool descriptions. A misconfigured registration states that its delegation tools refuse and
+points to `codex_doctor`, without advertising fallback values.
+
 ## Choosing a model
 
 Use `list_codex_models` for the live catalog from your installed CLI. Model and reasoning effort are
@@ -266,11 +272,13 @@ additionally delegates subtasks automatically.
 answer is. Without a model in the call or configuration, it refuses with a recommendation for you to
 decide on.
 
-With no default, tool descriptions tell Claude to call `codex_recommend` first, announce the
-suggested model and effort, then delegate with both explicit. This is guidance to a model, not
-enforcement. For advice, ask: “Which Codex model should handle migrating this repo's tests to
-vitest?” The suggestion respects your model allow-list and effort ceiling; see
-[the recommendation reference](docs/TOOLS.md#codex_recommend).
+With no configured or implied default, the `codex_delegate` description tells Claude to call
+`codex_recommend` first, announce the suggested model and effort, then delegate with both explicit.
+When `CODEX_SUBAGENT_DEFAULT_MODEL` is set, or `CODEX_SUBAGENT_ALLOWED_MODELS` contains exactly one
+model, it instead tells Claude to omit `model` so the default applies. A configuration error keeps
+the recommendation guidance. This is guidance to a model, not enforcement. For advice, ask: “Which
+Codex model should handle migrating this repo's tests to vitest?” The suggestion respects your model
+allow-list and effort ceiling; see [the recommendation reference](docs/TOOLS.md#codex_recommend).
 
 To skip that step on later delegations, set a default from `list_codex_models` once:
 
