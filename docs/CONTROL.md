@@ -171,8 +171,10 @@ place.
 - If this server is also registered in the Codex configuration for the delegation's working
   directory, it is switched off for that run so the delegated agent cannot call it and delegate
   again. The server lists that directory's MCP entries immediately before both new runs and
-  follow-ups. If the listing fails, the delegation still runs, but its result says the recursion
-  guard could not be applied.
+  follow-ups. If this server's own entry has a dot or `=` in its name, it cannot be turned off for
+  the run, and the result says the guard was not applied. If the listing fails, the delegation runs
+  only when `CODEX_SUBAGENT_MCP_SERVERS` is `all`, with the result saying the recursion guard could
+  not be applied; under `none` or a list, it is refused and nothing runs.
 - The MCP servers, plugins and apps of your Codex configuration are off for a delegation unless
   `CODEX_SUBAGENT_MCP_SERVERS`, `CODEX_SUBAGENT_PLUGINS` or `CODEX_SUBAGENT_APPS` allow them, because
   the sandbox does not confine what those tools do. The result says what was allowed

@@ -31,7 +31,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
 | `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. The recursion guard turns this server off for each delegation. If the MCP listing fails under `all`, or this server's own entry has a dot or `=` in its name, the result says the guard was not applied. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
-| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. A plugin list that cannot be checked turns every plugin off. |
+| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. When a plugin listing cannot be checked, `none` or a list turns every plugin off; `all` keeps every plugin without checking. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
 | `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | Opt-in local usage log, default `off`. Empty or whitespace means off; other values refuse delegations until restart with a valid value. |
 | `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` | Decimal integer from 1 to 9007199254740991 | Delegation processes (`codex exec` or `codex exec resume`) this server starts per rolling hour. Unset means unrestricted. Probes never count; a spawned run counts for sixty minutes whatever its outcome. See [Bounds on delegations](#bounds-on-delegations). |
@@ -347,10 +347,12 @@ information must use Codex's web-search tool, when enabled for the run.
 
 Before every new delegation and follow-up, the server runs `codex mcp list --json` in the directory
 that run will use. It disables entries that point back to this server with
-`mcp_servers.<name>.enabled=false`. If the listing fails, execution remains fail-open, but the result
-says the recursion guard could not be applied. The injected prompt separately instructs the
-delegated agent not to delegate further. That prompt layer is an instruction, not a control, and
-covers configurations the server could not enumerate.
+`mcp_servers.<name>.enabled=false`. If this server's own entry has a dot or `=` in its name, it cannot
+be turned off for the run, and the result says the guard was not applied. If the listing fails, the
+delegation runs only when `CODEX_SUBAGENT_MCP_SERVERS` is `all`, with the result saying the recursion
+guard could not be applied; under `none` or a list, it is refused and nothing runs. The injected
+prompt separately instructs the delegated agent not to delegate further. That prompt layer is an
+instruction, not a control, and covers configurations the server could not enumerate.
 
 Self-reference recognition is by shape: the string `codex-subagent-mcp`, a `codex-subagent`
 executable basename, or this server's exact entry script path. A registration pointing at a copy of
