@@ -41,4 +41,4 @@ choice changes. There is no exception for facts that became untrue; see
 | [0025](0025-settle-the-open-details-of-the-delegation-bound.md) | Settle the open details of the delegation bound | Accepted |
 | [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) | Report a worktree run from the session file alone | Accepted |
 | [0027](0027-opt-in-to-the-extended-doctor-report.md) | Opt in to the extended doctor report | Accepted |
-| [0028](0028-describe-the-instance-in-server-instructions.md) | Describe the instance in server instructions, not in tool descriptions | Proposed |
+| [0028](0028-describe-the-instance-in-server-instructions.md) | Describe the instance in server instructions, not in tool descriptions | Accepted |

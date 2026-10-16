@@ -1,6 +1,6 @@
 # 28. Describe the instance in server instructions, not in tool descriptions
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
