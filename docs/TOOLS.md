@@ -30,7 +30,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | Sandbox used when a call specifies none. Unset means `read-only`. It cannot be more permissive than `CODEX_SUBAGENT_MAX_SANDBOX`. |
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
-| `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. This server is always off, whatever the value. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
+| `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. The recursion guard turns this server off for each delegation. If the MCP listing fails under `all`, or this server's own entry has a dot or `=` in its name, the result says the guard was not applied. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
 | `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. A plugin list that cannot be checked turns every plugin off. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
 | `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | Opt-in local usage log, default `off`. Empty or whitespace means off; other values refuse delegations until restart with a valid value. |
@@ -81,11 +81,10 @@ reason to leave its explicit opt-in outside the repository.
 When a client connects, the server instructions describe this registration before any tool is
 loaded: its sandbox ceiling and whether that ceiling is configured or built in, its default
 sandbox, and any configured default model and reasoning effort. They also count the kinds of MCP
-servers, plugins and apps a delegation may keep, without naming them. Whenever MCP servers may be
-kept, the instructions state separately that this server itself is always turned off. This lets an
-orchestrator choose between registrations with different policies. If the configuration has an
-error, the instructions state only that the server is misconfigured, that delegation tools refuse,
-and that `codex_doctor` lists the errors; they do not present fallback values as policy.
+servers, plugins and apps a delegation may keep, without naming them. This lets an orchestrator
+choose between registrations with different policies. If the configuration has an error, the
+instructions state only that the server is misconfigured, that delegation tools refuse, and that
+`codex_doctor` lists the errors; they do not present fallback values as policy.
 
 ---
 

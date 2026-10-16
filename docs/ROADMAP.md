@@ -339,8 +339,7 @@ planned here ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 
 It also lets each registration describe itself. Server instructions state the registration's
 sandbox ceiling and its source, sandbox default, configured model and effort defaults, and counts of
-the inherited tool kinds a delegation may keep. When MCP servers may be kept, the instructions also
-state that this server itself is always turned off. Tool descriptions remain true under every
+the inherited tool kinds a delegation may keep. Tool descriptions remain true under every
 configuration, except that the `codex_delegate` model guidance tells the caller to omit `model` when
 a valid configured or implied default applies, instead of routing through `codex_recommend`. A
 misconfigured registration states no fallback values and points to `codex_doctor`. This makes two
