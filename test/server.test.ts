@@ -151,6 +151,7 @@ cp.spawn = ((file: string, args: string[], options?: { cwd?: string }) => {
 syncBuiltinESMExports();
 
 const { createServer } = await import("../src/server.ts");
+const { loadConfig } = await import("../src/config.ts");
 const { resetCatalogCache } = await import("../src/codex/catalog.ts");
 const { resetDoctorCache } = await import("../src/codex/doctor.ts");
 
@@ -707,7 +708,7 @@ const DESCRIPTION_CASES = [
     name: "routes an unnamed model through advice before delegation",
     tool: "codex_delegate",
     parameter: undefined,
-    description: "Delegate a task to the local Codex CLI (OpenAI's coding agent), choosing model and reasoning effort. Use it when the user asks for Codex, or when handing work off clearly serves their request: a second opinion from a different model family, or an investigation that would otherwise flood this conversation. When the user has not named a model, call codex_recommend first and present its suggested model and effort to the user in the same message in which you say you are going to delegate, then pass both explicitly here. That recommendation is advice for an already-authorised delegation, not a replacement for the user's own preference. Everything passed in prompt, context and target_files is sent to OpenAI, and every run spends the user's own Codex usage, so do not delegate what you can answer directly, and tell the user when you delegate. Codex runs read-only unless a different default sandbox is configured. Set sandbox to workspace-write to let it edit files. Codex cannot see this conversation, so pass everything it needs in prompt, context, and target_files.",
+    description: "Delegate a task to the local Codex CLI (OpenAI's coding agent), choosing model and reasoning effort. Use it when the user asks for Codex, or when handing work off clearly serves their request: a second opinion from a different model family, or an investigation that would otherwise flood this conversation. When the user has not named a model, call codex_recommend first and present its suggested model and effort to the user in the same message in which you say you are going to delegate, then pass both explicitly here. That recommendation is advice for an already-authorised delegation, not a replacement for the user's own preference. Everything passed in prompt, context and target_files is sent to OpenAI, and every run spends the user's own Codex usage, so do not delegate what you can answer directly, and tell the user when you delegate. Codex runs read-only unless a different default sandbox is configured. Set sandbox to workspace-write to let it edit files, if this server's sandbox ceiling allows it: the server instructions state the ceiling, and a call above it is refused. Codex cannot see this conversation, so pass everything it needs in prompt, context, and target_files.",
   },
   {
     name: "advertises web search as live retrieval for the run",
@@ -749,7 +750,9 @@ const DESCRIPTION_CASES = [
 
 for (const entry of DESCRIPTION_CASES) {
   test(entry.name, async () => {
-    const { server } = createServer();
+    // An explicit empty configuration: a CODEX_SUBAGENT_DEFAULT_MODEL in the developer's shell would
+    // otherwise switch the model guidance of codex_delegate (#180).
+    const { server } = createServer({ config: loadConfig({}) });
     try {
       const tools = server as unknown as ToolServer;
       const tool = tools._registeredTools[entry.tool] as {

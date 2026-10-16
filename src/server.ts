@@ -14,6 +14,7 @@ import {
   effortRank,
   impliedModel,
   loadConfig,
+  type LoadedConfig,
   type ServerConfig,
 } from "./config.js";
 import {
@@ -630,6 +631,16 @@ export interface ServerOptions {
   usageFileSystem?: UsageFileSystem;
   /** Starts the extended diagnosis, so that tests can control its outcome and timing (#69). */
   doctorReportRunner?: typeof runDoctorReport;
+  /** The configuration to serve; defaults to `loadConfig()`. Lets two configurations run in one process (#180). */
+  config?: LoadedConfig;
+}
+
+/**
+ * The server instructions sent at connect time: the one text generated from the configuration
+ * (ADR 28). Tool descriptions stay true under every configuration and point here.
+ */
+export function serverInstructions(loaded: LoadedConfig): string {
+  throw new Error("not implemented");
 }
 
 export function createServer(
