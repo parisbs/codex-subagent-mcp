@@ -54,6 +54,9 @@ const BUILT_IN_WORKSPACE_WRITE =
 
 const DEFAULT_READ_ONLY = "Default sandbox when a call sets none: read-only.";
 
+/** Added whenever MCP servers may be kept: the recursion guard turns this server off whatever the policy. */
+const SELF_ALWAYS_OFF = "This server itself is always turned off in a delegation.";
+
 const MISCONFIGURED =
   "This server is misconfigured: every tool that reaches the Codex CLI, except codex_doctor, refuses until its " +
   "environment variables are fixed, and codex_doctor lists the errors.";
@@ -200,6 +203,26 @@ test("AC-3 a model slug is quoted and escaped, so a stray line break cannot resh
   assert.ok(!instructions.includes("\n"), instructions);
 });
 
+test("AC-3 C1 controls, Unicode line separators and bidirectional controls in a model slug are escaped too", () => {
+  // The same characters, and the same lowercase \uXXXX form, as the extended doctor report's quote().
+  const loaded = loadConfig({
+    CODEX_SUBAGENT_DEFAULT_MODEL: "model-a\u2028b\u2029c\u0085d\u202Ee\u2066f\u007Fg",
+  });
+  assert.deepEqual(loaded.errors, []);
+  const instructions = serverInstructions(loaded);
+  assert.equal(
+    instructions,
+    [
+      INTRO,
+      BUILT_IN_WORKSPACE_WRITE,
+      DEFAULT_READ_ONLY,
+      'Default model when a call names none: "model-a\\u2028b\\u2029c\\u0085d\\u202ee\\u2066f\\u007fg", ' +
+        "set by CODEX_SUBAGENT_DEFAULT_MODEL and checked against the Codex catalog only when a call runs.",
+    ].join(" "),
+  );
+  assert.ok(!/[\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]/.test(instructions), instructions);
+});
+
 // ---------------------------------------------------------------------------
 // AC-4
 
@@ -219,8 +242,23 @@ test("AC-4 inherited tools are stated by kind and count, never by name", () => {
       INTRO,
       BUILT_IN_WORKSPACE_WRITE,
       DEFAULT_READ_ONLY,
-      "Delegations keep these tools from the Codex configuration, which the sandbox does not confine: " +
+      "Delegations may keep these tools from the Codex configuration, which the sandbox does not confine: " +
         "every MCP server, 2 plugins, apps.",
+      SELF_ALWAYS_OFF,
+    ].join(" "),
+  );
+});
+
+test("AC-4 plugins or apps alone say nothing about this server, which only MCP servers concern", () => {
+  const loaded = loadConfig({ CODEX_SUBAGENT_PLUGINS: "all", CODEX_SUBAGENT_APPS: "on" });
+  assert.equal(
+    serverInstructions(loaded),
+    [
+      INTRO,
+      BUILT_IN_WORKSPACE_WRITE,
+      DEFAULT_READ_ONLY,
+      "Delegations may keep these tools from the Codex configuration, which the sandbox does not confine: " +
+        "every plugin, apps.",
     ].join(" "),
   );
 });
@@ -236,8 +274,9 @@ test("AC-4 a single inherited name is counted once and in the singular", () => {
       INTRO,
       BUILT_IN_WORKSPACE_WRITE,
       DEFAULT_READ_ONLY,
-      "Delegations keep these tools from the Codex configuration, which the sandbox does not confine: " +
+      "Delegations may keep these tools from the Codex configuration, which the sandbox does not confine: " +
         "1 MCP server, every plugin.",
+      SELF_ALWAYS_OFF,
     ].join(" "),
   );
 });
