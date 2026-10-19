@@ -48,6 +48,21 @@ export function schemaRejectionHint(result: DelegationResult): string | null {
 }
 
 /**
+ * The note added to a run that failed because the model was at capacity on OpenAI's side (#158,
+ * ADR 30): null for any other run. It reads the record Codex wrote for this run's turn, never the
+ * message text, and it changes the report only.
+ */
+export function capacityNote(result: DelegationResult): string | null {
+  if (result.notStarted || result.timedOut || result.cancelled || !result.turnFailure) return null;
+  if (result.turnCompletion?.errorInfo !== "server_overloaded") return null;
+  return (
+    "The model reached a temporary capacity limit on OpenAI's side, not a problem with the task or " +
+    "configuration. Any changes the run made in its working directory or worktree persist. Use " +
+    "codex_follow_up on the reported thread to retrieve the final report, retry later, or choose another model."
+  );
+}
+
+/**
  * Decides whether a finished delegation failed, and why.
  *
  * Codex signals failure in several independent ways. The obvious one is the

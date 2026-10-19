@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "../src/outcome.ts";
+import { capacityNote, describeFailure, describeSandboxBreach, schemaRejectionHint } from "../src/outcome.ts";
 import type { AppliedSettings, DelegationResult } from "../src/types.ts";
+import { assertCapacityNote } from "./fixtures/task-complete.ts";
 
 /** Everything Codex recorded matching what was requested: the ordinary case. */
 function applied(overrides: Partial<AppliedSettings> = {}): AppliedSettings {
@@ -184,4 +185,56 @@ test("AC-6 gives no hint for a run without a schema or for another failure", () 
     null,
   );
   assert.equal(schemaRejectionHint(result({ structured: { ok: true, json: "{}" } })), null);
+});
+
+// #158: a failure the session file records as the model being at capacity (ADR 30).
+
+const AT_CAPACITY = "Selected model is at capacity. Please try a different model.";
+
+/** A run that ended with `turn.failed`, with the record Codex wrote for its turn. */
+function failedTurn(errorInfo: string | null, overrides: Partial<DelegationResult> = {}): DelegationResult {
+  return result({
+    finalMessage: "",
+    agentMessages: [],
+    exitCode: 1,
+    turnFailure: AT_CAPACITY,
+    turnCompletion: { errorInfo },
+    ...overrides,
+  });
+}
+
+test("AC-1 (#158) notes a failed turn Codex recorded as server_overloaded, and keeps it a failure", () => {
+  const run = failedTurn("server_overloaded");
+  assertCapacityNote(capacityNote(run));
+  // The note adds to the report; the failure itself reads as it did before #158.
+  assert.equal(describeFailure(run), `Codex reported the turn as failed (exit code 1): ${AT_CAPACITY}`);
+  assert.equal(describeFailure(run), describeFailure(failedTurn(null)));
+});
+
+test("AC-2 (#158) gives no capacity note for any other recorded error, or none", () => {
+  for (const errorInfo of ["usage_limit_exceeded", "other", "SERVER_OVERLOADED", "server_overloaded ", null]) {
+    assert.equal(capacityNote(failedTurn(errorInfo)), null, String(errorInfo));
+  }
+});
+
+test("AC-2 (#158) gives no capacity note to a run that did not end with turn.failed", () => {
+  const overloaded = { turnCompletion: { errorInfo: "server_overloaded" } };
+  const runs: Record<string, DelegationResult> = {
+    succeeded: result(overloaded),
+    "timed out": result({ ...overloaded, timedOut: true, exitCode: null }),
+    cancelled: result({ ...overloaded, cancelled: true, exitCode: null }),
+    "failed only through its exit code": result({ ...overloaded, exitCode: 1, finalMessage: "", agentMessages: [] }),
+    "failed with an in-band error": result({ ...overloaded, errors: [AT_CAPACITY], finalMessage: "", agentMessages: [] }),
+  };
+  for (const [name, run] of Object.entries(runs)) {
+    assert.equal(capacityNote(run), null, name);
+  }
+});
+
+test("AC-3 (#158) never infers capacity from the message text", () => {
+  for (const turnCompletion of [undefined, null]) {
+    const run = failedTurn(null, { turnCompletion });
+    assert.equal(capacityNote(run), null, String(turnCompletion));
+    assert.equal(describeFailure(run), `Codex reported the turn as failed (exit code 1): ${AT_CAPACITY}`);
+  }
 });

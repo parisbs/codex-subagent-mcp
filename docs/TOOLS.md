@@ -315,6 +315,15 @@ a usage limit, a lost connection — the reason is stated first and the delegati
 failed, even if the process exited 0. A run that exits cleanly without any answer is a failure
 too. Warnings Codex writes to stderr are shown on successful runs as well.
 
+When that failed turn's session record confirms `server_overloaded`, the result adds a note: the
+model reached a temporary capacity limit on OpenAI's side, not a problem with the task or
+configuration. Changes the run made in its working directory or worktree persist. The caller can
+use `codex_follow_up` on the reported thread to retrieve the final report, retry later, or choose
+another model. The result stays a failure; the server never retries or switches models itself.
+This note appears in blocking results and `codex_job_result`, including follow-ups. An unreadable,
+missing or malformed record, an earlier turn's record, or any other failure adds no capacity note;
+the server never infers capacity from message text. See [ADR 30](adr/0030-recognise-a-capacity-failure-from-the-session-file.md).
+
 Progress is reported through MCP progress notifications as the run proceeds, which is also what
 keeps a long delegation from being cut off by the client's tool timeout.
 

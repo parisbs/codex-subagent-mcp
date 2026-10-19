@@ -587,6 +587,10 @@ export function runCodex(options: RunOptions): RunHandle {
         resolve({
           ...base,
           applied: await compareApplied(requested, lookup),
+          turnCompletion:
+            lookup.completion && lookup.completion.writtenAtMs >= startedAt
+              ? { errorInfo: lookup.completion.errorInfo }
+              : null,
           ...(invocation.useWorktree ? { worktree: reportWorktree(lookup) } : {}),
         });
       } catch (error) {

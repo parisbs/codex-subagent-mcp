@@ -8,6 +8,7 @@ import {
   codexHomeDir,
   compareApplied,
   parseSessionMetaCommit,
+  parseTaskCompleteLine,
   parseTurnContextLine,
   recoverThreadSettings,
   readTurnContext,
@@ -19,6 +20,17 @@ import {
   turnContextLine as turnContext,
   type CodexHome,
 } from "./fixtures/codex-home.ts";
+import {
+  CAPACITY_0160,
+  CAPACITY_0160_TURN,
+  THREAD_0163,
+  THREAD_0163_FAILED_TURN,
+  THREAD_0163_FOLLOW_UP_TURN,
+  USAGE_LIMIT_0154,
+  USAGE_LIMIT_0154_TURN,
+  USAGE_LIMIT_0162,
+  USAGE_LIMIT_0162_TURN,
+} from "./fixtures/task-complete.ts";
 
 /**
  * Coverage of the one part of this server that reads an internal Codex format.
@@ -494,6 +506,130 @@ test("AC-2 (#150) leaves both unconfirmed when there is no session file", async 
     const lookup = await lookupIn(home, "absent");
     assert.equal(lookup.context, null);
     assert.equal(lookup.baseCommit ?? null, null);
+  } finally {
+    home.dispose();
+  }
+});
+
+/**
+ * The record that closes a turn (#158, ADR 30). Only its `turn_id`, `error.codex_error_info` and the
+ * envelope's `timestamp` are read; the real lines keep everything else so a parser that works only
+ * on trimmed input fails here.
+ */
+test("AC-1 (#158) reads the capacity record codex-cli 0.160.1 wrote", () => {
+  assert.deepEqual(parseTaskCompleteLine(CAPACITY_0160), {
+    turnId: CAPACITY_0160_TURN,
+    errorInfo: "server_overloaded",
+    writtenAtMs: Date.parse("2026-10-07T21:34:49.758Z"),
+  });
+});
+
+test("AC-2 (#158) reads the usage-limit record codex-cli 0.162.1 wrote", () => {
+  assert.deepEqual(parseTaskCompleteLine(USAGE_LIMIT_0162), {
+    turnId: USAGE_LIMIT_0162_TURN,
+    errorInfo: "usage_limit_exceeded",
+    writtenAtMs: Date.parse("2026-10-16T18:39:49.097Z"),
+  });
+});
+
+test("AC-2 (#158) reads the usage-limit record codex-cli 0.154.0 wrote", () => {
+  assert.deepEqual(parseTaskCompleteLine(USAGE_LIMIT_0154), {
+    turnId: USAGE_LIMIT_0154_TURN,
+    errorInfo: "usage_limit_exceeded",
+    writtenAtMs: Date.parse("2026-09-14T18:56:41.853Z"),
+  });
+});
+
+test("AC-2 (#158) reads no error from the record of a turn that succeeded (0.163.0)", () => {
+  assert.deepEqual(parseTaskCompleteLine(THREAD_0163.followUp), {
+    turnId: THREAD_0163_FOLLOW_UP_TURN,
+    errorInfo: null,
+    writtenAtMs: Date.parse("2026-10-19T20:33:41.288Z"),
+  });
+});
+
+test("AC-3 (#158) reads nothing it cannot trust from a malformed record", () => {
+  const record = (payload: Record<string, unknown>, timestamp: unknown = "2026-10-07T21:34:49.758Z") =>
+    JSON.stringify({ timestamp, type: "event_msg", payload: { type: "task_complete", ...payload } });
+  const overloaded = { error: { message: "at capacity", codex_error_info: "server_overloaded" } };
+
+  for (const line of [
+    "",
+    "not json",
+    '{"type":"event_msg","payload":{"type":"task_complete"',
+    // A record of another kind, and a turn context, are not a turn's end.
+    JSON.stringify({ timestamp: "2026-10-07T21:34:49.758Z", type: "event_msg", payload: { type: "turn_aborted", turn_id: "t", reason: "interrupted" } }),
+    THREAD_0163.failedContext,
+    // Without a turn id the record cannot be tied to a turn; without a timestamp, to a run.
+    record(overloaded),
+    JSON.stringify({ type: "event_msg", payload: { type: "task_complete", turn_id: "t", ...overloaded } }),
+    record({ turn_id: "t", ...overloaded }, null),
+    record({ turn_id: "t", ...overloaded }, "yesterday"),
+    record({ turn_id: 42, ...overloaded }),
+  ]) {
+    assert.equal(parseTaskCompleteLine(line), null, line);
+  }
+
+  // A value that is not text is no value; whether the record is kept is the parser's choice.
+  for (const error of [{ codex_error_info: 42 }, { codex_error_info: { kind: "server_overloaded" } }, "server_overloaded"]) {
+    const parsed = parseTaskCompleteLine(record({ turn_id: "t", error }));
+    assert.equal(parsed?.errorInfo ?? null, null, JSON.stringify(error));
+  }
+});
+
+test("AC-4 (#158) takes the record of the latest turn, not an earlier capacity failure", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "resumed",
+      day: "2026-10-07",
+      lines: [
+        SESSION_META,
+        turnContext({ turn_id: CAPACITY_0160_TURN }),
+        CAPACITY_0160,
+        THREAD_0163.failedContext,
+        THREAD_0163.failed,
+      ],
+    });
+    const lookup = await lookupIn(home, "resumed");
+    assert.equal(lookup.completion?.turnId, THREAD_0163_FAILED_TURN);
+    assert.equal(lookup.completion?.errorInfo, "other");
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-4 (#158) reads the 0.163.0 thread of a failed turn and its follow-up", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "followed-up",
+      day: "2026-10-19",
+      lines: [SESSION_META, THREAD_0163.failedContext, THREAD_0163.failed, THREAD_0163.followUpContext, THREAD_0163.followUp],
+    });
+    const lookup = await lookupIn(home, "followed-up");
+    assert.deepEqual(lookup.completion, {
+      turnId: THREAD_0163_FOLLOW_UP_TURN,
+      errorInfo: null,
+      writtenAtMs: Date.parse("2026-10-19T20:33:41.288Z"),
+    });
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-3 (#158) finds no record when the latest turn has none, whatever an earlier turn says", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "unfinished",
+      day: "2026-10-07",
+      lines: [SESSION_META, turnContext({ turn_id: CAPACITY_0160_TURN }), CAPACITY_0160, THREAD_0163.followUpContext],
+    });
+    const lookup = await lookupIn(home, "unfinished");
+    // The file was read: the turn context is there, and its turn has no record.
+    assert.equal(lookup.context?.model, "gpt-5.6-luna");
+    assert.strictEqual(lookup.completion, null);
   } finally {
     home.dispose();
   }

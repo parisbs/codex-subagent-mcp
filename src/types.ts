@@ -165,6 +165,11 @@ export interface DelegationResult {
   warnings: string[];
   /** Why Codex reported the turn as failed, when it did. */
   turnFailure: string | null;
+  /**
+   * How Codex recorded the end of this run's own turn in its session file (ADR 30): set only from a
+   * record written no earlier than this run's spawn. Null or absent when no such record was read.
+   */
+  turnCompletion?: { errorInfo: string | null } | null;
   /** Tokens for this invocation alone; null when unavailable or a resume baseline is unknown. */
   turnUsage: TokenUsage | null;
   /** Cumulative tokens Codex reported for the thread after this invocation. */
