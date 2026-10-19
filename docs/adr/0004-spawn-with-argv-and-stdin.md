@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 4. Invoke the CLI with argv and deliver the prompt on stdin
 
-Status: Accepted
 
 ## Context
 

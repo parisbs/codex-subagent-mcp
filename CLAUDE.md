@@ -208,10 +208,12 @@ Delegations cost real Codex quota, so keep smoke tests on the cheapest model at 
   example `fix(runner): report a timeout as an error`. CI checks the pull request title.
 - Code, comments and documentation are in English. Documentation diagrams use Mermaid and carry a
   short prose description.
-- Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is immutable once
-  merged to `main`, with no exception: a changed decision or a fact that became untrue goes in a
-  later record that supersedes it and links back (ADR 15). The superseded record changes in its
-  status line only, naming its successor, and its index row says the same (ADR 19).
+- Significant decisions get an ADR in `docs/adr/`, in Nygard format, with the status in YAML front
+  matter (`status:`, and `date:` in a new record); a `Status:` line counts as no status (ADR 29). A
+  record is immutable from the commit on `main` where its status becomes accepted or rejected, with
+  no exception: a changed decision or a fact that became untrue goes in a later record that
+  supersedes it and links back (ADR 15, ADR 29). The superseded record changes in its front matter
+  status only, naming its successor, and its index row says the same (ADR 19).
 - Instructions live in this `CLAUDE.md` alone; there is no `AGENTS.md`, so a delegated run loads no
   repository instructions of its own (ADR 18).
 - `CHANGELOG.md` changes only when a release is prepared. A pull request describes any user-visible

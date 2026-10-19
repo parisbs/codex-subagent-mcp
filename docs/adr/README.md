@@ -6,11 +6,13 @@ Michael Nygard's: Context, Decision, Consequences.
 See also [VERSIONING.md](../VERSIONING.md) for what counts as a breaking change, and
 [ROADMAP.md](../ROADMAP.md) for what is planned and what is deliberately out of scope.
 
-A record is not edited once merged to `main` — it is superseded by a later one, which links back.
-The superseded record changes in its status line only, naming its successor, and the status column
-below says the same. That way the reasoning behind a past choice stays readable even after the
+A record's status is the `status` field of its YAML front matter. A record is not edited once its
+status on `main` is accepted or rejected — it is superseded by a later one, which links back. The
+superseded record changes in its front matter status only, naming its successor, and the status
+column below says the same. That way the reasoning behind a past choice stays readable even after the
 choice changes. There is no exception for facts that became untrue; see
-[0015](0015-agents-md-and-immutable-records.md) and [0019](0019-name-the-successor-in-the-status-line.md).
+[0015](0015-agents-md-and-immutable-records.md), [0019](0019-name-the-successor-in-the-status-line.md)
+and [0029](0029-keep-the-status-in-front-matter.md).
 
 | # | Title | Status |
 | --- | --- | --- |
@@ -42,3 +44,4 @@ choice changes. There is no exception for facts that became untrue; see
 | [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) | Report a worktree run from the session file alone | Accepted |
 | [0027](0027-opt-in-to-the-extended-doctor-report.md) | Opt in to the extended doctor report | Accepted |
 | [0028](0028-describe-the-instance-in-server-instructions.md) | Describe the instance in server instructions, not in tool descriptions | Accepted |
+| [0029](0029-keep-the-status-in-front-matter.md) | Keep the status in front matter and freeze records on acceptance | Accepted |

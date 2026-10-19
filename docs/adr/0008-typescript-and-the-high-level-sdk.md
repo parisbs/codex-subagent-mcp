@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 8. Build on TypeScript and the high-level MCP SDK
 
-Status: Accepted
 
 ## Context
 

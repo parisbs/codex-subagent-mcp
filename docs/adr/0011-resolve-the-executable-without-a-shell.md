@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 11. Resolve the Codex executable without a shell
 
-Status: Accepted
 
 ## Context
 

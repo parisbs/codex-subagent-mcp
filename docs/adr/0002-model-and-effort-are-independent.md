@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 2. Treat model and reasoning effort as independent axes
 
-Status: Accepted
 
 ## Context
 

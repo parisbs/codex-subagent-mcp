@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 17. Define 1.0 as the freeze of the public interface
 
-Status: Accepted
 
 ## Context
 

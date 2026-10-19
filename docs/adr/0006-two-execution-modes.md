@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 6. Offer blocking and background execution modes
 
-Status: Accepted
 
 ## Context
 

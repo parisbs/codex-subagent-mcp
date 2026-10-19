@@ -78,12 +78,16 @@ Delegations cost real Codex quota. Keep manual smoke tests on the cheapest model
 
 ## Documentation
 
-Significant decisions get an ADR in `docs/adr/`, in Nygard format. A record is immutable once merged
-to `main`: a changed decision, or a fact that has become untrue, is recorded in a later record that
-supersedes it and links back. The superseded record changes in its status line only, naming its
-successor, and its index entry says the same. A record in an open pull request is still a draft. See
-[ADR 15](docs/adr/0015-agents-md-and-immutable-records.md) and
-[ADR 19](docs/adr/0019-name-the-successor-in-the-status-line.md).
+Significant decisions get an ADR in `docs/adr/`, in Nygard format, with its status in the `status`
+field of YAML front matter: line 1 is `---`, then `status: proposed` and `date: YYYY-MM-DD`, then
+`---` and the title. A record is immutable from the commit on `main` where its status becomes
+accepted or rejected: a changed decision, or a fact that has become untrue, is recorded in a later
+record that supersedes it and links back. The superseded record changes in its front matter status
+only, naming its successor, and its index entry says the same. A proposed record, and any record in
+an open pull request, is still a draft. See
+[ADR 15](docs/adr/0015-agents-md-and-immutable-records.md),
+[ADR 19](docs/adr/0019-name-the-successor-in-the-status-line.md) and
+[ADR 29](docs/adr/0029-keep-the-status-in-front-matter.md).
 
 Do not edit `CHANGELOG.md` in a pull request. It is written once, when a release is prepared, from
 the pull requests that release contains. What a pull request must do instead is describe any

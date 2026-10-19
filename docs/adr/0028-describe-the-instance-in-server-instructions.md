@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 28. Describe the instance in server instructions, not in tool descriptions
 
-Status: Accepted
 
 ## Context
 

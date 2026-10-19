@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 14. Make sandbox defaults user-controlled and unsandboxed access opt-in
 
-Status: Accepted
 
 Supersedes only the **configuration may only restrict** clause of
 [ADR 12](0012-mechanism-not-policy.md), and the clause of [ADR 5](0005-read-only-by-default.md) that

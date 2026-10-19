@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 7. Inject the quality contract into the prompt
 
-Status: Accepted
 
 ## Context
 
