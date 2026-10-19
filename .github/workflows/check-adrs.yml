@@ -1,0 +1,33 @@
+# Records are immutable once accepted or rejected, and their status is the
+# `status` field of MADR 4 front matter. scripts/check-adrs.mjs compares the
+# ADRs of the pull request with its base and fails on a frozen body edit, a
+# wrong status transition, a deleted record, broken numbering or a record
+# missing from the index. The base branch must be fetched, hence fetch-depth 0;
+# the base name reaches the shell through the environment, never interpolated
+# into the script. The checkout does not keep the token in .git/config: the
+# check reads only local git objects, so no later step needs it. Every action
+# is pinned by full commit SHA.
+name: check-adrs
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  adrs:
+    name: Check ADRs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Check ADRs against the base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-adrs.mjs "refs/remotes/origin/$BASE_REF"
