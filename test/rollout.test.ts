@@ -562,7 +562,8 @@ test("AC-3 (#158) reads nothing it cannot trust from a malformed record", () => 
     THREAD_0163.failedContext,
     // Without a turn id the record cannot be tied to a turn; without a timestamp, to a run.
     record(overloaded),
-    record({ turn_id: "t", ...overloaded }, undefined),
+    JSON.stringify({ type: "event_msg", payload: { type: "task_complete", turn_id: "t", ...overloaded } }),
+    record({ turn_id: "t", ...overloaded }, null),
     record({ turn_id: "t", ...overloaded }, "yesterday"),
     record({ turn_id: 42, ...overloaded }),
   ]) {
