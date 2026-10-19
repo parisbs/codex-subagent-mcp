@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
@@ -16,6 +16,8 @@ import { readProcessTable } from "../src/codex/terminate.ts";
 import { EventEmitter } from "node:events";
 
 import { createFakeCodex, jsonl, type FakeCodex } from "./fixtures/fake-codex.ts";
+import { isAlive } from "./fixtures/process-alive.ts";
+import { processTableDecision } from "./support/process-table-gate.ts";
 
 /**
  * Shutdown within the host's budget (#40).
@@ -36,19 +38,6 @@ const DEADLINE_MS = 350;
  * schedule is checked with a mocked clock (#116).
  */
 const HOST_BUDGET_MS = 430;
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-  // A zombie has stopped: it runs nothing and waits only to be reaped, which
-  // under load can take longer than these tests wait (#116).
-  if (!POSIX) return true;
-  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
-  return state !== "" && !state.startsWith("Z");
-}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -126,7 +115,10 @@ test("AC-1 stops every run, forcing the stubborn ones, within the host's budget"
   }
 });
 
-test("AC-3 (#107) stops a command Codex started in its own process group, within the host's budget", async () => {
+test("AC-3 (#107) stops a command Codex started in its own process group, within the host's budget", async (t) => {
+  const table = processTableDecision();
+  if (table.action === "skip") return t.skip(table.reason);
+  if (table.action === "fail") assert.fail(table.message);
   const runs = new ActiveRuns();
   const fake = createFakeCodex({
     chunks: [jsonl({ type: "thread.started", thread_id: "own-group" })],

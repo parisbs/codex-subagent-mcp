@@ -1,0 +1,4 @@
+# Frozen by the oracle of #159. test/support/ stays writable: it holds the
+# process-table gate the implementation fills in.
+test/*.test.ts
+test/fixtures/**
