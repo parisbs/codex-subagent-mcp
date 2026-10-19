@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Issue #28 (ADR 0018, 0019) and issue #66 (ADR 0020): compares the ADRs of HEAD with a base reference and
-// fails when a frozen record changed, a status moved the wrong way, the date of a decided record changed
-// without a status transition, a record was deleted or renamed, the numbering broke or the index misses a
-// record. The status is read only from the MADR 4 front matter `status` field; the one-time mechanical
+// Issue #28 (ADR 0018, 0019), issue #66 (ADR 0020) and issue #70 (ADR 0021): compares the ADRs of HEAD with
+// a base reference and fails when a frozen record changed, a status moved the wrong way, the date of a
+// decided record changed without a status transition, a record was deleted or renamed, the numbering broke
+// or the index misses a record. Added records need a recognised status; index links inside HTML comments
+// are ignored. The status is read only from the MADR 4 front matter `status` field; the one-time mechanical
 // migration of a legacy record into front matter passes whatever its base status. Usage, from inside the
 // repository: node scripts/check-adrs.mjs <base-ref>
 // Exit 0 when clean; otherwise non-zero, with one line per problem on stderr, starting with the file
@@ -188,12 +189,51 @@ function checkNumbers(directory, baseRecords, headRecords) {
   }
 }
 
+// HTML comments, as CommonMark reads them, become blanks: from "<!--" to the next "-->" across lines, the
+// complete short forms "<!-->" and "<!--->", and an unclosed one to the end of the text. A "<!--" inside a
+// fenced code block or a code span is text, not a comment. Newlines stay, so line numbers do not move.
+function maskComments(text) {
+  const code = [];
+  let offset = 0;
+  let fence = null;
+  for (const line of text.split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      code.push([offset, offset + line.length]);
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && /^ {0,3}[`~]+\s*$/.test(line)) fence = null;
+    } else if (marker) {
+      fence = marker;
+      code.push([offset, offset + line.length]);
+    } else {
+      for (const span of line.matchAll(/(`+)[^`][\s\S]*?\1(?!`)/g)) code.push([offset + span.index, offset + span.index + span[0].length]);
+    }
+    offset += line.length + 1;
+  }
+  const inCode = (at) => code.some(([start, end]) => at >= start && at < end);
+  let masked = '';
+  let from = 0;
+  for (let at = text.indexOf('<!--'); at !== -1; at = text.indexOf('<!--', from)) {
+    if (inCode(at)) {
+      masked += text.slice(from, at + 4);
+      from = at + 4;
+      continue;
+    }
+    const short = /^<!--->|^<!-->/.exec(text.slice(at))?.[0];
+    const close = text.indexOf('-->', at + 4);
+    const end = short ? at + short.length : close === -1 ? text.length : close + 3;
+    masked += text.slice(from, at) + text.slice(at, end).replace(/[^\n]/g, ' ');
+    from = end;
+  }
+  return masked + text.slice(from);
+}
+
 // The index format is free: only inline links whose file name is a record's count. Other documents,
 // external pages (with a scheme or protocol-relative), anchors and repeated links are ignored. A link may
 // carry a title or wrap its destination in angle brackets; one that starts with / resolves from the
 // repository root, as GitHub resolves it.
 function checkIndex(directory, records, text, exists) {
   const indexed = new Set();
+  text = maskComments(text);
   for (const [index, line] of text.split('\n').entries()) {
     for (const match of line.matchAll(/\[[^\]\n]*\]\(([^)\n]+)\)/g)) {
       const destination = match[1].trim();
@@ -243,8 +283,11 @@ try {
     }
     for (const name of headRecords.filter((name) => !baseRecords.includes(name))) {
       const file = `${directory}/${name}`;
-      if (record(blob(head, file)).statusLine === null) {
+      const added = record(blob(head, file));
+      if (added.statusLine === null) {
         problem(file, 'added record has no front matter status field (MADR 4: line 1 is "---", then "status: proposed")');
+      } else if (added.word === null) {
+        problem(`${file}:${added.statusLine}`, `added record has an unrecognised status "${shown(added.status)}" (expected proposed, accepted, rejected, superseded or deprecated)`);
       }
     }
     checkNumbers(directory, baseRecords, headRecords);
