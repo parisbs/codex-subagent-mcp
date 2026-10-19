@@ -35,7 +35,7 @@ import { serialiseOutputSchema } from "./codex/schema.js";
 import { compareApplied, readTurnContext, recoverThreadSettings } from "./codex/rollout.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
-import { describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
+import { capacityNote, describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
 import { JobRegistry } from "./jobs.js";
 import { DelegationBound, type DelegationReservation } from "./delegation-bound.js";
 import {
@@ -359,6 +359,9 @@ function renderResult(result: DelegationResult, notes: string[], config: ServerC
   if (result.turnFailure) {
     lines.push(`Codex reported the turn as failed: ${result.turnFailure}`, "");
   }
+
+  const capacity = capacityNote(result);
+  if (capacity) lines.push(capacity, "");
 
   const schemaHint = schemaRejectionHint(result);
   if (schemaHint) lines.push(schemaHint, "");

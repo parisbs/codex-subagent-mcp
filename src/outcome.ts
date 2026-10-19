@@ -53,8 +53,13 @@ export function schemaRejectionHint(result: DelegationResult): string | null {
  * message text, and it changes the report only.
  */
 export function capacityNote(result: DelegationResult): string | null {
-  void result;
-  throw new Error("not implemented");
+  if (result.notStarted || result.timedOut || result.cancelled || !result.turnFailure) return null;
+  if (result.turnCompletion?.errorInfo !== "server_overloaded") return null;
+  return (
+    "The model reached a temporary capacity limit on OpenAI's side, not a problem with the task or " +
+    "configuration. Any changes the run made in its working directory or worktree persist. Use " +
+    "codex_follow_up on the reported thread to retrieve the final report, retry later, or choose another model."
+  );
 }
 
 /**

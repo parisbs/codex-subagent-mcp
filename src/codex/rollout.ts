@@ -175,19 +175,53 @@ export function parseSessionMetaCommit(line: string): string | null {
  * format change degrades to no record rather than to a guess (ADR 30).
  */
 export function parseTaskCompleteLine(line: string): TurnCompletion | null {
-  void line;
-  throw new Error("not implemented");
+  const trimmed = line.trim();
+  if (!trimmed.includes("task_complete")) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  const envelope = asRecord(parsed);
+  if (envelope?.type !== "event_msg") return null;
+  const payload = asRecord(envelope.payload);
+  if (payload?.type !== "task_complete") return null;
+  const turnId = asString(payload.turn_id);
+  const timestamp = asString(envelope.timestamp);
+  if (turnId === null || timestamp === null) return null;
+  const writtenAtMs = Date.parse(timestamp);
+  if (!Number.isFinite(writtenAtMs)) return null;
+
+  return { turnId, errorInfo: asString(asRecord(payload.error)?.codex_error_info), writtenAtMs };
 }
 
-/** Reads the base commit and last turn context independently in one pass. */
+/** Reads the base commit, last turn context and its completion independently in one pass. */
 async function readSession(file: string): Promise<TurnContextLookup> {
   let last: TurnContext | null = null;
   let baseCommit: string | null = null;
+  let turnId: string | null = null;
+  let completion: TurnCompletion | null = null;
   let buffer = "";
   let read = 0;
   const readLine = (line: string): void => {
     last = parseTurnContextLine(line) ?? last;
     baseCommit = baseCommit ?? parseSessionMetaCommit(line);
+    if (line.includes("turn_context")) {
+      try {
+        const envelope = asRecord(JSON.parse(line));
+        if (envelope?.type === "turn_context") {
+          turnId = asString((asRecord(envelope.payload) ?? envelope).turn_id);
+          completion = null;
+        }
+      } catch {
+        // An incomplete line cannot identify a turn.
+      }
+    }
+    const closed = parseTaskCompleteLine(line);
+    if (closed !== null && closed.turnId === turnId) completion = closed;
   };
 
   const stream = createReadStream(file, { encoding: "utf8" });
@@ -210,7 +244,7 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   }
 
   readLine(buffer);
-  return { context: last, baseCommit, reason: last ? null : "the session file recorded no turn context" };
+  return { context: last, baseCommit, completion, reason: last ? null : "the session file recorded no turn context" };
 }
 
 async function listDirectory(dir: string): Promise<string[]> {
