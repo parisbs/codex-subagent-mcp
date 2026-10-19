@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+
 /**
  * Whether the tests that need the real process table can run here (#159).
  *
@@ -27,11 +29,34 @@ export type GateDecision =
   | { action: "fail"; message: string };
 
 /** Decides from the platform, the outcome of launching `ps` and the environment. */
-export function decideProcessTableGate(_input: GateInput): GateDecision {
-  throw new Error("not implemented");
+export function decideProcessTableGate(input: GateInput): GateDecision {
+  if (input.platform === "win32") return { action: "run" };
+  const { errorCode } = input.probe();
+  if (errorCode !== "EPERM" && errorCode !== "EACCES") return { action: "run" };
+
+  const reason = `Launching ps was refused (${errorCode})`;
+  const { CI } = input.env;
+  if (CI && CI !== "false" && CI !== "0") {
+    return { action: "fail", message: `${reason}; CI requires the real process table` };
+  }
+  return { action: "skip", reason };
 }
+
+let decision: GateDecision | undefined;
 
 /** The decision for this process, with the listing the server runs; probed once. */
 export function processTableDecision(): GateDecision {
-  throw new Error("not implemented");
+  decision ??= decideProcessTableGate({
+    platform: process.platform,
+    env: process.env,
+    probe: () => {
+      const result = spawnSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], {
+        shell: false,
+        encoding: "utf8",
+        timeout: 2000,
+      });
+      return { errorCode: result.error?.code, status: result.status };
+    },
+  });
+  return decision;
 }
