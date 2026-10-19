@@ -6,6 +6,7 @@ import { describeFailure } from "../src/outcome.ts";
 import type { DelegationResult } from "../src/types.ts";
 
 import { createFakeCodex, jsonl, type Scenario } from "./fixtures/fake-codex.ts";
+import { processTableDecision } from "./support/process-table-gate.ts";
 
 /**
  * What stopping a run leaves behind (#96).
@@ -271,7 +272,10 @@ const OWN_GROUP_COMMAND: Scenario = {
   descendant: { holdMs: 20_000, holdPipes: false, ignoreSigterm: POSIX, ownGroup: true },
 };
 
-test("AC-1 (#107) stops a command Codex started in its own process group when the run is cancelled", async () => {
+test("AC-1 (#107) stops a command Codex started in its own process group when the run is cancelled", async (t) => {
+  const table = processTableDecision();
+  if (table.action === "skip") return t.skip(table.reason);
+  if (table.action === "fail") assert.fail(table.message);
   await runAndStop(OWN_GROUP_COMMAND, { cancelOnThread: true }, async (_outcome, pid) => {
     assert.notEqual(pid, null);
     await sleep(GRACE_MS + 500);
@@ -280,6 +284,9 @@ test("AC-1 (#107) stops a command Codex started in its own process group when th
 });
 
 test("AC-2 (#107) (#169 AC-3) stops a command Codex started in its own process group when the run times out", async (t) => {
+  const table = processTableDecision();
+  if (table.action === "skip") return t.skip(table.reason);
+  if (table.action === "fail") assert.fail(table.message);
   // Starting after the 1 s timeout, as on a loaded machine (#169).
   await runAndStop({ ...OWN_GROUP_COMMAND, startDelayMs: 1200 }, { timeOutOnThread: t.mock.timers }, async (outcome, pid) => {
     assert.equal(outcome.timedOut, true);

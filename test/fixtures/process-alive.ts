@@ -21,3 +21,17 @@ export function isAlive(pid: number): boolean {
   const state = read.stdout.trim();
   return state !== "" && !state.startsWith("Z");
 }
+
+/**
+ * Kills a test's process if it may still run. A process `isAlive` cannot
+ * classify counts as running, so cleanup still signals it where `ps` is denied
+ * (#159).
+ */
+export function killQuietly(pid: number | null | undefined): void {
+  if (pid === null || pid === undefined || !isAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // Already gone.
+  }
+}
