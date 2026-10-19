@@ -361,13 +361,21 @@ caller's tree held depends on the user's git configuration and is already the ca
 ([ADR 26](adr/0026-report-a-worktree-run-from-the-session-file-alone.md)). It refuses nothing:
 denying a run from a dirty tree is a client-side hook's job.
 
+A run that fails because the model is at capacity says so. The CLI reports it only as free text, so
+the server reads the structured record Codex writes for the run's own turn in the session file, and
+the failed result adds a note: the limit is temporary and on OpenAI's side, the run's changes
+persist, and a follow-up, a later retry or another model remain the caller's choice. The result
+stays a failure, and the server neither retries nor switches model
+([ADR 30](adr/0030-recognise-a-capacity-failure-from-the-session-file.md)).
+
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
 [#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
 [#69](https://github.com/parisbs/codex-subagent-mcp/issues/69),
 [#135](https://github.com/parisbs/codex-subagent-mcp/issues/135),
 [#180](https://github.com/parisbs/codex-subagent-mcp/issues/180),
 [#149](https://github.com/parisbs/codex-subagent-mcp/issues/149),
-[#150](https://github.com/parisbs/codex-subagent-mcp/issues/150)
+[#150](https://github.com/parisbs/codex-subagent-mcp/issues/150),
+[#158](https://github.com/parisbs/codex-subagent-mcp/issues/158)
 
 ## 0.7.0 — Closing the interface
 
