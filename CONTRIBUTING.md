@@ -87,7 +87,9 @@ only, naming its successor, and its index entry says the same. A proposed record
 an open pull request, is still a draft. See
 [ADR 15](docs/adr/0015-agents-md-and-immutable-records.md),
 [ADR 19](docs/adr/0019-name-the-successor-in-the-status-line.md) and
-[ADR 29](docs/adr/0029-keep-the-status-in-front-matter.md).
+[ADR 29](docs/adr/0029-keep-the-status-in-front-matter.md). CI enforces these rules on every pull
+request with `scripts/check-adrs.mjs`; run
+`node scripts/check-adrs.mjs "$(git merge-base HEAD origin/main)"` to check a branch locally.
 
 Do not edit `CHANGELOG.md` in a pull request. It is written once, when a release is prepared, from
 the pull requests that release contains. What a pull request must do instead is describe any
