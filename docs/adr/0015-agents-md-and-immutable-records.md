@@ -1,5 +1,5 @@
 ---
-status: Accepted; the instructions in `AGENTS.md` superseded by [ADR 18](0018-keep-agent-instructions-in-claude-md-alone.md), and the status kept in the index alone by [ADR 19](0019-name-the-successor-in-the-status-line.md)
+status: Accepted; the instructions in `AGENTS.md` superseded by [ADR 18](0018-keep-agent-instructions-in-claude-md-alone.md), and the status kept in the index alone by [ADR 19](0019-name-the-successor-in-the-status-line.md); immutability from the merge superseded by [ADR 29](0029-keep-the-status-in-front-matter.md)
 ---
 # 15. Keep agent instructions in AGENTS.md and records immutable
 

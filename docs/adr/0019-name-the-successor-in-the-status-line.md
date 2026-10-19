@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Accepted; the successor named in a `Status:` line rather than in the front matter status superseded by [ADR 29](0029-keep-the-status-in-front-matter.md)
 ---
 # 19. Name the successor in a superseded record's status line
 
