@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-19
 ---
 # 29. Keep the status in front matter and freeze records on acceptance

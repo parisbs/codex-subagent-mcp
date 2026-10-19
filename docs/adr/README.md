@@ -44,4 +44,4 @@ and [0029](0029-keep-the-status-in-front-matter.md).
 | [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) | Report a worktree run from the session file alone | Accepted |
 | [0027](0027-opt-in-to-the-extended-doctor-report.md) | Opt in to the extended doctor report | Accepted |
 | [0028](0028-describe-the-instance-in-server-instructions.md) | Describe the instance in server instructions, not in tool descriptions | Accepted |
-| [0029](0029-keep-the-status-in-front-matter.md) | Keep the status in front matter and freeze records on acceptance | Proposed |
+| [0029](0029-keep-the-status-in-front-matter.md) | Keep the status in front matter and freeze records on acceptance | Accepted |
