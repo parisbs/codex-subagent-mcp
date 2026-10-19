@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 
 import { createCodexHome, SESSION_META_LINE, turnContextLine } from "./fixtures/codex-home.ts";
+import { afterSpawn, assertCapacityNote, CAPACITY_0160, CAPACITY_0160_TURN, restamp } from "./fixtures/task-complete.ts";
 
 /**
  * The tool handlers had no coverage at all, and two of the seven defects found
@@ -2383,4 +2384,100 @@ test("AC-6 (#150) the harness sees the processes a delegation starts", async () 
     assert.ok(startedFiles.length > 0);
     assert.equal(spawnedArgs.length, 1);
   });
+});
+
+// #158 (ADR 30): a failure the session file records as the model being at capacity.
+
+const AT_CAPACITY = "Selected model is at capacity. Please try a different model.";
+const CAPACITY_THREAD = "01a11843-52ee-7371-9e2a-ea67d33de2e2";
+
+/**
+ * Writes the session file of a run that failed at capacity and queues the run itself. The record is
+ * the real 0.160.1 line, written after the run's spawn (ADR 30), with `codex_error_info` replaced
+ * only for the control run.
+ */
+function failAtCapacity(codexHome: ReturnType<typeof createCodexHome>, errorInfo = "server_overloaded"): void {
+  const record = JSON.parse(restamp(CAPACITY_0160, afterSpawn())) as { payload: { error: Record<string, unknown> } };
+  record.payload.error.codex_error_info = errorInfo;
+  codexHome.write({
+    threadId: CAPACITY_THREAD,
+    day: "2026-10-07",
+    lines: [
+      SESSION_META_LINE,
+      turnContextLine({ turn_id: CAPACITY_0160_TURN, model: "cheap-model", effort: "low" }),
+      JSON.stringify(record),
+    ],
+  });
+  nextRun = {
+    events: [
+      threadStarted(CAPACITY_THREAD),
+      { type: "turn.started" },
+      { type: "error", message: AT_CAPACITY },
+      { type: "turn.failed", error: { message: AT_CAPACITY } },
+    ],
+    exitCode: 1,
+  };
+}
+
+const capacityDelegation = { prompt: "anything", model: "cheap-model", reasoning_effort: "low" };
+
+/**
+ * The lines a result has that the same run recorded with another `codex_error_info` lacks. Codex's
+ * own message already says "capacity" and "different model", so the note is told apart this way.
+ */
+function linesAbsentFrom(result: string, control: string): string {
+  const known = new Set(control.split("\n"));
+  return result.split("\n").filter((line) => !known.has(line)).join("\n");
+}
+
+/** Runs one delegation that failed at capacity, blocking or in the background, and its control. */
+async function capacityResults(mode: "blocking" | "background"): Promise<{ overloaded: ToolResult; control: ToolResult }> {
+  const once = (errorInfo: string) =>
+    withServer({}, async (call, codexHome) => {
+      failAtCapacity(codexHome, errorInfo);
+      if (mode === "blocking") return (await call("codex_delegate", capacityDelegation)) as ToolResult;
+      const started = await call("codex_delegate", { ...capacityDelegation, mode: "background" });
+      const jobId = /[0-9a-f-]{36}/.exec(textOf(started))?.[0];
+      await backgroundResult(call, started);
+      return (await call("codex_job_result", { job_id: jobId })) as ToolResult;
+    });
+  return { overloaded: await once("server_overloaded"), control: await once("other") };
+}
+
+test("AC-1 (#158) adds the capacity note to a blocking delegation and keeps it an error", async () => {
+  const { overloaded, control } = await capacityResults("blocking");
+
+  assert.equal(overloaded.isError, true);
+  assert.equal(control.isError, true);
+  assert.match(textOf(overloaded), /turn as failed: Selected model is at capacity/);
+  assertCapacityNote(linesAbsentFrom(textOf(overloaded), textOf(control)));
+});
+
+test("AC-1 (#158) adds the capacity note to codex_job_result and keeps it an error", async () => {
+  const { overloaded, control } = await capacityResults("background");
+
+  assert.equal(overloaded.isError, true);
+  assert.equal(control.isError, true);
+  assertCapacityNote(linesAbsentFrom(textOf(overloaded), textOf(control)));
+});
+
+test("AC-5 (#158) starts no other process when the capacity note appears", async () => {
+  for (const mode of ["blocking", "background"] as const) {
+    await withServer({}, async (call, codexHome) => {
+      failAtCapacity(codexHome);
+      let text: string;
+      if (mode === "blocking") {
+        text = textOf(await call("codex_delegate", capacityDelegation));
+      } else {
+        text = await backgroundResult(call, await call("codex_delegate", { ...capacityDelegation, mode: "background" }));
+      }
+      // Precondition: this is the run the note is about.
+      assert.match(text, /OpenAI/, `${mode}: the capacity note is present`);
+
+      // No retry and no other model: the one spawn is the delegation that was asked for.
+      assert.equal(spawnedArgs.length, 1, `${mode}: ${JSON.stringify(spawnedArgs)}`);
+      const args = spawnedArgs[0]!;
+      assert.equal(args[args.indexOf("--model") + 1], "cheap-model", mode);
+    });
+  }
 });

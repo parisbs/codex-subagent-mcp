@@ -48,6 +48,16 @@ export function schemaRejectionHint(result: DelegationResult): string | null {
 }
 
 /**
+ * The note added to a run that failed because the model was at capacity on OpenAI's side (#158,
+ * ADR 30): null for any other run. It reads the record Codex wrote for this run's turn, never the
+ * message text, and it changes the report only.
+ */
+export function capacityNote(result: DelegationResult): string | null {
+  void result;
+  throw new Error("not implemented");
+}
+
+/**
  * Decides whether a finished delegation failed, and why.
  *
  * Codex signals failure in several independent ways. The obvious one is the

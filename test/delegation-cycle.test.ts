@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { runCodex } from "../src/codex/runner.ts";
-import { describeFailure } from "../src/outcome.ts";
+import { capacityNote, describeFailure } from "../src/outcome.ts";
 import { createCodexHome, SESSION_META_LINE, turnContextLine } from "./fixtures/codex-home.ts";
 import { createFakeCodex, jsonl, type Scenario } from "./fixtures/fake-codex.ts";
+import { afterSpawn, CAPACITY_0160, CAPACITY_0160_TURN, restamp, THREAD_0163 } from "./fixtures/task-complete.ts";
 
 /**
  * End-to-end coverage of a delegation on every platform CI runs.
@@ -553,4 +556,99 @@ test("reads an event stream recorded by codex-cli 0.160.0", async () => {
   assert.equal(outcome.turnUsage?.cachedInputTokens, 24064);
   assert.equal(outcome.turnUsage?.outputTokens, 80);
   assert.equal(outcome.turnUsage?.reasoningOutputTokens, 14);
+});
+
+/**
+ * #158 (ADR 30): a run that failed because the model was at capacity, as the stand-in reports it.
+ * The stream carries only the message; the session file in a fixture `CODEX_HOME` carries the record.
+ */
+const AT_CAPACITY = "Selected model is at capacity. Please try a different model.";
+const CAPACITY_THREAD = "01a11843-52ee-7371-9e2a-ea67d33de2e2";
+const failedAtCapacity: Scenario = {
+  chunks: [jsonl(
+    { type: "thread.started", thread_id: CAPACITY_THREAD },
+    { type: "turn.started" },
+    { type: "error", message: AT_CAPACITY },
+    { type: "turn.failed", error: { message: AT_CAPACITY } },
+  )],
+  exitCode: 1,
+};
+
+async function runAtCapacity(lines: string[] | null) {
+  const home = createCodexHome();
+  try {
+    if (lines) home.write({ threadId: CAPACITY_THREAD, day: "2026-10-07", lines });
+    const { outcome } = await runAgainst(failedAtCapacity, { codexHome: home.path });
+    return outcome;
+  } finally {
+    home.dispose();
+  }
+}
+
+test("AC-1 (#158) recognises a capacity failure from the record of this run's turn", async () => {
+  // The real 0.160.1 record, written after this run started as Codex would write it: only its
+  // timestamp moves (ADR 30 counts a record only from the run's spawn on).
+  const outcome = await runAtCapacity([
+    SESSION_META_LINE,
+    turnContextLine({ turn_id: CAPACITY_0160_TURN }),
+    restamp(CAPACITY_0160, afterSpawn()),
+  ]);
+
+  assert.equal(outcome.turnFailure, AT_CAPACITY);
+  assert.ok(capacityNote(outcome), "a capacity note");
+  assert.match(describeFailure(outcome) ?? "", /turn as failed \(exit code 1\)/);
+});
+
+test("AC-6 (#158) gives no note when this run's turn left no record behind an earlier capacity failure", async () => {
+  // The file ends with a turn that failed at capacity before this run was spawned.
+  const outcome = await runAtCapacity([SESSION_META_LINE, turnContextLine({ turn_id: CAPACITY_0160_TURN }), CAPACITY_0160]);
+
+  assert.equal(outcome.turnFailure, AT_CAPACITY);
+  assert.equal(capacityNote(outcome), null);
+});
+
+test("AC-6 (#158) gives no note when the read stops at its bound before this run's turn", async () => {
+  // Past 16 MiB the read stops (ADR 13), so the last turn it reaches is the earlier capacity failure.
+  // This run's own turn, after the bound, failed for another reason.
+  const filler = JSON.stringify({
+    timestamp: "2026-10-07T21:30:00.000Z",
+    type: "response_item",
+    payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "x".repeat(4096) }] },
+  });
+  const padding = Array.from({ length: Math.ceil((17 * 1024 * 1024) / filler.length) }, () => filler);
+  const outcome = await runAtCapacity([
+    SESSION_META_LINE,
+    turnContextLine({ turn_id: CAPACITY_0160_TURN }),
+    CAPACITY_0160,
+    ...padding,
+    THREAD_0163.failedContext,
+    restamp(THREAD_0163.failed, afterSpawn()),
+  ]);
+
+  assert.equal(outcome.turnFailure, AT_CAPACITY);
+  assert.equal(capacityNote(outcome), null);
+});
+
+test("AC-3 (#158) gives no note and reports the failure as before when there is no session file", async () => {
+  const outcome = await runAtCapacity(null);
+
+  assert.equal(capacityNote(outcome), null);
+  assert.equal(describeFailure(outcome), `Codex reported the turn as failed (exit code 1): ${AT_CAPACITY}`);
+});
+
+test("AC-3 (#158) gives no note when the session file cannot be read", async () => {
+  const home = createCodexHome();
+  try {
+    // A directory where the file should be: found by name, unreadable as a file.
+    mkdirSync(join(home.path, "sessions", "2026", "10", "07", `rollout-2026-10-07T15-27-07-${CAPACITY_THREAD}.jsonl`), {
+      recursive: true,
+    });
+    const { outcome } = await runAgainst(failedAtCapacity, { codexHome: home.path });
+
+    assert.equal(outcome.applied.source, null, "precondition: the read failed");
+    assert.equal(capacityNote(outcome), null);
+    assert.equal(describeFailure(outcome), `Codex reported the turn as failed (exit code 1): ${AT_CAPACITY}`);
+  } finally {
+    home.dispose();
+  }
 });

@@ -56,6 +56,21 @@ export interface TurnContextLookup {
    * independently of `context`. Null or absent when it could not be read.
    */
   baseCommit?: string | null;
+  /**
+   * The `task_complete` record of the turn the last `turn_context` read opened (ADR 30), read
+   * independently of `context`. Null when that turn has no readable record; absent when the file
+   * was not read.
+   */
+  completion?: TurnCompletion | null;
+}
+
+/** The fields of a `task_complete` line this server reads (ADR 30). Everything else is ignored. */
+export interface TurnCompletion {
+  turnId: string;
+  /** `error.codex_error_info` as Codex recorded it; null when the turn recorded none. */
+  errorInfo: string | null;
+  /** The envelope's `timestamp`: when Codex wrote the record, in milliseconds since the epoch. */
+  writtenAtMs: number;
 }
 
 /** The complete subset of a turn context that can safely seed a resume. */
@@ -151,6 +166,17 @@ export function parseSessionMetaCommit(line: string): string | null {
   return commit !== null && (commit.length === 40 || commit.length === 64) && !/[^0-9a-f]/.test(commit)
     ? commit
     : null;
+}
+
+/**
+ * Extracts the record that closed a turn out of one `task_complete` line.
+ *
+ * Returns null for any other line and for a record without a turn id or a readable timestamp, so a
+ * format change degrades to no record rather than to a guess (ADR 30).
+ */
+export function parseTaskCompleteLine(line: string): TurnCompletion | null {
+  void line;
+  throw new Error("not implemented");
 }
 
 /** Reads the base commit and last turn context independently in one pass. */
