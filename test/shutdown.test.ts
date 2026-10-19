@@ -16,7 +16,7 @@ import { readProcessTable } from "../src/codex/terminate.ts";
 import { EventEmitter } from "node:events";
 
 import { createFakeCodex, jsonl, type FakeCodex } from "./fixtures/fake-codex.ts";
-import { isAlive } from "./fixtures/process-alive.ts";
+import { isAlive, killQuietly } from "./fixtures/process-alive.ts";
 import { processTableDecision } from "./support/process-table-gate.ts";
 
 /**
@@ -81,15 +81,6 @@ async function startStubborn(runs: ActiveRuns): Promise<{ fake: FakeCodex; handl
   }));
   await ready;
   return { fake, handle };
-}
-
-function killQuietly(pid: number | null | undefined): void {
-  if (pid === null || pid === undefined || !isAlive(pid)) return;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // Already gone.
-  }
 }
 
 test("AC-1 stops every run, forcing the stubborn ones, within the host's budget", async () => {

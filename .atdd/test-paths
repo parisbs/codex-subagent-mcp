@@ -2,3 +2,4 @@
 # process-table gate the implementation fills in.
 test/*.test.ts
 test/fixtures/**
+scripts/run-tests.mjs
