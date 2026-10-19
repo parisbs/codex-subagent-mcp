@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 27. Opt in to the extended doctor report
 
-Status: Accepted
 
 ## Context
 

@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 1. Use the local Codex CLI instead of the OpenAI API
 
-Status: Accepted
 
 ## Context
 

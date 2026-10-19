@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 10. Distribute through npm, with the registry and bundles layered on top
 
-Status: Accepted
 
 ## Context
 

@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 9. Preflight the Codex CLI before every tool call
 
-Status: Accepted
 
 ## Context
 

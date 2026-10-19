@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 26. Report a worktree run from the session file alone
 
-Status: Accepted
 
 Supersedes the parts of [ADR 21](0021-report-the-base-of-a-worktree-run.md) that read the caller's
 working tree with git: step 1, the ignored entries named in the prompt in step 2, and the notes of

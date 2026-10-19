@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 19. Name the successor in a superseded record's status line
 
-Status: Accepted
 
 Supersedes the part of [ADR 15](0015-agents-md-and-immutable-records.md) that records a change of
 status in the index alone. What ADR 15 decided about immutable records otherwise stands.

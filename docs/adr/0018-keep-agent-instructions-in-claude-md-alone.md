@@ -1,6 +1,8 @@
+---
+status: Accepted
+---
 # 18. Keep agent instructions in CLAUDE.md alone
 
-Status: Accepted
 
 Supersedes the part of [ADR 15](0015-agents-md-and-immutable-records.md) that put the instructions in
 `AGENTS.md`. What ADR 15 decided about immutable records stands.
