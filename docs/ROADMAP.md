@@ -312,11 +312,12 @@ an empty entry instead of letting a list with no names allow everything
 
 ## 0.6.0 — Measurement and additive changes
 
-A blocking result already reports the tokens the CLI counted — input, cached, output and reasoning.
-What does not exist is any view across delegations that outlives the process, so there is no way to
-notice a pattern such as `xhigh` effort spent on work that `low` would have handled. Cost accounting comes first in this release
-because later decisions depend on its data: whether background jobs must survive a restart, whether
-task intents are worth building, and whether wrapping `codex exec review` is.
+A blocking result already reported the tokens the CLI counted — input, cached, output and reasoning.
+What did not exist before this release was any view across delegations that outlives the process, so
+there was no way to notice a pattern such as `xhigh` effort spent on work that `low` would have
+handled. Cost accounting comes first in this release because later decisions depend on its data:
+whether background jobs must survive a restart, whether task intents are worth building, and whether
+wrapping `codex exec review` is.
 
 One thing this will deliberately never do: report or estimate subscription quota, such as the share
 of a usage window a delegation consumed. The CLI's own logs expose those percentages, but plan limits
@@ -361,11 +362,12 @@ caller's tree held depends on the user's git configuration and is already the ca
 ([ADR 26](adr/0026-report-a-worktree-run-from-the-session-file-alone.md)). It refuses nothing:
 denying a run from a dirty tree is a client-side hook's job.
 
-A run that fails because the model is at capacity says so. The CLI reports it only as free text, so
-the server reads the structured record Codex writes for the run's own turn in the session file, and
-the failed result adds a note: the limit is temporary and on OpenAI's side, the run's changes
-persist, and a follow-up, a later retry or another model remain the caller's choice. The result
-stays a failure, and the server neither retries nor switches model
+A run that fails because the model is at capacity says so when the session file confirms it. The CLI
+reports it only as free text, so the server reads the structured record Codex writes for the run's
+own turn in the session file, and when that record says `server_overloaded` the failed result adds a
+note: the limit is temporary and on OpenAI's side, the run's changes persist, and a follow-up, a
+later retry or another model remain the caller's choice. The result stays a failure, and the server
+neither retries nor switches model
 ([ADR 30](adr/0030-recognise-a-capacity-failure-from-the-session-file.md)).
 
 Verifying the server against Codex CLI 0.163.0 found that a plugin allow-list no longer kept remote

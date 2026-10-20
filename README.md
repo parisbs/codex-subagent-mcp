@@ -28,11 +28,12 @@ enabling writes.
 - You pick the model and the reasoning effort per task, from the catalog your Codex CLI reports
   live.
 - Read-only by default, with a sandbox ceiling no tool call can exceed.
-- Every result states what Codex actually applied (model, effort, sandbox, directory), not only what
-  was asked.
+- Every finished delegation checks the model, effort, sandbox and directory it asked for against what
+  Codex recorded for the run, and says when they differ or could not be confirmed.
 - Optional `output_schema` returns JSON that matches your schema, for results Claude can act on
   directly.
-- Cancelling, timing out or shutting down stops Codex and every command it started.
+- Cancelling, timing out or shutting down stops Codex and the commands it started that the server
+  can still find; a command that detached from that process tree can outlive it.
 
 A real read-only delegation asking for the package name, captured 2026-09-30:
 
@@ -127,8 +128,8 @@ resume.
 > Have Codex apply its first two suggestions. Let it edit files, but keep it inside a git worktree
 > so my working tree stays clean.
 
-`use_worktree` sends the run's edits to `~/.codex/worktrees/`; results list the files it touched and
-where each landed, up to a thousand distinct files, then report the omitted count, and a line names
+`use_worktree` sends the run's edits to `~/.codex/worktrees/`; results list the file changes Codex
+reported and where each landed, up to a thousand distinct entries, then report the omitted count, and a line names
 the worktree and the commit it was made from. Codex is told beforehand that uncommitted changes,
 untracked files and ignored files such as installed dependencies are not in it. The server does
 not clean worktrees up: they may hold unapplied work. The experimental feature is enabled only for
@@ -136,7 +137,8 @@ that invocation; your Codex configuration is unchanged. A follow-up continues in
 when Codex's session file could not confirm where that was, the follow-up asks for `working_dir`
 rather than resume in your working tree. See [Safety](#safety) for the write boundary.
 
-Whatever the sandbox, a delegation that writes reports what it wrote:
+Whatever the sandbox, a delegation that writes reports the file changes Codex recorded. It is Codex's
+account, not a diff of the disk:
 
 ```text
 Files changed (2):
@@ -169,12 +171,16 @@ sandboxed commands can fail to read some directories, so reads may be stricter t
 | Network access | no | no | yes |
 | **Read outside the working directory** | **yes** | **yes** | yes |
 
+The server chooses the sandbox mode on every run; Codex's own `sandbox_workspace_write` settings, such
+as network access or extra writable roots, are not overridden and still apply under
+`workspace-write`. The table reflects Codex's defaults.
+
 The sandbox confines the commands Codex runs in its shell. It does not confine MCP or plugin tools:
 those run as their own processes with your account's full permissions, network included, and under
 `read-only` a tool that declares itself read-only runs without approval (measured on codex-cli
 0.159.2; [ADR 16](docs/adr/0016-turn-off-inherited-tools.md)). So a delegation inherits **no MCP
 server, plugin or app** from your Codex setup unless you allow it in the server configuration, and
-every result ends with a line saying what the run was allowed.
+every delegation result includes a line saying what the run was allowed.
 
 There is no shell in the server's invocation path: the CLI is spawned with an argv array and the
 prompt is written to its stdin, never interpolated into a command string. Shell metacharacters in a
@@ -223,7 +229,7 @@ Everything is optional, and set through environment variables on the MCP server:
 
 | Variable | Values | Default | Effect |
 | --- | --- | --- | --- |
-| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Unset: refused with a suggestion | Model when a call specifies none. |
+| `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | The only entry of a single-entry `CODEX_SUBAGENT_ALLOWED_MODELS`; otherwise a call without a model is refused with a suggestion | Model when a call specifies none. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Model's default | Effort when a call specifies none. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Unrestricted | Anything else is refused; a single entry acts as the default model. An empty entry (`a,,b`, a trailing comma) is a configuration error. |
 | `CODEX_SUBAGENT_DEFAULT_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | `read-only` | Sandbox when a call specifies none; cannot exceed the ceiling. |
@@ -235,14 +241,15 @@ Everything is optional, and set through environment variables on the MCP server:
 | `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | `none` | Installed Codex plugins a delegation keeps, with the MCP servers they provide. |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | `off` | Whether a delegation keeps Codex's apps (connectors to external services). |
 | `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | `off` | Append local usage counts for spawned delegations; read them with `codex_usage`. No prompts, code or paths are logged. Labels are caller text. |
-| `CODEX_BIN` | Executable path | `codex` on `PATH` | Override CLI resolution; see [Installation](docs/INSTALL.md). |
+| `CODEX_BIN` | Executable name or path; on Windows a directly executable file, not a `.cmd` or `.bat` shim | `codex` on `PATH` | Override CLI resolution; see [Installation](docs/INSTALL.md). |
 
 A model supports a subset of efforts; an unsupported effort is adjusted to the closest supported one
 with a note. See **[docs/TOOLS.md#configuration](docs/TOOLS.md#configuration)** for full semantics
 and [Safety](#safety) for the sandbox boundary.
 
-Both numeric bounds accept only ASCII digits after trimming, with leading zeros allowed; empty
-means unset. Invalid values refuse delegations and are listed by `codex_doctor`. Only you can raise
+Every `CODEX_SUBAGENT_*` value is trimmed and case-sensitive, and an empty value means unset; a
+value that conflicts with its ceiling or allow-list is a configuration error. Both numeric bounds
+accept only ASCII digits, with leading zeros allowed. Invalid values refuse delegations and are listed by `codex_doctor`. Only you can raise
 these limits. The hourly window is kept in memory, resets on restart and is independent of the
 usage log. Every spawned run counts for sixty minutes, including failures, timeouts and cancellations.
 Pending calls reserve slots before any probe and release them if nothing spawns. A refusal gives

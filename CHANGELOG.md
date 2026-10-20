@@ -22,14 +22,16 @@ environment variables; nothing in it is breaking ([ADR 17](docs/adr/0017-define-
 ### Added
 
 - `CODEX_SUBAGENT_USAGE_LOG=on` appends one local line per delegation or follow-up process with
-  counts and settings, never prompts, code or paths, and the new read-only `codex_usage` tool
-  summarises it over a window, grouped by model, label, outcome or kind. `codex_delegate` and
-  `codex_follow_up` accept an optional `label`, the caller's own text, stored as given. See
-  [docs/TOOLS.md](docs/TOOLS.md#codex_usage) and
+  counts and settings, and the new read-only `codex_usage` tool summarises it over a window, grouped
+  by model, label, outcome or kind. `codex_delegate` and `codex_follow_up` accept an optional
+  `label`. The server records no prompt, code or path of its own accord, but a label is the caller's
+  text, stored as given. See [docs/TOOLS.md](docs/TOOLS.md#codex_usage) and
   [ADR 22](docs/adr/0022-keep-an-opt-in-local-usage-log.md). ([#29])
 - `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` refuses a delegation or follow-up once that many
-  delegation processes started in the last rolling hour, and the refusal says when another call is
-  allowed. `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` lowers the cap of eight running background jobs.
+  delegation processes started in the last rolling hour. The refusal gives the time the oldest
+  counted process leaves the window, without promising that a call will then be accepted, or asks
+  the caller to wait for pending calls when those hold every slot.
+  `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` lowers the cap of eight running background jobs.
   `codex_doctor` reports both bounds and what the window holds. ([#62])
 - `codex_doctor` accepts `extended: true`, which also runs `codex doctor --json` and summarises
   Codex's own `config.load` check. It is slow and contacts the network, so it never runs
@@ -41,16 +43,17 @@ environment variables; nothing in it is breaking ([ADR 17](docs/adr/0017-define-
 - A `use_worktree` result names the worktree and the commit it was made from, read from Codex's
   session file, and the prompt tells Codex which kinds of files its worktree lacks and to report a
   missing dependency instead of working around it. ([#150])
-- A delegation that failed because the model was at capacity says so: the limit is temporary and on
-  OpenAI's side, the run's changes persist, and a follow-up, a later retry or another model remain
-  the caller's choice. The result stays a failure; the server neither retries nor switches model.
-  ([#158])
+- A delegation whose failed turn Codex's session file records as `server_overloaded`, the model at
+  capacity, says so: the limit is temporary and on OpenAI's side, the run's changes persist, and a
+  follow-up, a later retry or another model remain the caller's choice. The result stays a failure;
+  the server neither retries nor switches model. ([#158])
 
 ### Changed
 
 - The `codex_delegate` description no longer tells the caller to consult `codex_recommend` first when
   a default model is configured or implied, which overrode the user's default. ([#180])
-- Results report tokens as unknown, instead of zeros, when the CLI's counters are incomplete. ([#29])
+- Incomplete token counters from the CLI are no longer reported as zeros: a result leaves the
+  missing totals out, and the usage log records them as unknown. ([#29])
 - Under the default `CODEX_SUBAGENT_PLUGINS=none`, a delegation no longer runs
   `codex plugin list`, which cost up to ten seconds and could report a listing failure with no
   effect. A failed listing now says whether it timed out, exited with a code or was killed by a
@@ -66,7 +69,8 @@ environment variables; nothing in it is breaking ([ADR 17](docs/adr/0017-define-
   [ADR 31](docs/adr/0031-keep-excluded-remote-plugins-out.md). ([#189])
 - A follow-up to a `use_worktree` delegation resumed in the caller's working tree, not in the
   worktree Codex used, so its edits could land in the original tree. It now resumes in the worktree
-  Codex's session file confirms, and is refused when that cannot be confirmed. ([#149])
+  Codex's session file confirms; when that cannot be confirmed, a follow-up without `working_dir` is
+  refused. ([#149])
 - A delegation that timed out or was cancelled while the server was busy lost output the CLI had
   written before the deadline, such as the thread id needed to follow it up, agent messages and
   stderr. ([#172])
