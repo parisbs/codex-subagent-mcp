@@ -413,6 +413,18 @@ test("AC-2 (#189) at the newest verified version the decision follows the window
   assert.equal(result.report.listingErrors.plugins, null);
 });
 
+test("AC-5 (#187) codex-cli 0.163.0 keeps an excluded remote plugin out by name and the allowed one in", () => {
+  // The default bound, not a stand-in: 0.163.0 is verified, so the window is open on it.
+  assert.equal(keepsRemotePluginsOutByName("0.163.0"), true);
+  const result = resolved({ plugins: list("a@m"), cliVersion: "0.163.0",
+    pluginInventory: remoteInventory(["a@m", "r@remote"], ["r@remote"]) });
+  assert.deepEqual(result.disabledPlugins, ["r@remote"]);
+  assert.equal(result.disableAllPlugins, false);
+  assert.deepEqual(result.report.plugins, ["a@m"]);
+  assert.equal(result.report.problems, undefined);
+  assert.equal(result.report.listingErrors.plugins, null);
+});
+
 test("AC-2 (#189) an excluded remote plugin on an unverified CLI turns every plugin off and says what was lost", () => {
   for (const cliVersion of [newerThanVerified, "0.162.1", "0.159.1", "0.154.0", "0.163.bad", null]) {
     const result = resolved({ plugins: list("a@m", "b@m", "missing@m"), cliVersion,

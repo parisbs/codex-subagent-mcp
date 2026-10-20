@@ -58,6 +58,14 @@ const REAL_TURN_CONTEXT_0159 =
 const REAL_TURN_CONTEXT_0160 =
   "{\"timestamp\":\"2026-10-02T00:48:43.142Z\",\"ordinal\":5,\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"01a0fa15-b148-7063-b8e4-2ad5c577343e\",\"root_turn_id\":\"01a0fa15-b148-7063-b8e4-2ad5c577343e\",\"disabled_plugin_ids\":[],\"cwd\":\"/workspace/project\",\"workspace_roots\":[\"/workspace/project\"],\"current_date\":\"2026-10-01\",\"timezone\":\"UTC\",\"approval_policy\":\"never\",\"approvals_reviewer\":\"user\",\"sandbox_policy\":{\"type\":\"read-only\"},\"permission_profile\":{\"type\":\"managed\",\"file_system\":{\"type\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"}]},\"network\":\"restricted\"},\"model\":\"gpt-5.6-luna\",\"comp_hash\":\"3000\",\"collaboration_mode\":{\"mode\":\"default\",\"settings\":{\"model\":\"gpt-5.6-luna\",\"reasoning_effort\":\"low\",\"developer_instructions\":null}},\"multi_agent_version\":\"v1\",\"realtime_active\":false,\"effort\":\"low\",\"summary\":\"none\"}}";
 
+/**
+ * The same line as recorded by codex-cli 0.163.0 in a workspace-write run (#187): unlike the read-only
+ * 0.163.0 lines it carries `file_system_sandbox_policy` and a `permission_profile` with write entries;
+ * same fields read. Capture path replaced.
+ */
+const REAL_TURN_CONTEXT_0163_WRITE =
+  "{\"timestamp\":\"2026-10-19T23:07:53.100Z\",\"ordinal\":5,\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"01a1566b-dab8-7b50-b38e-62d81930a795\",\"root_turn_id\":\"01a1566b-dab8-7b50-b38e-62d81930a795\",\"disabled_plugin_ids\":[],\"cwd\":\"/workspace/project\",\"approval_policy\":\"never\",\"approvals_reviewer\":\"user\",\"sandbox_policy\":{\"type\":\"workspace-write\",\"network_access\":false,\"exclude_tmpdir_env_var\":false,\"exclude_slash_tmp\":false},\"permission_profile\":{\"type\":\"managed\",\"file_system\":{\"type\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project\"},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"slash_tmp\"}},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"tmpdir\"}},\"access\":\"write\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.git\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.agents\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.codex\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.aws\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"}]},\"network\":\"restricted\"},\"file_system_sandbox_policy\":{\"kind\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project\"},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"slash_tmp\"}},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"tmpdir\"}},\"access\":\"write\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.git\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.agents\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.codex\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.aws\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"}]},\"model\":\"gpt-5.6-luna\",\"comp_hash\":\"3000\",\"collaboration_mode\":{\"mode\":\"default\",\"settings\":{\"model\":\"gpt-5.6-luna\",\"reasoning_effort\":\"low\",\"developer_instructions\":null}},\"multi_agent_version\":\"v1\",\"realtime_active\":false,\"cyber_access_program\":\"standard\",\"effort\":\"low\",\"summary\":\"none\"}}";
+
 async function lookupIn(home: CodexHome, threadId: string | null) {
   return readTurnContext({ threadId, codexHome: home.path });
 }
@@ -331,6 +339,24 @@ test("reads a turn context recorded by codex-cli 0.160.0", async () => {
       model: "gpt-5.6-luna",
       effort: "low",
       sandbox: "read-only",
+      approvalPolicy: "never",
+    });
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#187) reads a workspace-write turn context recorded by codex-cli 0.163.0", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({ threadId: "thread-0163-write", day: "2026-10-19", lines: [SESSION_META, REAL_TURN_CONTEXT_0163_WRITE] });
+    const { context, reason } = await lookupIn(home, "thread-0163-write");
+    assert.equal(reason, null);
+    assert.deepEqual(context, {
+      cwd: "/workspace/project",
+      model: "gpt-5.6-luna",
+      effort: "low",
+      sandbox: "workspace-write",
       approvalPolicy: "never",
     });
   } finally {
