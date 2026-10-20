@@ -1618,6 +1618,23 @@ test("AC-2 (#189) an excluded remote plugin on an unverified CLI turns every plu
   });
 });
 
+test("AC-2 (#189) the result names a prerelease CLI as the preflight printed it", async () => {
+  await withServer(INHERIT_ENV, async (call) => {
+    fakeVersion = "codex-cli 0.163.0-alpha.1";
+    inheritedListings();
+    pluginList = JSON.stringify({ installed: [
+      { pluginId: "docs@market", installed: true, enabled: true, source: { source: "local" } },
+      { pluginId: "sites@remote", installed: true, enabled: true, source: { source: "remote" } },
+    ], available: [] });
+    const result = await call("codex_delegate", { prompt: "anything", model: "cheap-model" });
+    assert.notEqual((result as ToolResult).isError, true, textOf(result));
+    await finishInheritedRuns();
+    assert.ok(inheritanceOverrides(spawnedArgs.at(-1)!).includes("features.plugins=false"));
+    const line = inheritanceLine(result);
+    assert.ok(line.includes("0.163.0-alpha.1"), line);
+  });
+});
+
 for (const [label, output, error] of [
   ["failure", "[]", new Error("MCP listing unavailable")],
   ["timeout", "[]", Object.assign(new Error("MCP listing timed out"), { killed: true })],

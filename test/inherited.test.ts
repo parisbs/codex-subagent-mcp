@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 
 import type { InheritPolicy } from "../src/config.ts";
-import { compareVersions, NEWEST_VERIFIED_CODEX_VERSION } from "../src/codex/doctor.ts";
+import { compareVersions, NEWEST_VERIFIED_CODEX_VERSION, parseVersion } from "../src/codex/doctor.ts";
 import type { InheritanceReport } from "../src/codex/inherited.ts";
 
 let calls: { file: string; args: string[]; cwd?: string; timeout?: number }[] = [];
@@ -563,4 +563,11 @@ test("AC-2 (#189) competing fallback reasons both reach the note with every plug
   for (const id of ["a@m", "b@m", remote]) assert.ok(line.includes(JSON.stringify(id)), `${id}: ${line}`);
   assert.match(line, /cannot be turned off by name/);
   assert.ok(line.includes(newerThanVerified), line);
+});
+
+test("AC-2 (#189) a prerelease the preflight read never opens the window", () => {
+  for (const banner of ["codex-cli 0.163.0-alpha.1", "codex-cli 0.163.0+build.5"]) {
+    assert.equal(keepsRemotePluginsOutByName(parseVersion(banner), "0.163.0"), false, banner);
+  }
+  assert.equal(keepsRemotePluginsOutByName(parseVersion("codex-cli 0.163.0"), "0.163.0"), true);
 });
