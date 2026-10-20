@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Accepted; the per-plugin control for remote plugins superseded by [ADR 31](0031-keep-excluded-remote-plugins-out.md)
 ---
 # 16. Turn off the MCP servers, plugins and apps a delegation inherits
 
