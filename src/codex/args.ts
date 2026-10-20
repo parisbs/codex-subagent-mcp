@@ -42,6 +42,17 @@ export function addressableInConfigPath(name: string): boolean {
   return name.length > 0 && !/[.=]/.test(name);
 }
 
+/**
+ * The plugin key that sets every plugin's default (ADR 31): `plugins._default` exists from
+ * codex-cli 0.163.0 on, so a plugin whose id is `_default` cannot be addressed by name.
+ */
+const PLUGIN_DEFAULT_KEY = "_default";
+
+/** Whether a plugin id can be turned off by name: addressable, and not the default key (ADR 31). */
+export function addressablePluginId(id: string): boolean {
+  return addressableInConfigPath(id) && id !== PLUGIN_DEFAULT_KEY;
+}
+
 function configPathArg(table: string, name: string): string {
   if (!addressableInConfigPath(name)) {
     throw new Error(
@@ -50,6 +61,16 @@ function configPathArg(table: string, name: string): string {
     );
   }
   return `${table}.${name}.enabled=false`;
+}
+
+function pluginPathArg(id: string): string {
+  if (id === PLUGIN_DEFAULT_KEY) {
+    throw new Error(
+      `plugins entry ${JSON.stringify(id)} cannot be turned off for one run: Codex reads ` +
+        `plugins.${PLUGIN_DEFAULT_KEY} as the default for every plugin.`,
+    );
+  }
+  return configPathArg("plugins", id);
 }
 
 /**
@@ -70,9 +91,16 @@ function disableMcpServerArgs(names: string[] | undefined): string[] {
  * model the same input as `--disable plugins --disable apps`, and `plugins.<id>.enabled=false`
  * (raw, see `addressableInConfigPath`) turns one plugin off. Config overrides, unlike the flags,
  * are accepted by `exec resume` as well.
+ *
+ * Verified against codex-cli 0.163.0 (ADR 31): a remote plugin's `enabled=false` is overwritten by
+ * the account's state unless `plugins._default.enabled=true` is also set, so any plugin turned off
+ * by name brings that pair along. It allows nothing Codex would not allow without it, and a CLI
+ * before 0.163.0 reads it as an entry that matches no installed plugin.
  */
 function inheritanceArgs(invocation: CodexInvocation): string[] {
-  const args = (invocation.disabledPlugins ?? []).flatMap((id) => ["--config", configPathArg("plugins", id)]);
+  const disabledPlugins = invocation.disabledPlugins ?? [];
+  const args = disabledPlugins.flatMap((id) => ["--config", pluginPathArg(id)]);
+  if (disabledPlugins.length > 0) args.push("--config", `plugins.${PLUGIN_DEFAULT_KEY}.enabled=true`);
   if (invocation.disableAllPlugins) args.push("--config", "features.plugins=false");
   if (invocation.disableApps) args.push("--config", "features.apps=false");
   return args;

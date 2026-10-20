@@ -89,6 +89,10 @@ export function argvShapes(model: string, dir: string): Shape[] {
     disableAllPlugins: true,
     disableApps: true,
   };
+  // A plugin allow-list that keeps plugins on: named overrides with the `_default` pair (ADR 31).
+  const namedPlugins: Partial<CodexInvocation> = {
+    disabledPlugins: ["browser@openai-bundled", "github@openai-curated-remote"],
+  };
 
   return [
     { name: "doctor report", argv: [...DOCTOR_REPORT_ARGS] },
@@ -102,6 +106,7 @@ export function argvShapes(model: string, dir: string): Shape[] {
     exec("ephemeral", { ephemeral: true }),
     exec("recursion guard", { disabledMcpServers: ["codex-subagent", "name with spaces"] }),
     exec("inherited tools off", { disabledMcpServers: ["docs"], ...inheritance }),
+    exec("plugins off by name", namedPlugins),
     exec("output schema", { outputSchemaPath }),
     exec("everything a delegation can combine", {
       ...full,
@@ -117,6 +122,7 @@ export function argvShapes(model: string, dir: string): Shape[] {
     resume("worktree", { useWorktree: true }),
     resume("output schema", { outputSchemaPath }),
     resume("inherited tools off", { disabledMcpServers: ["docs"], ...inheritance }),
+    resume("plugins off by name", namedPlugins),
     resume("everything a follow-up can combine", {
       model,
       reasoningEffort: "low",
