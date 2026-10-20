@@ -163,16 +163,21 @@ export function installationSteps(platform: NodeJS.Platform = process.platform):
   ];
 }
 
-/** Extracts "0.154.0" from the `codex --version` output ("codex-cli 0.154.0"). */
+/**
+ * Extracts "0.154.0" from the `codex --version` output ("codex-cli 0.154.0"), with any prerelease or
+ * build suffix ("0.163.0-alpha.1"): the remote-plugin gate must see a prerelease as one (ADR 31).
+ */
 export function parseVersion(output: string): string | null {
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(output);
+  const match = /\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*[0-9A-Za-z])?/.exec(output);
   return match ? match[0] : null;
 }
 
 /** Returns -1, 0 or 1 comparing dotted numeric versions. */
 export function compareVersions(a: string, b: string): number {
-  const left = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
-  const right = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  // A prerelease or build suffix compares as its release, as before the suffix was kept (ADR 31).
+  const release = (version: string): string => version.replace(/[-+].*$/, "");
+  const left = release(a).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = release(b).split(".").map((part) => Number.parseInt(part, 10) || 0);
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);

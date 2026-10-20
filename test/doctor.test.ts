@@ -236,3 +236,19 @@ test("AC-5 (#98) says when the CLI is newer than the newest verified version, an
   const verified = diagnose({ codexPath: "codex", version: NEWEST_VERIFIED_CODEX_VERSION, authenticated: true });
   assert.doesNotMatch(verified.summary, /newer than/);
 });
+
+// #189, ADR 31: a prerelease must reach the remote-plugin gate as a prerelease, while the doctor's
+// own comparisons read it as its release, as they did when the suffix was dropped.
+test("AC-2 (#189) parses a prerelease or build suffix with the version", () => {
+  assert.equal(parseVersion("codex-cli 0.163.0-alpha.1"), "0.163.0-alpha.1");
+  assert.equal(parseVersion("codex-cli 0.163.0-alpha.13\n"), "0.163.0-alpha.13");
+  assert.equal(parseVersion("codex-cli 0.163.0+build.5"), "0.163.0+build.5");
+  assert.equal(parseVersion("codex-cli 0.163.0"), "0.163.0");
+});
+
+test("AC-2 (#189) compares a prerelease as its release", () => {
+  assert.equal(compareVersions("0.163.0-alpha.1", "0.163.0"), 0);
+  assert.equal(compareVersions("0.163.0+build.5", "0.163.0"), 0);
+  assert.equal(compareVersions("0.163.0-alpha.1", "0.162.1"), 1);
+  assert.equal(compareVersions("0.154.0-alpha.1", "0.155.0"), -1);
+});

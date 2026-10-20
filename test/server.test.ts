@@ -1529,10 +1529,12 @@ const INHERIT_ENV = {
 function inheritedListings(): void {
   mcpList = JSON.stringify([{ name: "docs" }, { name: "other" },
     { name: "self", transport: { command: "codex-subagent" } }]);
+  // Amended for #189: local rows, so the CLI version does not decide them (ADR 31).
+  const local = { source: { source: "local" } };
   pluginList = JSON.stringify({ installed: [
-    { pluginId: "docs@market", installed: true, enabled: true },
-    { pluginId: "browser@market", installed: true, enabled: true },
-    { pluginId: "disabled@market", installed: true, enabled: false },
+    { pluginId: "docs@market", installed: true, enabled: true, ...local },
+    { pluginId: "browser@market", installed: true, enabled: true, ...local },
+    { pluginId: "disabled@market", installed: true, enabled: false, ...local },
   ], available: [] });
 }
 function inheritanceOverrides(args: string[]): string[] {
@@ -1542,8 +1544,9 @@ function inheritanceOverrides(args: string[]): string[] {
 }
 const DEFAULT_OVERRIDES = ["mcp_servers.docs.enabled=false", "mcp_servers.other.enabled=false",
   "mcp_servers.self.enabled=false", "features.plugins=false", "features.apps=false"].sort();
+// Amended for #189: a plugin turned off by name brings `_default=true` along (ADR 31).
 const LIST_OVERRIDES = ["mcp_servers.other.enabled=false", "mcp_servers.self.enabled=false",
-  "plugins.browser@market.enabled=false"].sort();
+  "plugins.browser@market.enabled=false", "plugins._default.enabled=true"].sort();
 async function finishInheritedRuns(): Promise<void> {
   await Promise.allSettled(pendingRuns);
   // Flush the registry's chained result callbacks, with no clock-based polling.
@@ -1583,6 +1586,54 @@ for (const [ac, label, env, expected] of [
     });
   });
 }
+
+// #189, ADR 31: each call passes the CLI version its own preflight read. The fake CLI reports
+// 0.154.0, before 0.163.0, so an excluded remote plugin turns every plugin off and the result says so.
+test("AC-2 (#189) an excluded remote plugin on an unverified CLI turns every plugin off through delegate and follow-up", async () => {
+  await withServer(INHERIT_ENV, async (call) => {
+    inheritedListings();
+    pluginList = JSON.stringify({ installed: [
+      { pluginId: "docs@market", installed: true, enabled: true, source: { source: "local" } },
+      { pluginId: "sites@remote", installed: true, enabled: true, source: { source: "remote" } },
+    ], available: [] });
+    for (const [tool, mode] of [["codex_delegate", "blocking"], ["codex_delegate", "background"], ["codex_follow_up", undefined]]) {
+      let result = await call(tool!, { prompt: "anything", model: "cheap-model", thread_id: "thread", ...(mode ? { mode } : {}) });
+      assert.notEqual((result as ToolResult).isError, true, textOf(result));
+      await finishInheritedRuns();
+      if (mode === "background") {
+        const jobId = /delegation ([0-9a-f-]{36})/.exec(textOf(result))?.[1];
+        assert.ok(jobId);
+        result = await call("codex_job_result", { job_id: jobId });
+        assert.notEqual((result as ToolResult).isError, true, textOf(result));
+      }
+      assert.deepEqual(inheritanceOverrides(spawnedArgs.at(-1)!),
+        ["mcp_servers.other.enabled=false", "mcp_servers.self.enabled=false", "features.plugins=false"].sort());
+      const line = inheritanceLine(result);
+      assert.match(line, /plugins none/, line);
+      assert.ok(line.includes('"sites@remote"'), line);
+      assert.ok(line.includes('"docs@market"'), line);
+      assert.ok(line.includes("0.154.0"), line);
+      assert.match(line, /every plugin/i, line);
+    }
+  });
+});
+
+test("AC-2 (#189) the result names a prerelease CLI as the preflight printed it", async () => {
+  await withServer(INHERIT_ENV, async (call) => {
+    fakeVersion = "codex-cli 0.163.0-alpha.1";
+    inheritedListings();
+    pluginList = JSON.stringify({ installed: [
+      { pluginId: "docs@market", installed: true, enabled: true, source: { source: "local" } },
+      { pluginId: "sites@remote", installed: true, enabled: true, source: { source: "remote" } },
+    ], available: [] });
+    const result = await call("codex_delegate", { prompt: "anything", model: "cheap-model" });
+    assert.notEqual((result as ToolResult).isError, true, textOf(result));
+    await finishInheritedRuns();
+    assert.ok(inheritanceOverrides(spawnedArgs.at(-1)!).includes("features.plugins=false"));
+    const line = inheritanceLine(result);
+    assert.ok(line.includes("0.163.0-alpha.1"), line);
+  });
+});
 
 for (const [label, output, error] of [
   ["failure", "[]", new Error("MCP listing unavailable")],
@@ -1798,9 +1849,10 @@ for (const directory of ["same", "different"] as const) {
       async (call, home, _runs, jobs) => {
         const setListings = (name: string) => {
           mcpList = JSON.stringify([{ name }, { name: `denied-${name}` }]);
+          // Amended for #189: local rows, so the CLI version does not decide them (ADR 31).
           pluginList = JSON.stringify({ installed: [
-            { pluginId: `${name}@market`, installed: true, enabled: true },
-            { pluginId: `denied-${name}@market`, installed: true, enabled: true },
+            { pluginId: `${name}@market`, installed: true, enabled: true, source: { source: "local" } },
+            { pluginId: `denied-${name}@market`, installed: true, enabled: true, source: { source: "local" } },
           ] });
         };
         setListings("first");
@@ -1822,7 +1874,7 @@ for (const directory of ["same", "different"] as const) {
         for (const [index, name, result] of [[0, "first", first], [1, "second", second]] as const) {
           assert.notEqual((result as ToolResult).isError, true, textOf(result));
           assert.deepEqual(inheritanceOverrides(spawnedArgs[index]!), [`mcp_servers.denied-${name}.enabled=false`,
-            `plugins.denied-${name}@market.enabled=false`, "features.apps=false"].sort());
+            `plugins.denied-${name}@market.enabled=false`, "plugins._default.enabled=true", "features.apps=false"].sort());
           const line = inheritanceLine(result);
           assert.ok(line.includes(JSON.stringify(name)), line);
           assert.ok(line.includes(JSON.stringify(`${name}@market`)), line);

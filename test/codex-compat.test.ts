@@ -245,3 +245,17 @@ test("AC-10 (#64) workflow checks the newest release and the minimum supported v
     `the minimum version ${VERIFIED_CODEX_VERSION} is hardcoded in the workflow`,
   );
 });
+
+for (const kind of ["exec", "resume"] as const) {
+  test(`AC-2 (#189) checks a shape that turns plugins off by name alone on ${kind}`, () => {
+    const shapes = argvShapes("m", tmpdir()).filter((shape) => (shape.argv[1] === "resume") === (kind === "resume"));
+    const namedOnly = shapes.filter(({ argv }) =>
+      argv.some((arg, i) => /^plugins\.[^".]+@[^".]+\.enabled=false$/.test(arg) && argv[i - 1] === "--config") &&
+      !argv.includes("features.plugins=false"));
+    assert.ok(namedOnly.length > 0, `no ${kind} shape turns plugins off by name without turning them all off`);
+    for (const { argv, name } of namedOnly) {
+      const index = argv.indexOf("plugins._default.enabled=true");
+      assert.ok(index > 0 && argv[index - 1] === "--config", `${name} lacks the _default pair`);
+    }
+  });
+}
