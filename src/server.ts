@@ -823,7 +823,7 @@ export function createServer(
    * What a run in `cwd` may inherit from the user's Codex setup (ADR 16), read when the call starts
    * and never cached: a server or plugin added mid-session must not be missed.
    */
-  const inheritanceFor = async (cwd: string | undefined) => {
+  const inheritanceFor = async (cwd: string | undefined, cliVersion: string | null) => {
     const inventory = await inspectInherited({
       ...(cwd ? { cwd } : {}),
       listPlugins: config.plugins.kind !== "none",
@@ -835,6 +835,7 @@ export function createServer(
       mcp: inventory.mcp,
       pluginInventory: inventory.plugins,
       selfNames: inventory.selfNames,
+      cliVersion,
     });
   };
 
@@ -1180,7 +1181,7 @@ export function createServer(
           structuredOutput: outputSchema !== undefined,
         });
 
-        const inheritance = await inheritanceFor(args.working_dir);
+        const inheritance = await inheritanceFor(args.working_dir, cliVersion);
         if (!inheritance.ok) return textResult(inheritance.reason, true);
         if (inheritance.report.listingErrors.mcp) {
           notes.push(
@@ -1457,7 +1458,7 @@ export function createServer(
         }
         const skipGitRepoCheck = previous?.skipGitRepoCheck ?? false;
 
-        const inheritance = await inheritanceFor(workingDir);
+        const inheritance = await inheritanceFor(workingDir, cliVersion);
         if (!inheritance.ok) return textResult(inheritance.reason, true);
         if (inheritance.report.listingErrors.mcp) {
           notes.push(

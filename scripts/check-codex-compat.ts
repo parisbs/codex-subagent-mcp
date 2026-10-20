@@ -276,8 +276,10 @@ function inheritanceOverrides(
     plugins,
     apps: false,
     mcp: { ok: true, names: mcpNames },
-    pluginInventory: { ok: true, enabled: pluginIds },
+    // The scratch home has no remote plugins, so no version decides anything here (ADR 31).
+    pluginInventory: { ok: true, enabled: pluginIds, remote: [] },
     selfNames: [],
+    cliVersion: null,
   });
   if (!resolved.ok) throw new Error(resolved.reason);
   const argv = buildCodexArgs({

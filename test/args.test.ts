@@ -274,8 +274,9 @@ for (const kind of ["exec", "resume"] as const) {
       kind, threadId: "thread", sandbox: "read-only", disabledMcpServers: ["docs"],
       disabledPlugins: ["browser@market"], disableAllPlugins: true, disableApps: true,
     });
+    // Amended for #189: a plugin turned off by name brings `_default=true` along (ADR 31).
     const expected = ["mcp_servers.docs.enabled=false", "plugins.browser@market.enabled=false",
-      "features.plugins=false", "features.apps=false"];
+      "plugins._default.enabled=true", "features.plugins=false", "features.apps=false"];
     for (const value of expected) {
       assert.equal(args.filter((arg) => arg === value).length, 1, value);
       assert.equal(args[args.indexOf(value) - 1], "--config", value);
@@ -293,8 +294,14 @@ for (const kind of ["exec", "resume"] as const) {
       });
       const prefix = category === "MCP" ? "mcp_servers" : "plugins";
       const expected = names.map((name) => `${prefix}.${name}.enabled=false`);
-      assert.deepEqual(args.filter((arg) => arg.startsWith(`${prefix}.`)), expected);
+      // Amended for #189: the `_default` pair is checked on its own (ADR 31).
+      const control = "plugins._default.enabled=true";
+      assert.deepEqual(args.filter((arg) => arg.startsWith(`${prefix}.`) && arg !== control), expected);
       for (const value of expected) assert.equal(args[args.indexOf(value) - 1], "--config");
+      if (category === "plugin") {
+        assert.equal(args.filter((arg) => arg === control).length, 1);
+        assert.equal(args[args.indexOf(control) - 1], "--config");
+      }
     });
 
     test(`AC-2 AC-5 (#64) refuses a ${category} name it cannot address on ${kind}`, () => {
@@ -311,5 +318,48 @@ for (const kind of ["exec", "resume"] as const) {
       const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only", ...extra });
       assert.deepEqual(args.filter((arg) => /^(mcp_servers\.|plugins\.|features\.(plugins|apps)=)/.test(arg)), []);
     }
+  });
+}
+
+// #189, ADR 31: per-plugin overrides reach remote plugins on 0.163.0 only with `_default=true`.
+const DEFAULT_ON = "plugins._default.enabled=true";
+for (const kind of ["exec", "resume"] as const) {
+  test(`AC-2 (#189) a plugin turned off by name brings one complete _default pair on ${kind}`, () => {
+    for (const extra of [{}, { disableAllPlugins: true }]) {
+      const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only",
+        disabledPlugins: ["a@m", "b@m"], ...extra });
+      assert.equal(args[0], "exec");
+      if (kind === "resume") assert.equal(args[1], "resume");
+      assert.equal(args.filter((arg) => arg === DEFAULT_ON).length, 1, JSON.stringify(extra));
+      assert.equal(args[args.indexOf(DEFAULT_ON) - 1], "--config");
+      for (const id of ["a@m", "b@m"]) {
+        const value = `plugins.${id}.enabled=false`;
+        assert.equal(args.filter((arg) => arg === value).length, 1, value);
+        assert.equal(args[args.indexOf(value) - 1], "--config", value);
+      }
+      assert.deepEqual(args.filter((arg) => arg.startsWith("plugins._default.")), [DEFAULT_ON]);
+    }
+  });
+
+  test(`AC-2 (#189) no plugin turned off by name means no _default pair on ${kind}`, () => {
+    for (const extra of [{}, { disabledPlugins: [] }, { disableAllPlugins: true }, { disabledPlugins: [], disableAllPlugins: true }]) {
+      const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only", ...extra });
+      assert.ok(!args.some((arg) => arg.startsWith("plugins._default.")), JSON.stringify(extra));
+    }
+  });
+
+  test(`AC-2 (#189) refuses to turn off a plugin called _default on ${kind}`, () => {
+    assert.throws(() => buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only", disabledPlugins: ["_default"] }),
+      (error: Error) => error.message.includes("_default"));
+    // An MCP server of that name is addressed as before.
+    const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only", disabledMcpServers: ["_default"] });
+    assert.equal(args[args.indexOf("mcp_servers._default.enabled=false") - 1], "--config");
+  });
+
+  test(`AC-3 (#189) turning every plugin off is one features.plugins=false pair and nothing else on ${kind}`, () => {
+    const args = buildCodexArgs({ kind, threadId: "thread", sandbox: "read-only", disableAllPlugins: true });
+    assert.equal(args.filter((arg) => arg === "features.plugins=false").length, 1);
+    assert.equal(args[args.indexOf("features.plugins=false") - 1], "--config");
+    assert.deepEqual(args.filter((arg) => arg.startsWith("plugins.")), []);
   });
 }

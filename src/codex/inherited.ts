@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import { ENV_PREFIX, type InheritPolicy } from "../config.js";
 import { addressableInConfigPath } from "./args.js";
+import { NEWEST_VERIFIED_CODEX_VERSION } from "./doctor.js";
 import { findSelfReferences } from "./mcp.js";
 import { resolveCodexExecutable } from "./resolve.js";
 
@@ -31,7 +32,10 @@ const LIST_TIMEOUT_MS = 10_000;
 export const MCP_LIST_ARGS = ["mcp", "list", "--json", "--config", "features.plugins=false"];
 
 export type McpInventory = { ok: true; names: string[] } | { ok: false; error: string };
-export type PluginInventory = { ok: true; enabled: string[] } | { ok: false; error: string };
+export type PluginInventory =
+  /** `remote`: the enabled ids with any listed row whose `source.source` is not exactly `local` (ADR 31). */
+  | { ok: true; enabled: string[]; remote: string[] }
+  | { ok: false; error: string };
 
 export interface InheritanceReport {
   /** Names allowed from the inventory; "all" when an unrestricted listing failed. */
@@ -100,7 +104,20 @@ export function parsePluginInventory(json: string): PluginInventory {
     }
     if (entry.installed && entry.enabled) enabled.push(id);
   }
-  return { ok: true, enabled: unique(enabled) };
+  return { ok: true, enabled: unique(enabled), remote: [] };
+}
+
+/**
+ * Whether this CLI is known to keep an excluded remote plugin out by name (ADR 31): a plain release
+ * version from 0.163.0, the first with `plugins._default`, to the newest verified one.
+ */
+export function keepsRemotePluginsOutByName(
+  cliVersion: string | null,
+  newestVerified: string = NEWEST_VERIFIED_CODEX_VERSION,
+): boolean {
+  void cliVersion;
+  void newestVerified;
+  throw new Error("not implemented");
 }
 
 /** Decides what a run turns off, from the user's policies and what is installed. Pure. */
@@ -112,6 +129,8 @@ export function resolveInheritance(input: {
   /** Null when plugins were not listed because the policy turns every one off (#135). */
   pluginInventory: PluginInventory | null;
   selfNames: string[];
+  /** The CLI version the preflight read for this call; null when it could not be read (ADR 31). */
+  cliVersion: string | null;
 }): {
   ok: true;
   disabledMcpServers: string[];
@@ -124,7 +143,7 @@ export function resolveInheritance(input: {
   // Only `none` may skip the listing; anywhere else a missing one is a failure, and fails closed.
   const pluginInventory: PluginInventory =
     input.pluginInventory ?? (plugins.kind === "none"
-      ? { ok: true, enabled: [] }
+      ? { ok: true, enabled: [], remote: [] }
       : { ok: false, error: "codex plugin list --json was not run" });
 
   if (!mcp.ok && mcpServers.kind !== "all") {
