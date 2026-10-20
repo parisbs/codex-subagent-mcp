@@ -329,13 +329,13 @@ a `codex_usage` tool. Grouping by kind of task uses a label the caller chooses a
 as given, because the server classifying prompts would be making policy
 ([ADR 22](adr/0022-keep-an-opt-in-local-usage-log.md)).
 
-The rest of the release only adds surface or fixes: a bound on how many delegations a session can
-start, counted in memory and set by the user
+The rest of the release only adds surface or fixes: a bound on how many delegation processes a server
+starts per rolling hour, counted in memory and set by the user
 ([ADR 23](adr/0023-bound-delegations-in-memory.md),
 [ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)), an opt-in summary of `codex doctor --json`
 ([ADR 27](adr/0027-opt-in-to-the-extended-doctor-report.md)), and
-skipping a plugin listing that has no effect under the default configuration. No breaking change is
-planned here ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
+skipping a plugin listing that has no effect under the default configuration. No change in it is
+breaking ([ADR 17](adr/0017-define-1-0-as-the-interface-freeze.md)).
 
 It also lets each registration describe itself. Server instructions state the registration's
 sandbox ceiling and its source, sandbox default, configured model and effort defaults, and counts of
@@ -347,10 +347,10 @@ registrations with different ceilings distinguishable before tool search loads t
 without adding configuration or putting recommendation policy on the execution path
 ([ADR 28](adr/0028-describe-the-instance-in-server-instructions.md)).
 
-Worktree runs become something a caller can integrate without parsing a mismatch report. A follow-up
-already resumes in the worktree Codex applied
-([ADR 20](adr/0020-let-the-session-file-decide-where-a-follow-up-resumes.md)). What is still missing
-is the worktree's path and base commit as a line of their own, and any word about what the worktree
+Worktree runs became something a caller can integrate without parsing a mismatch report. A follow-up
+now resumes in the worktree Codex applied, where it used to resume in the caller's working tree
+([ADR 20](adr/0020-let-the-session-file-decide-where-a-follow-up-resumes.md)). What was still missing
+was the worktree's path and base commit as a line of their own, and any word about what the worktree
 left out: it is made from the last commit, so uncommitted changes, untracked files and ignored files
 such as installed dependencies are not in it, and a probe saw Codex rewrite production code around a
 missing dependency. The server tells Codex in the prompt which kinds of files its worktree lacks and
@@ -368,6 +368,15 @@ persist, and a follow-up, a later retry or another model remain the caller's cho
 stays a failure, and the server neither retries nor switches model
 ([ADR 30](adr/0030-recognise-a-capacity-failure-from-the-session-file.md)).
 
+Verifying the server against Codex CLI 0.163.0 found that a plugin allow-list no longer kept remote
+plugins outside it out of a delegation: that release lets the account's state override the
+per-plugin setting unless a new default key is also set. The server now sets it on the versions
+known to honour it; on any other version, with an excluded remote plugin installed, it turns every
+plugin off and says why rather than trust an override it cannot confirm.
+`NEWEST_VERIFIED_CODEX_VERSION` therefore decides how a delegation runs, not only what
+`codex_doctor` warns about
+([ADR 31](adr/0031-keep-excluded-remote-plugins-out.md)).
+
 [#29](https://github.com/parisbs/codex-subagent-mcp/issues/29),
 [#62](https://github.com/parisbs/codex-subagent-mcp/issues/62),
 [#69](https://github.com/parisbs/codex-subagent-mcp/issues/69),
@@ -375,7 +384,11 @@ stays a failure, and the server neither retries nor switches model
 [#180](https://github.com/parisbs/codex-subagent-mcp/issues/180),
 [#149](https://github.com/parisbs/codex-subagent-mcp/issues/149),
 [#150](https://github.com/parisbs/codex-subagent-mcp/issues/150),
-[#158](https://github.com/parisbs/codex-subagent-mcp/issues/158)
+[#158](https://github.com/parisbs/codex-subagent-mcp/issues/158),
+[#168](https://github.com/parisbs/codex-subagent-mcp/issues/168),
+[#172](https://github.com/parisbs/codex-subagent-mcp/issues/172),
+[#187](https://github.com/parisbs/codex-subagent-mcp/issues/187),
+[#189](https://github.com/parisbs/codex-subagent-mcp/issues/189)
 
 ## 0.7.0 — Closing the interface
 
@@ -415,7 +428,8 @@ led to guardrails that shipped at once (tool descriptions that state the cost, a
 orchestrator to confirm the model with the user, results framed as information, and a guard against
 a delegation calling this server again) and to four ideas that need design or evidence first:
 
-- A limit on how many delegations a session can start, counted in delegations rather than quota
+- A limit on how many delegations a session can start, counted in delegations rather than quota.
+  Designed and shipped in 0.6.0: see that section
   ([#62](https://github.com/parisbs/codex-subagent-mcp/issues/62)).
 - Refusing to run in a directory nobody chose, once its real impact on everyday use is measured
   ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)).
@@ -434,7 +448,8 @@ them.
 
 Not tied to a release. Whether the server should offer explicit task intents, such as `review` or
 `investigate`, depends on data the project does not have yet: which delegations repeat and what they
-cost ([#29](https://github.com/parisbs/codex-subagent-mcp/issues/29)), and a review comparison
+cost, which the usage log shipped in 0.6.0 now collects for users who turn it on
+([#29](https://github.com/parisbs/codex-subagent-mcp/issues/29)), and a review comparison
 larger than one trial ([#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)). The design
 constraints found so far and the criterion for deciding are in
 [#136](https://github.com/parisbs/codex-subagent-mcp/issues/136), which may close as `wontfix`.

@@ -298,6 +298,7 @@ claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -- n
 | `codex_job_status` | Check a background delegation. |
 | `codex_job_result` | Read a finished background delegation's output. |
 | `codex_job_cancel` | Stop a running background delegation. |
+| `codex_usage` | Summarise the opt-in local usage log over a window, grouped by model, label, outcome or kind. |
 
 Full parameter reference: **[docs/TOOLS.md](docs/TOOLS.md)**.
 

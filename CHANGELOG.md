@@ -11,6 +11,78 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-20
+
+Measurement and additive changes. A local usage log, off unless the user turns it on, gives a view
+across delegations that outlives the process; a user-set bound limits how many delegations a server
+starts; each registration describes itself when a client connects; and a `use_worktree` run reports
+the worktree and commit it ran on. A minor because it adds a tool, optional parameters and
+environment variables; nothing in it is breaking ([ADR 17](docs/adr/0017-define-1-0-as-the-interface-freeze.md)).
+
+### Added
+
+- `CODEX_SUBAGENT_USAGE_LOG=on` appends one local line per delegation or follow-up process with
+  counts and settings, never prompts, code or paths, and the new read-only `codex_usage` tool
+  summarises it over a window, grouped by model, label, outcome or kind. `codex_delegate` and
+  `codex_follow_up` accept an optional `label`, the caller's own text, stored as given. See
+  [docs/TOOLS.md](docs/TOOLS.md#codex_usage) and
+  [ADR 22](docs/adr/0022-keep-an-opt-in-local-usage-log.md). ([#29])
+- `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` refuses a delegation or follow-up once that many
+  delegation processes started in the last rolling hour, and the refusal says when another call is
+  allowed. `CODEX_SUBAGENT_MAX_BACKGROUND_JOBS` lowers the cap of eight running background jobs.
+  `codex_doctor` reports both bounds and what the window holds. ([#62])
+- `codex_doctor` accepts `extended: true`, which also runs `codex doctor --json` and summarises
+  Codex's own `config.load` check. It is slow and contacts the network, so it never runs
+  automatically. ([#69])
+- The server sends MCP server instructions when a client connects, describing this registration: its
+  sandbox ceiling and where it comes from, its sandbox default, configured model and effort defaults,
+  and how many inherited tools of each kind a delegation may keep. Two registrations with different
+  ceilings can be told apart before their tools are loaded. ([#180])
+- A `use_worktree` result names the worktree and the commit it was made from, read from Codex's
+  session file, and the prompt tells Codex which kinds of files its worktree lacks and to report a
+  missing dependency instead of working around it. ([#150])
+- A delegation that failed because the model was at capacity says so: the limit is temporary and on
+  OpenAI's side, the run's changes persist, and a follow-up, a later retry or another model remain
+  the caller's choice. The result stays a failure; the server neither retries nor switches model.
+  ([#158])
+
+### Changed
+
+- The `codex_delegate` description no longer tells the caller to consult `codex_recommend` first when
+  a default model is configured or implied, which overrode the user's default. ([#180])
+- Results report tokens as unknown, instead of zeros, when the CLI's counters are incomplete. ([#29])
+- Under the default `CODEX_SUBAGENT_PLUGINS=none`, a delegation no longer runs
+  `codex plugin list`, which cost up to ten seconds and could report a listing failure with no
+  effect. A failed listing now says whether it timed out, exited with a code or was killed by a
+  signal. ([#135])
+
+### Fixed
+
+- **Security:** on Codex CLI 0.163.0, a plugin allow-list no longer kept remote plugins outside it
+  out of a delegation, because the account's state overrode the per-plugin setting. On 0.163.0 the
+  server now turns excluded remote plugins off in the way that release honours; on any other version,
+  with an excluded remote plugin installed, the run gets no plugins and the result says why. A plugin
+  listing that writes to stderr also turns plugins off for an allow-list. See
+  [ADR 31](docs/adr/0031-keep-excluded-remote-plugins-out.md). ([#189])
+- A follow-up to a `use_worktree` delegation resumed in the caller's working tree, not in the
+  worktree Codex used, so its edits could land in the original tree. It now resumes in the worktree
+  Codex's session file confirms, and is refused when that cannot be confirmed. ([#149])
+- A delegation that timed out or was cancelled while the server was busy lost output the CLI had
+  written before the deadline, such as the thread id needed to follow it up, agent messages and
+  stderr. ([#172])
+- A server shutdown during a cancellation's pending forced stage could read the process table again
+  and push the shared SIGKILL past the host's budget. ([#168])
+- A background `codex_delegate` whose request was cancelled before its job existed still created the
+  job and started Codex. ([#62])
+- The refusal for a sandbox above a configured ceiling now reads correctly.
+
+### Verified against
+
+- Codex CLI 0.163.0 on macOS, which `codex_doctor` no longer reports as newer than the verified
+  version. ([#187])
+- Build, tests and startup on Linux (Node 22, 24, 26), Windows (Node 22, 24) and macOS (Node 24). A
+  real delegation has still never been run on Windows or Linux.
+
 ## [0.5.0] - 2026-10-01
 
 Delegations that inherit nothing they were not given. Codex's sandbox confines the shell commands a
@@ -336,6 +408,7 @@ behaviour a caller can see; each such change is marked below.
 [#25]: https://github.com/parisbs/codex-subagent-mcp/issues/25
 [#26]: https://github.com/parisbs/codex-subagent-mcp/issues/26
 [#28]: https://github.com/parisbs/codex-subagent-mcp/issues/28
+[#29]: https://github.com/parisbs/codex-subagent-mcp/issues/29
 [#38]: https://github.com/parisbs/codex-subagent-mcp/issues/38
 [#39]: https://github.com/parisbs/codex-subagent-mcp/issues/39
 [#40]: https://github.com/parisbs/codex-subagent-mcp/issues/40
@@ -349,8 +422,10 @@ behaviour a caller can see; each such change is marked below.
 [#54]: https://github.com/parisbs/codex-subagent-mcp/issues/54
 [#55]: https://github.com/parisbs/codex-subagent-mcp/issues/55
 [#56]: https://github.com/parisbs/codex-subagent-mcp/issues/56
+[#62]: https://github.com/parisbs/codex-subagent-mcp/issues/62
 [#64]: https://github.com/parisbs/codex-subagent-mcp/issues/64
 [#66]: https://github.com/parisbs/codex-subagent-mcp/issues/66
+[#69]: https://github.com/parisbs/codex-subagent-mcp/issues/69
 [#72]: https://github.com/parisbs/codex-subagent-mcp/issues/72
 [#74]: https://github.com/parisbs/codex-subagent-mcp/issues/74
 [#75]: https://github.com/parisbs/codex-subagent-mcp/issues/75
@@ -370,9 +445,18 @@ behaviour a caller can see; each such change is marked below.
 [#108]: https://github.com/parisbs/codex-subagent-mcp/issues/108
 [#112]: https://github.com/parisbs/codex-subagent-mcp/issues/112
 [#116]: https://github.com/parisbs/codex-subagent-mcp/issues/116
-[#124]: https://github.com/parisbs/codex-subagent-mcp/pull/124
+[#124]: https://github.com/parisbs/codex-subagent-mcp/issues/124
 [#128]: https://github.com/parisbs/codex-subagent-mcp/issues/128
 [#129]: https://github.com/parisbs/codex-subagent-mcp/issues/129
+[#135]: https://github.com/parisbs/codex-subagent-mcp/issues/135
+[#149]: https://github.com/parisbs/codex-subagent-mcp/issues/149
+[#150]: https://github.com/parisbs/codex-subagent-mcp/issues/150
+[#158]: https://github.com/parisbs/codex-subagent-mcp/issues/158
+[#168]: https://github.com/parisbs/codex-subagent-mcp/issues/168
+[#172]: https://github.com/parisbs/codex-subagent-mcp/issues/172
+[#180]: https://github.com/parisbs/codex-subagent-mcp/issues/180
+[#187]: https://github.com/parisbs/codex-subagent-mcp/issues/187
+[#189]: https://github.com/parisbs/codex-subagent-mcp/issues/189
 
 ## [0.1.0] - 2026-09-11
 
@@ -422,7 +506,8 @@ First public release.
   outside the working directory, credentials included. The README explains the mitigation.
 - Background jobs live in memory and do not survive a server restart.
 
-[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.2.0...v0.3.0
