@@ -2,8 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { ENV_PREFIX, type InheritPolicy } from "../config.js";
-import { addressableInConfigPath } from "./args.js";
-import { NEWEST_VERIFIED_CODEX_VERSION } from "./doctor.js";
+import { addressableInConfigPath, addressablePluginId } from "./args.js";
+import { NEWEST_VERIFIED_CODEX_VERSION, compareVersions } from "./doctor.js";
 import { findSelfReferences } from "./mcp.js";
 import { resolveCodexExecutable } from "./resolve.js";
 
@@ -14,7 +14,8 @@ import { resolveCodexExecutable } from "./resolve.js";
  * read-only runs unsandboxed and without approval even under `read-only`. So a run keeps only the
  * MCP servers, plugins and apps the user allowed in the server environment, and the control fails
  * closed: an MCP server can only be turned off by name, so a listing that cannot be read refuses a
- * restricted run instead of letting unvetted servers through.
+ * restricted run instead of letting unvetted servers through. An excluded remote plugin is turned
+ * off by name only on a CLI known to honour it; elsewhere every plugin is turned off (ADR 31).
  */
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +53,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const unique = (values: string[]): string[] => [...new Set(values)];
 
+const quoted = (values: string[]): string => values.map((value) => JSON.stringify(value)).join(", ");
+
 /**
  * Reads `codex mcp list --json`. Any entry whose name cannot be read makes the whole listing
  * unreadable: a partial inventory would leave the unnamed server running.
@@ -81,6 +84,9 @@ export function parseMcpInventory(json: string): McpInventory {
  * Reads `codex plugin list --json` (codex-cli 0.159.2: `{ installed: [...], available: [...] }`).
  * Only plugins that are installed and enabled can run, so only they are listed; `available`
  * describes the marketplace, not this machine.
+ *
+ * A plugin is remote when any installed row for its id has a `source.source` other than exactly
+ * `local`, a missing or unreadable one included, so a local row cannot hide a remote one (ADR 31).
  */
 export function parsePluginInventory(json: string): PluginInventory {
   let parsed: unknown;
@@ -93,6 +99,7 @@ export function parsePluginInventory(json: string): PluginInventory {
     return { ok: false, error: "codex plugin list --json did not list installed plugins" };
   }
   const enabled: string[] = [];
+  const remote = new Set<string>();
   for (const [index, entry] of parsed.installed.entries()) {
     const id = isRecord(entry) ? entry.pluginId : undefined;
     if (!isRecord(entry) || typeof id !== "string" || id.length === 0) {
@@ -102,10 +109,19 @@ export function parsePluginInventory(json: string): PluginInventory {
     if (typeof entry.installed !== "boolean" || typeof entry.enabled !== "boolean") {
       return { ok: false, error: `codex plugin list --json listed ${JSON.stringify(id)} without a readable state` };
     }
+    const source = isRecord(entry.source) ? entry.source.source : undefined;
+    if (source !== "local") remote.add(id);
     if (entry.installed && entry.enabled) enabled.push(id);
   }
-  return { ok: true, enabled: unique(enabled), remote: [] };
+  const ids = unique(enabled);
+  return { ok: true, enabled: ids, remote: ids.filter((id) => remote.has(id)) };
 }
+
+/** The first release with `plugins._default`, which a remote plugin's override needs (ADR 31). */
+const FIRST_PLUGIN_DEFAULT_VERSION = "0.163.0";
+
+/** A plain release version: three dot-separated integers, nothing around them. */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
 
 /**
  * Whether this CLI is known to keep an excluded remote plugin out by name (ADR 31): a plain release
@@ -115,9 +131,11 @@ export function keepsRemotePluginsOutByName(
   cliVersion: string | null,
   newestVerified: string = NEWEST_VERIFIED_CODEX_VERSION,
 ): boolean {
-  void cliVersion;
-  void newestVerified;
-  throw new Error("not implemented");
+  // `compareVersions` reads "0.163.bad" as 0.163.0, so the shape is checked strictly first.
+  if (cliVersion === null || !RELEASE_VERSION.test(cliVersion)) return false;
+  return (
+    compareVersions(cliVersion, FIRST_PLUGIN_DEFAULT_VERSION) >= 0 && compareVersions(cliVersion, newestVerified) <= 0
+  );
 }
 
 /** Decides what a run turns off, from the user's policies and what is installed. Pure. */
@@ -200,19 +218,38 @@ export function resolveInheritance(input: {
     disableAllPlugins = true;
     allowedPlugins = [];
   } else {
+    const allowed = pluginInventory.enabled.filter((id) => plugins.names.includes(id));
     const toDisable = pluginInventory.enabled.filter((id) => !plugins.names.includes(id));
-    const unaddressable = toDisable.filter((id) => !addressableInConfigPath(id));
-    if (unaddressable.length > 0) {
+    const unaddressable = toDisable.filter((id) => !addressablePluginId(id));
+    // ADR 31: a remote plugin's override holds only where the CLI is known to honour it.
+    const remoteKept = keepsRemotePluginsOutByName(input.cliVersion)
+      ? []
+      : toDisable.filter((id) => pluginInventory.remote.includes(id));
+    if (unaddressable.length > 0 || remoteKept.length > 0) {
       // One plugin cannot be singled out, so none is kept: fail closed.
       disableAllPlugins = true;
       allowedPlugins = [];
-      problems.push(
-        `plugin ${unaddressable.map((id) => JSON.stringify(id)).join(", ")} cannot be turned off by name ` +
-          '(a dot or "=" in its id), so every plugin was turned off',
-      );
+      if (unaddressable.length > 0) {
+        problems.push(
+          `plugin ${quoted(unaddressable)} cannot be turned off by name ` +
+            '(a dot or "=" in its id, or the reserved id "_default"), so every plugin was turned off',
+        );
+      }
+      if (remoteKept.length > 0) {
+        const version =
+          input.cliVersion === null
+            ? "this Codex CLI, whose version could not be read"
+            : `Codex CLI ${JSON.stringify(input.cliVersion)}`;
+        problems.push(
+          `remote plugin ${quoted(remoteKept)} cannot be kept out by name on ${version}, which is not a release ` +
+            `from ${FIRST_PLUGIN_DEFAULT_VERSION} to the newest verified ${NEWEST_VERIFIED_CODEX_VERSION}, so every ` +
+            "plugin was turned off",
+        );
+      }
+      if (allowed.length > 0) problems.push(`allowed plugin ${quoted(allowed)} was turned off too`);
     } else {
       disabledPlugins = toDisable;
-      allowedPlugins = pluginInventory.enabled.filter((id) => plugins.names.includes(id));
+      allowedPlugins = allowed;
     }
   }
 
@@ -274,6 +311,9 @@ function failureCause(error: unknown): string | null {
  *
  * `listPlugins: false` skips `codex plugin list`, which can take seconds and reach remote
  * marketplaces, when the policy turns every plugin off and needs no inventory (#135, ADR 16).
+ *
+ * A plugin listing that prints anything on stderr counts as unreadable (ADR 31): codex-cli 0.163.0
+ * exits 0 without network, lists only the local plugins, and says so on stderr alone.
  */
 export async function inspectInherited(options: {
   cwd?: string;
@@ -281,22 +321,31 @@ export async function inspectInherited(options: {
   listPlugins?: boolean;
 }): Promise<{ mcp: McpInventory; plugins: PluginInventory | null; selfNames: string[] }> {
   const { codexPath = process.env.CODEX_BIN ?? "codex", cwd, listPlugins = true } = options;
-  const list = async (args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> => {
+  // A failed CLI call can carry its whole stderr, and this ends up in a result.
+  const bounded = (reason: string): string =>
+    oneLine(reason.length > 300 ? `${reason.slice(0, 300)}… [truncated]` : reason);
+  type Listing = { ok: true; stdout: string; stderr: string } | { ok: false; error: string };
+  const list = async (args: string[]): Promise<Listing> => {
     try {
       const resolved = resolveCodexExecutable(codexPath);
-      const { stdout } = await execFileAsync(resolved.path ?? codexPath, args, {
+      const { stdout, stderr } = await execFileAsync(resolved.path ?? codexPath, args, {
         timeout: LIST_TIMEOUT_MS,
         ...(cwd ? { cwd } : {}),
       });
-      return { ok: true, stdout };
+      return { ok: true, stdout, stderr: String(stderr ?? "") };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const cause = failureCause(error);
-      const reason = cause ? `${cause}: ${message}` : message;
-      // A failed CLI call can carry its whole stderr, and this ends up in a result.
-      const bounded = reason.length > 300 ? `${reason.slice(0, 300)}… [truncated]` : reason;
-      return { ok: false, error: oneLine(bounded) };
+      return { ok: false, error: bounded(cause ? `${cause}: ${message}` : message) };
     }
+  };
+  const readPlugins = (listing: Listing): PluginInventory => {
+    if (!listing.ok) return listing;
+    if (listing.stderr.length > 0) {
+      const printed = oneLine(listing.stderr).length > 0 ? listing.stderr : "only whitespace";
+      return { ok: false, error: bounded(`codex plugin list --json printed on stderr, so it may be incomplete: ${printed}`) };
+    }
+    return parsePluginInventory(listing.stdout);
   };
 
   const [mcpListing, pluginListing] = await Promise.all([
@@ -304,8 +353,7 @@ export async function inspectInherited(options: {
     listPlugins ? list(["plugin", "list", "--json"]) : null,
   ]);
   const mcp = mcpListing.ok ? parseMcpInventory(mcpListing.stdout) : mcpListing;
-  const plugins =
-    pluginListing === null ? null : pluginListing.ok ? parsePluginInventory(pluginListing.stdout) : pluginListing;
+  const plugins = pluginListing === null ? null : readPlugins(pluginListing);
   const selfNames = mcpListing.ok && mcp.ok ? findSelfReferences(mcpListing.stdout, process.argv[1]) : [];
   return { mcp, plugins, selfNames };
 }
