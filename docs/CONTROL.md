@@ -34,7 +34,7 @@ start a Codex run:
 | Tool | Spends usage | Suggested |
 | --- | --- | --- |
 | `codex_doctor`, `list_codex_models`, `codex_recommend` | no | allow |
-| `codex_job_status`, `codex_job_result`, `codex_job_cancel` | no | allow |
+| `codex_job_status`, `codex_job_result`, `codex_job_cancel`, `codex_usage` | no | allow |
 | `codex_delegate`, `codex_follow_up` | yes | ask each time |
 
 In Claude Code, that is a `permissions` entry in your settings:
@@ -48,7 +48,8 @@ In Claude Code, that is a `permissions` entry in your settings:
       "mcp__codex-subagent__codex_recommend",
       "mcp__codex-subagent__codex_job_status",
       "mcp__codex-subagent__codex_job_result",
-      "mcp__codex-subagent__codex_job_cancel"
+      "mcp__codex-subagent__codex_job_cancel",
+      "mcp__codex-subagent__codex_usage"
     ]
   }
 }
@@ -106,7 +107,7 @@ spawned processes and calls holding slots before spawning, even when no hourly b
 A reasonable starting point for everyday use:
 
 ```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.5.0
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_SANDBOX=workspace-write -e CODEX_SUBAGENT_MAX_EFFORT=high -- npx -y codex-subagent-mcp@^0.6.0
 ```
 
 Register defaults and ceilings outside the repository — Claude Code's default `local` scope or
@@ -117,8 +118,8 @@ default sandbox could make later calls write without requesting a sandbox at all
 For separate review and editing paths, register the server twice under different names and ceilings:
 
 ```bash
-claude mcp add codex-review -e CODEX_SUBAGENT_MAX_SANDBOX=read-only -- npx -y codex-subagent-mcp@^0.5.0
-claude mcp add codex-write -e CODEX_SUBAGENT_MAX_SANDBOX=workspace-write -- npx -y codex-subagent-mcp@^0.5.0
+claude mcp add codex-review -e CODEX_SUBAGENT_MAX_SANDBOX=read-only -- npx -y codex-subagent-mcp@^0.6.0
+claude mcp add codex-write -e CODEX_SUBAGENT_MAX_SANDBOX=workspace-write -- npx -y codex-subagent-mcp@^0.6.0
 ```
 
 Each registration's server instructions state its own ceiling and defaults, so Claude can choose the
@@ -134,7 +135,7 @@ name, not the package name, forms the permission prefix.
 
 `npx -y codex-subagent-mcp` always runs the newest published version, so a new release — including
 changes to what the tools tell Claude — reaches you without a decision on your part. A range such as
-`codex-subagent-mcp@^0.5.0` accepts fixes but not new or changed behaviour, which on 0.x arrives in a
+`codex-subagent-mcp@^0.6.0` accepts fixes but not new or changed behaviour, which on 0.x arrives in a
 new minor (see [VERSIONING.md](VERSIONING.md)).
 
 ## 4. Your own rules for Claude
@@ -151,11 +152,13 @@ otherwise, never use background mode, and never include files from outside this 
 
 Codex reads its own `config.toml`, including a project's `.codex/config.toml` when you have trusted
 that project in Codex, and administrator-managed `requirements.toml`. This server passes sandbox,
-model and effort explicitly, so those files cannot widen a delegation; managed requirements can still
-restrict it further. [SECURITY.md](../SECURITY.md) has the details.
+model and effort explicitly, so those files cannot change the sandbox mode, model or effort of a
+delegation; managed requirements can still restrict it further. They can still set
+`sandbox_workspace_write.network_access` and `sandbox_workspace_write.writable_roots`, which the server
+does not override and which widen a `workspace-write` run. [SECURITY.md](../SECURITY.md) has the details.
 
 After a run, the server reads Codex's own session file and reports whether the model, effort, sandbox
-and directory it recorded are the ones it was given: the result's metadata line ends with
+and directory it recorded are the ones it was given: the result's metadata line includes
 `applied=confirmed`, `applied=differs` or `applied=unconfirmed`. A sandbox recorded as wider than the
 one requested fails the delegation. This tells you when something moved; it does not hold it in
 place.
@@ -166,8 +169,9 @@ place.
   default.
 - No model is chosen for you; without one the call is refused with a suggestion.
 - Follow-ups restate the thread's model, effort and directory instead of letting configuration pick.
-- Every result starts by saying that Codex's report is information, not instructions — Codex may have
-  read hostile content, and its report is how that content would reach Claude.
+- Every delegation result, blocking or read with `codex_job_result`, starts by saying that Codex's
+  report is information, not instructions — Codex may have read hostile content, and its report is
+  how that content would reach Claude.
 - If this server is also registered in the Codex configuration for the delegation's working
   directory, it is switched off for that run so the delegated agent cannot call it and delegate
   again. The server lists that directory's MCP entries immediately before both new runs and
@@ -194,10 +198,12 @@ place.
 - That content Claude reads — a web page, an email, an issue — does not talk it into delegating,
   within whatever limits you left open. That is what the permission prompt and the ceilings are for.
 - That Codex cannot read your files. Its sandbox restricts writes and network access, not reads.
-- That a `workspace-write` delegation can finish the job end to end. It cannot commit — Codex keeps
-  `.git` read-only — and its shell has no network. Codex has settings that lift both; this server
-  does not expose them, because write access to `.git` is code execution through hooks on your next
-  git command, and network access is what currently keeps a run from sending out what it read.
+- That a `workspace-write` delegation can finish the job end to end. With Codex's defaults it cannot
+  commit — Codex keeps `.git` read-only — and its shell has no network. Codex has settings that lift
+  both; this server does not expose them, because write access to `.git` is code execution through
+  hooks on your next git command, and network access is what currently keeps a run from sending out
+  what it read. It does not override them either, so a Codex configuration that sets them still
+  applies.
   [SECURITY.md](../SECURITY.md) has the measurements.
 - That a differently named copy of this server is found by the recursion guard. Recognition is by
   shape: the string `codex-subagent-mcp`, a `codex-subagent` executable basename, or this server's

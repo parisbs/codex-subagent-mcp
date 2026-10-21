@@ -22,8 +22,8 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 
 | Variable | Values | Effect |
 | --- | --- | --- |
-| `CODEX_BIN` | Executable path | Path to the Codex executable, if it is not `codex` on `PATH`. On Windows it must be `codex.exe`, not a `.cmd` shim. |
-| `CODEX_HOME` | Directory path | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings are looked up. Unset means `~/.codex`. |
+| `CODEX_BIN` | Executable name or path | The Codex executable to run. Unset means `codex`, searched on `PATH`. The value is used as given, not trimmed. On Windows it must name a file that runs directly, such as `codex.exe`; a `.cmd` or `.bat` shim is refused. `codex_doctor` reports a value that cannot be resolved. |
+| `CODEX_HOME` | Directory path | Codex's own variable, read here too: it is where the session files that confirm a run's applied settings, and recover a follow-up's directory, are looked up. Trimmed; unset or blank means `~/.codex`. A directory without readable session files makes those settings unconfirmed rather than a configuration error. |
 | `CODEX_SUBAGENT_DEFAULT_MODEL` | Slug from `list_codex_models` | Model used when a call specifies none. When unset, the only entry in a single-entry `CODEX_SUBAGENT_ALLOWED_MODELS` is used; otherwise the call is refused with a suggestion rather than guessed at. |
 | `CODEX_SUBAGENT_DEFAULT_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Effort used when a call specifies none. Unset means the model's own default from the catalog. |
 | `CODEX_SUBAGENT_ALLOWED_MODELS` | Comma-separated slugs from `list_codex_models` | Comma-separated allow-list. Any other model is refused, and `codex_recommend` never suggests one. `list_codex_models` still lists excluded models, marked as blocked, so you can see what the restriction costs. A list of exactly one acts as the default. An empty entry, such as a trailing comma or a value of only commas, is a configuration error rather than being ignored, since dropping it could leave no restriction at all. |
@@ -31,7 +31,7 @@ or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
 | `CODEX_SUBAGENT_MAX_SANDBOX` | `read-only`, `workspace-write`, `danger-full-access` | The most permissive sandbox allowed. Unset means `workspace-write`; reaching `danger-full-access` requires setting it to that value explicitly. A call asking for more is **refused**. |
 | `CODEX_SUBAGENT_MAX_EFFORT` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | The highest reasoning effort allowed. A call asking for more is **clamped** to the closest level the chosen model supports at or below it, with a note. If the model supports no level at or below it, the call is **refused** and nothing runs. Recommendations respect it too, and skip models with no level under it. |
 | `CODEX_SUBAGENT_MCP_SERVERS` | `none`, `all`, or comma-separated server names | The MCP servers from Codex's configuration (the user's and a trusted project's) a delegation keeps. Unset means `none`: every one is turned off for the run. The recursion guard turns this server off for each delegation. If the MCP listing fails under `all`, or this server's own entry has a dot or `=` in its name, the result says the guard was not applied. Unless it is `all`, a delegation whose `codex mcp list` cannot be read is **refused**, since servers can only be turned off by name. |
-| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. When a plugin listing cannot be checked, or prints anything on stderr, `none` or a list turns every plugin off; `all` keeps every plugin without checking. A list keeps an installed remote plugin (one from the account's ChatGPT marketplace) out by name only on a Codex CLI from 0.163.0 up to the newest version this server has verified; on any other version every plugin is turned off and the result names the plugins lost and why ([ADR 31](adr/0031-keep-excluded-remote-plugins-out.md)). |
+| `CODEX_SUBAGENT_PLUGINS` | `none`, `all`, or comma-separated plugin ids (`name@marketplace`) | The installed Codex plugins a delegation keeps, including the MCP servers a plugin provides. Unset means `none`. When a plugin listing cannot be checked, or prints anything on stderr, `none` or a list turns every plugin off; `all` still runs the listing but keeps every plugin whatever it returns, and the result reports a listing problem. A list keeps an installed remote plugin (one from the account's ChatGPT marketplace) out by name only on a Codex CLI from 0.163.0 up to the newest version this server has verified; on any other version every plugin is turned off and the result names the plugins lost and why ([ADR 31](adr/0031-keep-excluded-remote-plugins-out.md)). |
 | `CODEX_SUBAGENT_APPS` | `on`, `off` | Whether a delegation keeps Codex's apps, its connectors to external services. Unset means `off`. |
 | `CODEX_SUBAGENT_USAGE_LOG` | `on`, `off` | Opt-in local usage log, default `off`. Empty or whitespace means off; other values refuse delegations until restart with a valid value. |
 | `CODEX_SUBAGENT_MAX_DELEGATIONS_PER_HOUR` | Decimal integer from 1 to 9007199254740991 | Delegation processes (`codex exec` or `codex exec resume`) this server starts per rolling hour. Unset means unrestricted. Probes never count; a spawned run counts for sixty minutes whatever its outcome. See [Bounds on delegations](#bounds-on-delegations). |
@@ -60,12 +60,35 @@ The three variables above therefore start at nothing. A list is names separated 
 `none` and `all` stand alone, and an empty entry is an error rather than something to skip. Each
 result states what the run was allowed, on its own line, with every name quoted.
 
-Both numeric variables are trimmed and accept only the ASCII digits 0 to 9, leading zeros allowed;
-an empty value means unset. A sign, a decimal point, an exponent, a separator or a value out of
-range is a configuration error ([ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)).
+Every `CODEX_SUBAGENT_*` value is trimmed, and an empty or whitespace-only value means unset. Values
+are case-sensitive: `on`, `none` and `read-only` are recognised, `On`, `None` and `READ-ONLY` are not.
+Any other non-empty value of an enumerated variable is a configuration error.
 
-Invalid values are reported on the first tool call, not at startup — a server that refuses to start
-cannot explain why.
+`CODEX_SUBAGENT_ALLOWED_MODELS` and the two inheritance lists split on commas and trim each entry.
+Duplicate names in an inheritance list are removed; duplicates in the model allow-list are kept, so
+only a list with exactly one entry implies a default model. Whether a listed model exists in the
+catalog is checked when a delegation runs, not when the configuration is read. An excluded MCP
+server whose name contains a dot or `=` cannot be turned off by name, so the delegation is refused;
+an excluded plugin whose id contains one of them, or is `_default`, turns every plugin off with a
+note.
+
+Both numeric variables accept only the ASCII digits 0 to 9, leading zeros allowed. A sign, a decimal
+point, an exponent, a separator or a value out of range is a configuration error
+([ADR 25](adr/0025-settle-the-open-details-of-the-delegation-bound.md)).
+
+Values that conflict are configuration errors too: a default effort above `CODEX_SUBAGENT_MAX_EFFORT`,
+a default sandbox above `CODEX_SUBAGENT_MAX_SANDBOX`, or a default model outside a non-empty
+`CODEX_SUBAGENT_ALLOWED_MODELS`.
+
+Configuration errors are reported when a tool is called, not at startup — a server that refuses to
+start cannot explain why. `codex_doctor` lists them; `list_codex_models`, `codex_recommend`,
+`codex_delegate` and `codex_follow_up` refuse until the server restarts with corrected values. The job
+tools and `codex_usage` keep working, so running jobs can still be read and cancelled.
+
+The server also reads a few variables it does not own. `XDG_STATE_HOME` and, on Windows,
+`LOCALAPPDATA` decide where the usage log lives ([CONTROL.md](CONTROL.md#local-usage-log)). On Windows,
+`PATH` and `PATHEXT` are searched to resolve `codex`, since `spawn` applies neither, and `SystemRoot`
+locates `taskkill.exe` for stopping a run's process tree; elsewhere `spawn` searches `PATH` itself.
 
 **Keep sandbox defaults and ceilings out of the working tree.** Set them where a delegation cannot edit them: Claude
 Code's default `local` scope or `--scope user` (both stored in your home directory), or Claude
@@ -117,8 +140,8 @@ The summary includes status, summary, remediation, configuration scope, configur
 provider, feature flags, startup warning count and texts, error and decimal line/column, and
 `config.toml parse` reduced to `ok` or `error`. It omits all other details, issues and notes.
 The configured model may differ from a delegation's applied model. Allowed text can contain paths;
-this is a relevance whitelist, not a promise of path removal. Strings are quoted and controls
-escaped. Each string is limited to 2,000 code points, warning texts to ten, and the section to
+this is a relevance whitelist, not a promise of path removal. Strings taken from Codex's report are
+quoted and controls escaped; the directory in the heading is the caller's own, shown as given. Each string is limited to 2,000 code points, warning texts to ten, and the section to
 16,384 code points, with explicit omission markers. Reported warning counts are kept even when
 they disagree with the texts.
 
@@ -166,9 +189,10 @@ from the installed CLI at runtime, never hardcoded, so new models appear without
 | `refresh` | boolean | `false` | Bypass the ten-minute cache and re-read the catalog. |
 | `working_dir` | string | the server's working directory | Absolute directory to read the catalog in. A project you have trusted in Codex can set its own `model_catalog_json`, so this is the directory whose models a delegation there would actually have. |
 
-A `WARNING:` line means the live catalog could not be read and a static fallback was used. Treat the
-slugs below it as unconfirmed: `codex_delegate` refuses to run while only that fallback is available,
-rather than validate a paid run against a list that may not match your CLI. When the catalog cannot
+A `WARNING:` line that says the catalog fell back to a static list means the live catalog could not
+be read. Treat the slugs below it as unconfirmed: `codex_delegate` refuses to run while only that fallback is available,
+rather than validate a paid run against a list that may not match your CLI. Other `WARNING:` lines
+concern the CLI version or a sign-in probe that could not be read, not the catalog. When the catalog cannot
 be read because of a configuration problem, no fallback is shown at all; the tool reports Codex's
 message instead.
 
@@ -213,31 +237,44 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `target_files` | string[] | — | Paths to focus on, relative to `working_dir`. |
 | `acceptance_criteria` | string[] | — | Conditions that must hold for the task to be done. |
 | `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Passing an empty string is an error rather than the same as omitting it, since a directory nobody chose is not a safe fallback. Codex also reads a trusted project's `.codex/config.toml` from here. |
-| `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot widen it. |
+| `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot change the mode; its `sandbox_workspace_write` settings (network access, extra writable roots) still apply under `workspace-write`. |
 | `auto_approve` | boolean | `false` | Codex approves its own commands, and also the tools of any MCP server, plugin or app the user allowed, which run outside the sandbox. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
 | `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
 | `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. A follow-up defaults to the directory confirmed by Codex's session file; if that directory is unconfirmed, the follow-up is refused unless it supplies `working_dir`. |
 | `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
-| `timeout_seconds` | integer | `1800` | The run is terminated past this budget. Max 7200. |
+| `timeout_seconds` | integer | `1800` | From 1 to 7200 seconds. The Codex run is terminated past this budget; the probes and listings before it and the processing after it are not counted. |
 | `mode` | `blocking` \| `background` | `blocking` | `background` returns a `job_id` immediately. |
 | `output_schema` | object | — | A JSON Schema for the final message, returned as JSON. See [Structured results](#structured-results). |
 
 ### What comes back
 
-Every result starts with one line stating that Codex's report is information from another agent,
-not instructions. Codex may have read hostile content, and its report is how that content would
+A delegation result, blocking or read with `codex_job_result`, starts with one line stating that
+Codex's report is information from another agent, not instructions. Refusals before a run and the
+acknowledgement of a background start have formats of their own. Codex may have read hostile content, and its report is how that content would
 reach the orchestrator.
 
-A blocking delegation returns the final message, the files it changed (with the path each landed
-at), the commands it ran with their exit codes, the effective working directory, the duration, the
-model, effort and sandbox this server passed to Codex, and a `thread_id` for follow-ups. The command
+A blocking delegation returns the final message, the file changes Codex reported (with the path each
+landed at; Codex's account, not a diff of the disk, kept up to 1,000 distinct kind and path entries
+and then counted as omitted), the commands it ran with their exit codes, the working directory it was
+run in, the duration, the model, effort and sandbox this server passed to Codex, and a `thread_id`
+for follow-ups. The command
 heading is the true number of completed commands observed even when only the newest 500 entries are
 retained and listed.
 Anything Codex reported as an in-band error is surfaced separately — those do not change its exit
 code, so they would otherwise be lost.
 
-Token counters are labelled separately as **this turn** and **thread so far**. On a follow-up,
+A result is a bounded summary of the run, not its raw output. Counted in JavaScript string
+characters, the server keeps up to 1,000 agent messages and 1,048,576 characters of their text, the
+newest 500 commands, 100 distinct errors of up to 2,000 characters each, and 65,536 characters of
+stderr, and discards any single line of Codex's event stream longer than 1,048,576 characters. The
+result notes the cuts it tracks, such as omitted commands and file changes and discarded event
+lines.
+
+When Codex reported complete counters, tokens appear in the metadata line: as one `tokens=` field
+when this turn and the thread so far are the same, as on a thread's first turn, and otherwise
+labelled separately as **this turn** and **thread so far**. Without complete counters the line has no
+token field. On a follow-up,
 Codex reports the cumulative session counters, so this server subtracts the previous total it
 remembered for that thread. If the thread was started elsewhere, the server restarted, or no
 previous total was reported, this-turn usage is explicitly `unknown`; the cumulative total is never
@@ -259,7 +296,7 @@ request carrying the accumulated context, which is why the complete count is rep
 ### Structured results
 
 With `output_schema`, Codex's final message is constrained to that JSON Schema and comes back in a
-delimited block, exactly as Codex returned it:
+delimited block, exactly as Codex returned it apart from the JSON whitespace around it:
 
 ```text
 Structured result (JSON, exactly as Codex returned it):
@@ -283,8 +320,9 @@ Structured result (JSON, exactly as Codex returned it):
 - The schema is written to a private temporary file (`codex-subagent-schema-*` in the system
   temporary directory; mode 0600 in a 0700 directory on macOS and Linux, while on Windows it inherits
   the permissions of the user's temporary directory) and removed once the run's processes have
-  exited. The one case where it stays behind is a server shutdown whose deadline passes before the
-  run could be confirmed stopped; the operating system's temporary-file cleanup reaches it there.
+  exited. It stays behind when a server shutdown's deadline passes before the run could be confirmed
+  stopped, or when the removal itself fails, which is logged to stderr; the operating system's
+  temporary-file cleanup reaches it there.
 
 ### What Codex actually applied
 
@@ -292,7 +330,7 @@ The command line is not the last word on a run: managed requirements can lower a
 not support the effort requested, and a resumed session takes what it is not given from the
 configuration of the directory it runs in. So after the run, this server reads the session file
 Codex writes for the thread and compares the model, effort, sandbox and working directory it
-recorded against the ones it was given. The metadata line ends with `applied=confirmed`,
+recorded against the ones it was given. The metadata line includes `applied=confirmed`,
 `applied=differs` or `applied=unconfirmed`.
 
 | Outcome | What is reported |
@@ -383,7 +421,7 @@ this is far cheaper than re-sending it.
 | `sandbox` | see above | configured default, else `read-only` | Applied as a config override; `resume` has no sandbox flag. |
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
 | `working_dir` | string | the thread's directory | Absolute directory to resume in. |
-| `timeout_seconds` | integer | `1800` | |
+| `timeout_seconds` | integer | `1800` | From 1 to 7200 seconds, as for `codex_delegate`. |
 | `output_schema` | object | — | Constrains this turn only; see [Structured results](#structured-results). A turn without one is not parsed. |
 
 A resumed Codex session does not keep its model or effort: without them, Codex takes both from the
@@ -416,15 +454,16 @@ every known job.
 | `include_activity` | boolean | `false` | Include the recent progress log. |
 
 States: `running`, `completed`, `failed`, `cancelled`. A job is `cancelled` as soon as
-`codex_job_cancel` returns, but Codex may take up to the five-second grace to stop; until it has,
-the status says it is still stopping and does not point at `codex_job_result`.
+`codex_job_cancel` returns, but stopping takes longer: the forced stage comes five seconds after the
+polite signal, and the job settles at the latest a second after that. Until it settles, the status
+says it is still stopping and does not point at `codex_job_result`.
 
 ---
 
 ## `codex_job_result`
 
 Returns the full output of a finished background delegation. Errors if the job is still running,
-or cancelled and still stopping — in which case the partial output follows once Codex has stopped.
+or cancelled and still stopping — in which case the partial output follows once the job settles.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -476,8 +515,9 @@ At most eight run concurrently, or fewer when `CODEX_SUBAGENT_MAX_BACKGROUND_JOB
 A job stops counting once it is cancelled or settled, even while its process tree is still being
 stopped. Finished jobs are kept for an hour, and at most the 100 most recent,
 then discarded. When the server shuts down — on SIGINT, SIGTERM, or its client closing stdin — every
-running delegation, background or blocking, is stopped with the commands it started, forced after a
-quarter of a second, and the server exits within about a third of a second. Hosts kill a server
+running delegation, background or blocking, is stopped with the commands of its process tree the
+server can still find, forced after a quarter of a second, and the server exits within about a third
+of a second; stderr names any process it could not confirm stopped. Hosts kill a server
 that takes longer, and anything still running then would keep burning quota with nobody reading the
 result.
 

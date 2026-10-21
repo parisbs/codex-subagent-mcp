@@ -11,12 +11,13 @@ npm run build
 npm test
 ```
 
-You need Node 22 or newer. For anything beyond unit tests you also need the
+You need Node 22 or newer. Building, the unit tests and `npm run verify` need nothing else: they run
+offline, without Codex or credentials. Trying real delegations, including the smoke test, needs the
 [Codex CLI](https://developers.openai.com/codex/cli) installed and signed in — the server delegates
 to it, so without it there is nothing to delegate to. Install it without npm on every platform: with
 Homebrew (`brew install --cask codex`) on macOS, the standalone installer on Linux, and the
 PowerShell installer on Windows, where a global npm install produces a `codex.cmd` shim this server
-refuses to run. The README has the exact commands and the reasons, including the `bubblewrap`
+refuses to run. [docs/INSTALL.md](docs/INSTALL.md) has the exact commands and the reasons, including the `bubblewrap`
 prerequisite for Codex's sandbox on Linux.
 
 Verify your setup with the `codex_doctor` tool, or by running the server and calling it.
@@ -104,11 +105,11 @@ Code, comments, documentation and commit messages are written in English.
 
 ## Publishing a release
 
-The maintainer still prepares `CHANGELOG.md`, updates the version in both `package.json` and
-`src/server.ts`, and runs the smoke test against the real Codex CLI. After those changes are merged,
-create and push a matching version tag such as `v0.2.0`. The `Publish to npm` workflow runs the full
-CI workflow against that tagged commit, checks that the tag and both version declarations agree, and
-then *stages* the release with npm provenance. A maintainer can also run the workflow manually and
+The maintainer still prepares `CHANGELOG.md`, updates the version in `package.json`, `SERVER_VERSION`
+in `src/server.ts` and both version fields of `server.json`, and runs the smoke test against the real
+Codex CLI. After those changes are merged, create and push a matching version tag such as `v0.2.0`.
+The `Publish to npm` workflow runs the full CI workflow against that tagged commit, checks that the
+tag and all four version declarations agree, and then *stages* the release with npm provenance. A maintainer can also run the workflow manually and
 enter an existing version tag.
 
 Staging is not publishing. The version reaches users only when a maintainer approves it, which

@@ -117,8 +117,9 @@ servers, hooks and rules. Verified against codex-cli 0.154.0:
 - An untrusted project's `.codex/config.toml` is not loaded at all.
 - Flags on the command line win over `config.toml` at every level; only administrator-managed
   requirements can still restrict them further. This server always passes the sandbox, model and
-  reasoning effort explicitly, on new delegations and on follow-ups, so a repository cannot widen
-  the sandbox or switch the model of a delegation this server started. Before 0.2.0 a follow-up could
+  reasoning effort explicitly, on new delegations and on follow-ups, so a repository cannot change
+  the sandbox mode or switch the model of a delegation this server started. It can still set the two
+  `sandbox_workspace_write` keys below, which this server does not override. Before 0.2.0 a follow-up could
   leave the model out, and the project's config then chose it.
 - Hooks from a project still need Codex's own hook trust; this server never bypasses it.
 
@@ -179,7 +180,7 @@ Stated plainly, because a security policy that implies more coverage than it has
   or container that has no access to the secrets in the first place.
 
 - **Delegation output is not sanitised.** What Codex returns is passed back to the orchestrator as
-  text. Each result opens with a line saying it is information, not instructions, which helps a model
+  text. Each delegation result opens with a line saying it is information, not instructions, which helps a model
   keep the distinction but does not enforce it. Treat it as data.
 - **Other MCP servers are outside this server's reach.** A malicious server's tool description can
   try to steer how the orchestrator uses this one. This server cannot detect that; install MCP

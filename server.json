@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://github.com/parisbs/codex-subagent-mcp#readme",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "codex-subagent-mcp",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "transport": {
         "type": "stdio"
       },
@@ -41,42 +41,42 @@
         },
         {
           "name": "CODEX_SUBAGENT_DEFAULT_MODEL",
-          "description": "Model used when a call names none; without it the server asks which model to use.",
+          "description": "Model used when a call names none. Unset: the only entry of a single-entry CODEX_SUBAGENT_ALLOWED_MODELS, otherwise a call without a model is refused with a suggestion.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
           "name": "CODEX_SUBAGENT_DEFAULT_EFFORT",
-          "description": "Reasoning effort used when a call specifies none.",
+          "description": "Reasoning effort used when a call specifies none: none, minimal, low, medium, high, xhigh, max or ultra. Unset: the model's own default. Cannot exceed CODEX_SUBAGENT_MAX_EFFORT.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
           "name": "CODEX_SUBAGENT_ALLOWED_MODELS",
-          "description": "Comma-separated allow-list of model slugs; anything else is refused.",
+          "description": "Comma-separated allow-list of model slugs; anything else is refused. Unset: unrestricted. A single entry acts as the default model; an empty entry is a configuration error.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
           "name": "CODEX_SUBAGENT_DEFAULT_SANDBOX",
-          "description": "Sandbox used when a call specifies none. Defaults to read-only and cannot exceed the ceiling.",
+          "description": "Sandbox used when a call specifies none: read-only, workspace-write or danger-full-access. Defaults to read-only and cannot exceed the ceiling.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
           "name": "CODEX_SUBAGENT_MAX_SANDBOX",
-          "description": "Ceiling on what a delegation may do. Defaults to workspace-write; danger-full-access must be set explicitly.",
+          "description": "Ceiling on what a delegation may do: read-only, workspace-write or danger-full-access. Defaults to workspace-write; danger-full-access must be set explicitly.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
           "name": "CODEX_SUBAGENT_MAX_EFFORT",
-          "description": "Ceiling on reasoning effort.",
+          "description": "Ceiling on reasoning effort: none, minimal, low, medium, high, xhigh, max or ultra. Unset: unrestricted. Higher efforts are lowered to a supported level, or refused if none fits.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
@@ -104,7 +104,7 @@
         },
         {
           "name": "CODEX_BIN",
-          "description": "Path to the Codex executable, if it is not codex on PATH. On Windows it must be codex.exe, not a .cmd shim.",
+          "description": "Codex executable name or path. Unset: codex, searched on PATH. On Windows it must run directly, such as codex.exe; a .cmd or .bat shim is refused.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

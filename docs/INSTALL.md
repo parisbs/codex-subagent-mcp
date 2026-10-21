@@ -46,8 +46,8 @@ The npm package is not the program: `bin/codex.js` is a Node wrapper that spawns
 binary. That has two consequences.
 
 **Every invocation pays a Node startup.** Measured on macOS: about 80 ms through the wrapper against
-about 20 ms calling the binary directly. This server spawns the CLI once per tool call, so the cost
-recurs — though it is still noise next to a delegation that runs for seconds.
+about 20 ms calling the binary directly. A tool call can spawn the CLI several times, for probes, listings
+and the run itself, with caches sparing some of them, so the cost recurs — though it is still noise next to a delegation that runs for seconds.
 
 **A global npm install lives inside the active Node version.** Under a version manager such as nvm
 it lands in `~/.nvm/versions/node/<version>/lib/node_modules`, so switching Node versions takes
