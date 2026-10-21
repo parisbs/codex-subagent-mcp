@@ -33,7 +33,7 @@ and [0029](0029-keep-the-status-in-front-matter.md).
 | [0015](0015-agents-md-and-immutable-records.md) | Keep agent instructions in AGENTS.md and records immutable | Accepted; the AGENTS.md decision superseded by [0018](0018-keep-agent-instructions-in-claude-md-alone.md), the status kept in the index alone by [0019](0019-name-the-successor-in-the-status-line.md), immutability from the merge by [0029](0029-keep-the-status-in-front-matter.md) |
 | [0016](0016-turn-off-inherited-tools.md) | Turn off the MCP servers, plugins and apps a delegation inherits | Accepted; the per-plugin control for remote plugins superseded by [0031](0031-keep-excluded-remote-plugins-out.md) |
 | [0017](0017-define-1-0-as-the-interface-freeze.md) | Define 1.0 as the freeze of the public interface | Accepted |
-| [0018](0018-keep-agent-instructions-in-claude-md-alone.md) | Keep agent instructions in CLAUDE.md alone | Accepted |
+| [0018](0018-keep-agent-instructions-in-claude-md-alone.md) | Keep agent instructions in CLAUDE.md alone | Accepted; the CLAUDE.md-alone decision amended by [0032](0032-scope-instructions-with-path-rules-and-hooks.md) |
 | [0019](0019-name-the-successor-in-the-status-line.md) | Name the successor in a superseded record's status line | Accepted; the successor named in a `Status:` line rather than in the front matter status superseded by [0029](0029-keep-the-status-in-front-matter.md) |
 | [0020](0020-let-the-session-file-decide-where-a-follow-up-resumes.md) | Let the session file decide where a follow-up resumes | Accepted |
 | [0021](0021-report-the-base-of-a-worktree-run.md) | Report the base of a worktree run | Accepted; the read of the caller's working tree with git, and the prompt names and result notes built from it, superseded by [0026](0026-report-a-worktree-run-from-the-session-file-alone.md) |
@@ -47,4 +47,4 @@ and [0029](0029-keep-the-status-in-front-matter.md).
 | [0029](0029-keep-the-status-in-front-matter.md) | Keep the status in front matter and freeze records on acceptance | Accepted |
 | [0030](0030-recognise-a-capacity-failure-from-the-session-file.md) | Recognise a capacity failure from the session file | Accepted |
 | [0031](0031-keep-excluded-remote-plugins-out.md) | Keep excluded remote plugins out, or turn every plugin off | Accepted |
-| [0032](0032-scope-instructions-with-path-rules-and-hooks.md) | Scope instructions with path rules and hooks | Proposed |
+| [0032](0032-scope-instructions-with-path-rules-and-hooks.md) | Scope instructions with path rules and hooks | Accepted |

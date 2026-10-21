@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-20
 ---
 # 32. Scope instructions with path rules and hooks
@@ -71,5 +71,5 @@ human-facing form of the hard rules.
 The project hooks run for every contributor who uses Claude Code here. They are written for Node
 only, with no shell syntax beyond `$CLAUDE_PROJECT_DIR`, and fail open.
 
-When this record is accepted, ADR 18's front matter status gains `amended by 0032` and its index row
-says the same. ADR 18 itself is not edited.
+ADR 18's front matter status and its index row name this record as amending its decision; ADR 18's
+body is not edited.
