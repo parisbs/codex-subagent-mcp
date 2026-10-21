@@ -47,3 +47,4 @@ and [0029](0029-keep-the-status-in-front-matter.md).
 | [0029](0029-keep-the-status-in-front-matter.md) | Keep the status in front matter and freeze records on acceptance | Accepted |
 | [0030](0030-recognise-a-capacity-failure-from-the-session-file.md) | Recognise a capacity failure from the session file | Accepted |
 | [0031](0031-keep-excluded-remote-plugins-out.md) | Keep excluded remote plugins out, or turn every plugin off | Accepted |
+| [0032](0032-scope-instructions-with-path-rules-and-hooks.md) | Scope instructions with path rules and hooks | Proposed |
