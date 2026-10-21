@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Accepted; the CLAUDE.md-alone decision amended by [ADR 32](0032-scope-instructions-with-path-rules-and-hooks.md)
 ---
 # 18. Keep agent instructions in CLAUDE.md alone
 
