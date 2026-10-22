@@ -395,16 +395,32 @@ plugin off and says why rather than trust an override it cannot confirm.
 ## 0.7.0 — Closing the interface
 
 The last release allowed to break before 1.0. Every open item that could still change the public
-interface is implemented or closed here: which parts of a result an orchestrator may parse, how a
-result says a turn is waiting for an answer, path validation for extra directories, refusing a
-directory nobody chose, and whether background jobs survive a restart. The last two are questions;
-closing one as `wontfix` resolves it as well as building it does.
+interface is implemented or closed here.
 
-[#138](https://github.com/parisbs/codex-subagent-mcp/issues/138),
-[#125](https://github.com/parisbs/codex-subagent-mcp/issues/125),
-[#31](https://github.com/parisbs/codex-subagent-mcp/issues/31),
-[#63](https://github.com/parisbs/codex-subagent-mcp/issues/63),
-[#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)
+Which parts of a result an orchestrator may parse comes first
+([#138](https://github.com/parisbs/codex-subagent-mcp/issues/138)), because the other changes alter
+those parts: the command log leaves the result for a file
+([#166](https://github.com/parisbs/codex-subagent-mcp/issues/166)), a result says when a turn is
+waiting for an answer ([#125](https://github.com/parisbs/codex-subagent-mcp/issues/125)), and one
+call waits for background jobs instead of polling them
+([#165](https://github.com/parisbs/codex-subagent-mcp/issues/165)).
+
+Two defaults change what an omitted input means, which only this release may do. Web search is off
+unless a call asks for it, as the inherited MCP servers, plugins and apps already are
+([#195](https://github.com/parisbs/codex-subagent-mcp/issues/195)). A delegation without a
+directory may run in one the client names instead of the server's own, which in a worktree session
+of the desktop app is the main checkout
+([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)).
+
+Whether finished background jobs survive a restart is still a question
+([#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)); closing it as `wontfix` resolves
+it as well as building it does. Measuring these items also found two defects, fixed here:
+recommendations of models the catalog calls older
+([#196](https://github.com/parisbs/codex-subagent-mcp/issues/196)), and follow-ups that lose the
+extra writable directories of their delegation
+([#197](https://github.com/parisbs/codex-subagent-mcp/issues/197)). Easier extra directories
+([#31](https://github.com/parisbs/codex-subagent-mcp/issues/31)) stays here until it is clear
+whether what remains only adds surface.
 
 ## 1.0.0 — The interface freeze
 
