@@ -392,18 +392,26 @@ plugin off and says why rather than trust an override it cannot confirm.
 [#187](https://github.com/parisbs/codex-subagent-mcp/issues/187),
 [#189](https://github.com/parisbs/codex-subagent-mcp/issues/189)
 
+## 0.6.1 — Fixes found while measuring 0.7.0
+
+Measuring the 0.7.0 items found two defects that change no input or result shape, so they ship
+first instead of waiting for the interface work: recommendations of models the catalog calls older
+([#196](https://github.com/parisbs/codex-subagent-mcp/issues/196)), and follow-ups that lose the
+extra writable directories of their delegation
+([#197](https://github.com/parisbs/codex-subagent-mcp/issues/197)).
+
 ## 0.7.0 — Closing the interface
 
-The last release allowed to break before 1.0. Every open item that could still change the public
-interface is implemented or closed here.
+The last release allowed to break before 1.0. It carries only the changes that can still break the
+public interface; work that only adds surface does not wait for it.
 
 Which parts of a result an orchestrator may parse comes first
 ([#138](https://github.com/parisbs/codex-subagent-mcp/issues/138)), because the other changes alter
-those parts: the command log leaves the result for a file
-([#166](https://github.com/parisbs/codex-subagent-mcp/issues/166)), a result says when a turn is
-waiting for an answer ([#125](https://github.com/parisbs/codex-subagent-mcp/issues/125)), and one
-call waits for background jobs instead of polling them
-([#165](https://github.com/parisbs/codex-subagent-mcp/issues/165)).
+those parts. It also settles two things later tools depend on: failure categories an orchestrator
+can tell apart without reading prose, and that a finished job's result can be read more than once
+until it expires. Then the command log leaves the result for a file
+([#166](https://github.com/parisbs/codex-subagent-mcp/issues/166)), and a result says when a turn is
+waiting for an answer ([#125](https://github.com/parisbs/codex-subagent-mcp/issues/125)).
 
 Two defaults change what an omitted input means, which only this release may do. Web search is off
 unless a call asks for it, as the inherited MCP servers, plugins and apps already are
@@ -411,16 +419,6 @@ unless a call asks for it, as the inherited MCP servers, plugins and apps alread
 directory may run in one the client names instead of the server's own, which in a worktree session
 of the desktop app is the main checkout
 ([#63](https://github.com/parisbs/codex-subagent-mcp/issues/63)).
-
-Whether finished background jobs survive a restart is still a question
-([#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)); closing it as `wontfix` resolves
-it as well as building it does. Measuring these items also found two defects, fixed here:
-recommendations of models the catalog calls older
-([#196](https://github.com/parisbs/codex-subagent-mcp/issues/196)), and follow-ups that lose the
-extra writable directories of their delegation
-([#197](https://github.com/parisbs/codex-subagent-mcp/issues/197)). Easier extra directories
-([#31](https://github.com/parisbs/codex-subagent-mcp/issues/31)) stays here until it is clear
-whether what remains only adds surface.
 
 ## 1.0.0 — The interface freeze
 
@@ -433,9 +431,15 @@ real delegation verified off macOS ([#32](https://github.com/parisbs/codex-subag
 
 Changes that only add surface do not wait for 1.0 and do not block it. Codex profiles
 ([#30](https://github.com/parisbs/codex-subagent-mcp/issues/30)), task intents
-([#136](https://github.com/parisbs/codex-subagent-mcp/issues/136)) and a review tool
-([#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)) are scheduled when data justifies
-them, before or after 1.0.
+([#136](https://github.com/parisbs/codex-subagent-mcp/issues/136)), a review tool
+([#27](https://github.com/parisbs/codex-subagent-mcp/issues/27)), one call that waits for
+background jobs instead of polling them
+([#165](https://github.com/parisbs/codex-subagent-mcp/issues/165)), finished jobs that survive a
+restart ([#33](https://github.com/parisbs/codex-subagent-mcp/issues/33)) and easier extra
+directories ([#31](https://github.com/parisbs/codex-subagent-mcp/issues/31)) are scheduled when data
+justifies them, before or after 1.0. In the meantime, a Claude Code client that moves long tool
+calls to the background (the interactive CLI by default, the desktop app with
+`CLAUDE_AUTO_BACKGROUND_TASKS=1`) already runs blocking delegations in parallel without polling.
 
 ## Under consideration: keeping delegation under the user's control
 
