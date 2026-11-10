@@ -1181,6 +1181,23 @@ test("recommends from the catalog of the directory codex_recommend was given", a
   });
 });
 
+test("AC-5 (#196) codex_recommend says the catalog is the stale fallback", async () => {
+  await withServer({}, async (call) => {
+    // An unusable `debug models` output sends the catalog to the static fallback.
+    catalogByCwd.set(tmpdir(), { models: [] });
+
+    const result = (await call("codex_recommend", {
+      task_description: "Implement a new endpoint that returns the user profile",
+      working_dir: tmpdir(),
+    })) as ToolResult;
+    const text = result.content[0]?.text ?? "";
+
+    assert.notEqual(result.isError, true, text);
+    assert.match(text, /^model: \S+/m);
+    assert.match(text, /WARNING: .*static list that may be out of date/);
+  });
+});
+
 test("refuses a working_dir that is not an absolute existing directory", async () => {
   await withServer({}, async (call) => {
     for (const [tool, args] of [
