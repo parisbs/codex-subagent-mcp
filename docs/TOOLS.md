@@ -223,6 +223,13 @@ The recommendation routes mechanical edits to a fast model at `low`, everyday wo
 one at `medium`, multi-file migrations to an agentic workhorse at `high`, and hard reasoning
 problems to the most capable model at `xhigh` or `ultra`. It is advice you can ignore.
 
+Each tier names a model family read from the slug (`gpt-<version>-<family>`: Luna, Terra, Sol,
+Astra), never a fixed slug, and picks the family member the catalog ranks first by its `priority`.
+Without a visible model of the preferred family it uses one fallback family (Luna falls back to
+Terra, Terra to Sol, Sol to Astra, Astra to Sol) and says so; with neither, it returns the catalog's
+best-ranked eligible model with a note. The call's `priority` and the effort ceiling adjust the effort, and the
+rationale names the effort actually returned.
+
 ---
 
 ## `codex_delegate`
