@@ -363,3 +363,74 @@ for (const kind of ["exec", "resume"] as const) {
     assert.deepEqual(args.filter((arg) => arg.startsWith("plugins.")), []);
   });
 }
+
+/** The value of the one `sandbox_workspace_write.writable_roots` override in an argv, or null. */
+function writableRootsOverride(args: string[]): string | null {
+  const key = "sandbox_workspace_write.writable_roots=";
+  const values = args.filter((arg) => arg.startsWith(key));
+  assert.ok(values.length <= 1, `at most one writable roots override: ${JSON.stringify(args)}`);
+  if (values.length === 0) return null;
+  const at = args.indexOf(values[0]!);
+  assert.equal(args[at - 1], "--config", "the override is the value of a --config flag");
+  return values[0]!.slice(key.length);
+}
+
+/**
+ * A TOML array of basic strings, in the strict grammar: no raw control character or DEL inside a
+ * string, only the escapes TOML defines. Codex parses the override as TOML and, when that fails,
+ * reads it as a plain string and refuses to start (verified on 0.154.0, 0.163.0 and 0.167.0).
+ */
+const TOML_BASIC_STRING = String.raw`"(?:[^"\\\u0000-\u001f\u007f]|\\(?:["\\bfnrt]|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}))*"`;
+const TOML_STRING_ARRAY = new RegExp(String.raw`^\[\s*${TOML_BASIC_STRING}(?:\s*,\s*${TOML_BASIC_STRING})*\s*\]$`, "u");
+
+test("AC-1 (#197) a workspace-write resume carries its writable roots in one config override", () => {
+  const args = buildCodexArgs({
+    kind: "resume",
+    threadId: "01a08e0f-ad3e-7472-9c83-a7b60c473bbe",
+    sandbox: "workspace-write",
+    writableRoots: ["/home/user/.gradle", "/home/user/.cache/uv"],
+  });
+  assert.equal(writableRootsOverride(args), '["/home/user/.gradle","/home/user/.cache/uv"]');
+  assert.ok(!args.includes("--add-dir"), "exec resume rejects --add-dir");
+});
+
+test("AC-3 (#197) writes each writable root so TOML reads back exactly that path", () => {
+  const roots = [
+    '/w/q"uote',
+    "/w/back\\slash",
+    "/w/sp ace 'single' ñandú",
+    "/w/tab\there",
+    "/w/new\nline",
+    "/w/del\u007fete",
+    "/w/emoji\u{1F600}",
+  ];
+  const value = writableRootsOverride(
+    buildCodexArgs({ kind: "resume", threadId: "t-1", sandbox: "workspace-write", writableRoots: roots }),
+  );
+  assert.ok(value !== null);
+  assert.match(value, TOML_STRING_ARRAY);
+  // Within that grammar a TOML basic string and a JSON string mean the same characters.
+  assert.deepEqual(JSON.parse(value), roots);
+});
+
+test("AC-4 (#197) a read-only resume passes no writable roots", () => {
+  const args = buildCodexArgs({
+    kind: "resume",
+    threadId: "t-1",
+    sandbox: "read-only",
+    writableRoots: ["/home/user/.gradle"],
+  });
+  assert.equal(writableRootsOverride(args), null);
+});
+
+test("AC-5 (#197) a resume with no writable roots leaves the configured ones alone", () => {
+  for (const writableRoots of [undefined, []]) {
+    const args = buildCodexArgs({
+      kind: "resume",
+      threadId: "t-1",
+      sandbox: "workspace-write",
+      ...(writableRoots ? { writableRoots } : {}),
+    });
+    assert.equal(writableRootsOverride(args), null, JSON.stringify(writableRoots));
+  }
+});

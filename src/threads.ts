@@ -10,6 +10,10 @@ export interface ThreadSettings {
   /** The worktree directory was unconfirmed; workingDir is only the requested directory. */
   worktreeDirUnconfirmed?: boolean;
   skipGitRepoCheck: boolean;
+  /** The delegation's `add_dirs`, kept for its follow-ups (#197). */
+  addDirs?: string[];
+  /** The writable roots the thread's most recent `workspace-write` turn recorded (#197). */
+  writableRoots?: string[];
 }
 
 /** Threads remembered at most; the least recently used is forgotten first. */

@@ -12,6 +12,12 @@ export interface CodexInvocation {
   autoApprove?: boolean;
   workingDir?: string;
   addDirs?: string[];
+  /**
+   * Writable roots a resumed thread keeps (#197). `exec resume` rejects `--add-dir`, so these go
+   * through `-c sandbox_workspace_write.writable_roots=[...]`, which replaces the roots from Codex
+   * configuration for that turn. Ignored by `exec` and by a read-only resume.
+   */
+  writableRoots?: string[];
   useWorktree?: boolean;
   webSearch?: boolean;
   skipGitRepoCheck?: boolean;

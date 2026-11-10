@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -658,5 +658,178 @@ test("AC-3 (#158) finds no record when the latest turn has none, whatever an ear
     assert.strictEqual(lookup.completion, null);
   } finally {
     home.dispose();
+  }
+});
+
+/**
+ * Real session files from the issue #197 experiments: one thread run against a local mock of the
+ * Responses API with codex-cli 0.154.0, 0.163.0 and 0.167.0, paths and timezone replaced and the
+ * instruction text omitted. Its turns: workspace-write with --add-dir extra; a resume without the
+ * override (no writable_roots key); a resume with the override; a read-only resume; a resume with an
+ * empty override (no key); a resume with three escaped roots (0.167.0 recorded that turn twice).
+ */
+function realWritableRootsSession(version: string): string[] {
+  const file = new URL(`./fixtures/rollout-writable-roots-${version}.jsonl`, import.meta.url);
+  return readFileSync(file, "utf8").split("\n").filter((line) => line.length > 0);
+}
+
+const EXTRA = "/workspace/extra";
+const ESCAPED = ['/workspace/q"uote', "/workspace/back\\slash", "/workspace/sp ace \u00f1 'single'"];
+
+function writeTurn(sandboxPolicy: Record<string, unknown>): string {
+  return turnContext({ sandbox_policy: sandboxPolicy });
+}
+
+test("AC-2 (#197) reads the writable roots a turn context line lists", () => {
+  assert.deepEqual(
+    parseTurnContextLine(writeTurn({ type: "workspace-write", writable_roots: ["/a", "/b"] }))?.writableRoots,
+    ["/a", "/b"],
+  );
+  assert.equal(parseTurnContextLine(writeTurn({ type: "workspace-write" }))?.writableRoots, undefined);
+  assert.equal(parseTurnContextLine(writeTurn({ type: "read-only" }))?.writableRoots, undefined);
+  for (const malformed of ["/a", [1], ["/a", 2], { 0: "/a" }]) {
+    const context = parseTurnContextLine(writeTurn({ type: "workspace-write", writable_roots: malformed }));
+    assert.equal(context?.sandbox, "workspace-write", JSON.stringify(malformed));
+    assert.equal(context?.writableRoots, undefined, JSON.stringify(malformed));
+  }
+});
+
+for (const version of ["0.154.0", "0.163.0", "0.167.0"]) {
+  test(`AC-2 (#197) reads the writable roots codex-cli ${version} recorded turn by turn`, () => {
+    const turns = realWritableRootsSession(version)
+      .filter((line) => line.includes('"type":"turn_context"'))
+      .map((line) => parseTurnContextLine(line));
+    assert.deepEqual(
+      turns.slice(0, 6).map((turn) => [turn?.sandbox, turn?.writableRoots]),
+      [
+        ["workspace-write", [EXTRA]],
+        ["workspace-write", undefined],
+        ["workspace-write", [EXTRA]],
+        ["read-only", undefined],
+        ["workspace-write", undefined],
+        ["workspace-write", ESCAPED],
+      ],
+    );
+  });
+
+  test(`AC-2 (#197) takes the most recent workspace-write roots from a codex-cli ${version} session`, async () => {
+    const home = createCodexHome();
+    try {
+      const lines = realWritableRootsSession(version);
+      home.write({ threadId: "whole", day: "2026-11-10", lines });
+      const whole = await lookupIn(home, "whole");
+      assert.deepEqual(whole.writableRoots, ESCAPED);
+
+      // Up to the resume after the read-only turn: the last turn lists no roots, yet the
+      // workspace-write turn before the read-only one still does.
+      const turnLines = lines.map((line, at) => (line.includes('"type":"turn_context"') ? at : -1)).filter((at) => at >= 0);
+      home.write({ threadId: "partial", day: "2026-11-10", lines: lines.slice(0, turnLines[4]! + 1) });
+      const partial = await lookupIn(home, "partial");
+      assert.equal(partial.context?.sandbox, "workspace-write");
+      assert.equal(partial.context?.writableRoots, undefined);
+      assert.deepEqual(partial.writableRoots, [EXTRA]);
+    } finally {
+      home.dispose();
+    }
+  });
+}
+
+test("AC-2 (#197) skips read-only turns and turns without roots when looking for writable roots", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "mixed",
+      day: "2026-11-10",
+      lines: [
+        SESSION_META,
+        writeTurn({ type: "workspace-write", writable_roots: ["/a"] }),
+        writeTurn({ type: "workspace-write", writable_roots: ["/b", "/c"] }),
+        writeTurn({ type: "read-only" }),
+        writeTurn({ type: "workspace-write", writable_roots: [] }),
+        writeTurn({ type: "workspace-write" }),
+        writeTurn({ type: "danger-full-access", writable_roots: ["/d"] }),
+      ],
+    });
+    assert.deepEqual((await lookupIn(home, "mixed")).writableRoots, ["/b", "/c"]);
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#197) reports no writable roots for a file that lists none, and leaves them absent when there is no file", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({
+      threadId: "none",
+      day: "2026-11-10",
+      lines: [SESSION_META, writeTurn({ type: "read-only" }), writeTurn({ type: "workspace-write" })],
+    });
+    const read = await lookupIn(home, "none");
+    assert.equal(read.writableRoots, null);
+
+    const missing = await lookupIn(home, "no-such-thread");
+    assert.equal(missing.context, null);
+    assert.equal("writableRoots" in missing, false);
+  } finally {
+    home.dispose();
+  }
+});
+
+const WRITE_REQUESTED: RequestedSettings = { ...REQUESTED, sandbox: "workspace-write" };
+
+function recorded(writableRoots?: string[]) {
+  return {
+    context: {
+      cwd: "/workspace/project",
+      model: "gpt-5.6-luna",
+      effort: "low",
+      sandbox: "workspace-write",
+      approvalPolicy: "never",
+      ...(writableRoots ? { writableRoots } : {}),
+    },
+    reason: null,
+  };
+}
+
+test("AC-8 (#197) confirms writable roots Codex recorded as they were passed", async () => {
+  const applied = await compareApplied({ ...WRITE_REQUESTED, writableRoots: ["/a", "/b"] }, recorded(["/a", "/b"]));
+  assert.deepEqual(applied.writableRoots, { requested: "/a, /b", applied: "/a, /b", state: "confirmed" });
+});
+
+test("AC-8 (#197) reports a passed writable root Codex did not record as a difference", async () => {
+  const missing = await compareApplied({ ...WRITE_REQUESTED, writableRoots: ["/a", "/b"] }, recorded(["/a"]));
+  assert.deepEqual(missing.writableRoots, { requested: "/a, /b", applied: "/a", state: "differs" });
+
+  const none = await compareApplied({ ...WRITE_REQUESTED, writableRoots: ["/a"] }, recorded());
+  assert.deepEqual(none.writableRoots, { requested: "/a", applied: null, state: "differs" });
+});
+
+test("AC-8 (#197) compares writable roots the way Codex records them", async () => {
+  // Codex normalizes a trailing slash and ".." lexically, and drops a root equal to the working
+  // directory (verified on 0.154.0, 0.163.0 and 0.167.0).
+  const normalized = await compareApplied(
+    { ...WRITE_REQUESTED, writableRoots: ["/a/", "/x/../b", "/workspace/project"] },
+    recorded(["/a", "/b"]),
+  );
+  assert.equal(normalized.writableRoots?.state, "confirmed");
+
+  // Roots from Codex configuration are recorded after the passed ones; extras are not a difference.
+  const extra = await compareApplied({ ...WRITE_REQUESTED, writableRoots: ["/a"] }, recorded(["/a", "/cfg"]));
+  assert.equal(extra.writableRoots?.state, "confirmed");
+  assert.equal(extra.writableRoots?.applied, "/a, /cfg");
+});
+
+test("AC-8 (#197) leaves passed writable roots unconfirmed when nothing could be read", async () => {
+  const applied = await compareApplied(
+    { ...WRITE_REQUESTED, writableRoots: ["/a"] },
+    { context: null, reason: "no session file was found" },
+  );
+  assert.deepEqual(applied.writableRoots, { requested: "/a", applied: null, state: "unconfirmed" });
+});
+
+test("AC-8 (#197) compares no writable roots when none were passed", async () => {
+  for (const requested of [WRITE_REQUESTED, { ...WRITE_REQUESTED, writableRoots: [] }]) {
+    const applied = await compareApplied(requested, recorded(["/cfg"]));
+    assert.equal(applied.writableRoots, undefined, JSON.stringify(requested));
   }
 });

@@ -45,6 +45,11 @@ export interface TurnContext {
   effort: string | null;
   sandbox: string | null;
   approvalPolicy: string | null;
+  /**
+   * `sandbox_policy.writable_roots` as recorded (#197). Absent when the line lists none: Codex
+   * records no key for a turn without extra roots, and a read-only turn records only its type.
+   */
+  writableRoots?: string[];
 }
 
 export interface TurnContextLookup {
@@ -62,6 +67,12 @@ export interface TurnContextLookup {
    * was not read.
    */
   completion?: TurnCompletion | null;
+  /**
+   * The writable roots of the most recent `workspace-write` turn that lists a non-empty
+   * `writable_roots` (#197), read independently of `context`: a later read-only turn does not hide
+   * them. Null when the file was read and no such turn exists; absent when the file was not read.
+   */
+  writableRoots?: string[] | null;
 }
 
 /** The fields of a `task_complete` line this server reads (ADR 30). Everything else is ignored. */
@@ -86,6 +97,8 @@ export interface RequestedSettings {
   reasoningEffort: string | null;
   sandbox: SandboxMode;
   workingDir: string;
+  /** Writable roots a follow-up passed (#197); compared only when present and non-empty. */
+  writableRoots?: string[];
 }
 
 export function codexHomeDir(env: NodeJS.ProcessEnv = process.env): string {
