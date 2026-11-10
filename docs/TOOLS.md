@@ -14,8 +14,11 @@ Set through environment variables on the MCP server, which is the mechanism MCP 
 have:
 
 ```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -e CODEX_SUBAGENT_MAX_SANDBOX=read-only -- npx -y codex-subagent-mcp
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=<model-slug> -e CODEX_SUBAGENT_MAX_SANDBOX=read-only -- npx -y codex-subagent-mcp
 ```
+
+Replace `<model-slug>` with a slug that `list_codex_models` lists today; the catalog changes without
+a CLI release, so a slug copied from elsewhere may already be retired.
 
 Kept on one line on purpose: a trailing `\` continues a line only in POSIX shells, not in PowerShell
 or cmd.exe, so this form runs unchanged on macOS, Linux and Windows.
