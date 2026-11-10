@@ -74,8 +74,8 @@ Security issues do not go in an issue. `SECURITY.md` says how to report one priv
 State what you actually ran and what it produced. If you did not test something, say so — an
 unverified claim in a pull request costs more to undo than an honest gap.
 
-Delegations cost real Codex quota. Keep manual smoke tests on the cheapest model (`gpt-5.6-luna`) at
-`low` reasoning effort.
+Delegations cost real Codex quota. Keep manual smoke tests on the cheapest model `list_codex_models`
+lists (the current Luna) at `low` reasoning effort.
 
 ## Documentation
 

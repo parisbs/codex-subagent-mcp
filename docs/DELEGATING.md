@@ -65,9 +65,10 @@ short decisive excerpt merely to save prompt tokens.
 
 ## Worked pairs
 
-These examples use the real `codex_delegate` parameter names. Model slugs are examples from the
-catalog used for the 2026-09-17 Codex CLI 0.154.0 measurements; call `list_codex_models` or
-`codex_recommend` against the target `working_dir` before copying them.
+These examples use the real `codex_delegate` parameter names. The model is a placeholder naming
+the family that fits the task (Luna fast, Sol the workhorse, Astra the most capable); replace it
+with that family's current slug from `list_codex_models`, or ask `codex_recommend`, against the
+target `working_dir`. The catalog changes without a CLI release, so a copied slug may be retired.
 
 ### Review a change
 
@@ -76,7 +77,7 @@ Weak: broad scope, duplicated quality exhortations and no definition of a findin
 ```json
 {
   "prompt": "Review the recent changes. Be thorough and do not hallucinate.",
-  "model": "gpt-5.6-sol",
+  "model": "<current Sol slug>",
   "reasoning_effort": "high",
   "system_instructions": "Act as a senior engineer. Be thorough. Do not hallucinate.",
   "working_dir": "/Users/me/project",
@@ -89,7 +90,7 @@ Strong: the same review has a boundary, failure modes and an answer shape.
 ```json
 {
   "prompt": "Review the timeout change for correctness. Trace success, timeout, cancellation and child-process close paths. Report only actionable defects, each with file and line, the failing sequence, and the smallest safe fix. If no defect is supported by the code, say so. Do not edit files.",
-  "model": "gpt-5.6-sol",
+  "model": "<current Sol slug>",
   "reasoning_effort": "high",
   "target_files": [
     "src/codex/runner.ts",
@@ -111,7 +112,7 @@ Weak: Codex must invent both the question and the stopping point.
 ```json
 {
   "prompt": "Understand this repository and find problems.",
-  "model": "gpt-6-astra",
+  "model": "<current Astra slug>",
   "reasoning_effort": "high",
   "working_dir": "/Users/me/project",
   "sandbox": "read-only"
@@ -123,7 +124,7 @@ Strong: the task is still repository-wide, but each search serves one concrete e
 ```json
 {
   "prompt": "Trace how a requested reasoning effort moves from the MCP call to the Codex CLI argv and then into the reported applied settings. Identify every validation or clamping step. Stop after the complete call chain is established; do not review unrelated code or edit files.",
-  "model": "gpt-6-astra",
+  "model": "<current Astra slug>",
   "reasoning_effort": "high",
   "target_files": [
     "src/server.ts",
@@ -151,7 +152,7 @@ make under `workspace-write` because Codex keeps `.git` read-only.
 ```json
 {
   "prompt": "Update all the old option names everywhere, test it, and commit the result.",
-  "model": "gpt-5.6-sol",
+  "model": "<current Sol slug>",
   "reasoning_effort": "high",
   "working_dir": "/Users/me/project",
   "sandbox": "workspace-write"
@@ -164,7 +165,7 @@ verification stops the edit from becoming an unbounded review.
 ```json
 {
   "prompt": "In the listed files, rename the JSON field `timeoutMs` to `timeout_ms` in schemas, fixtures and assertions. Do not change the internal TypeScript property `timeoutMs`. Run the focused server test, then report the files changed and the command result. Do not commit.",
-  "model": "gpt-5.6-luna",
+  "model": "<current Luna slug>",
   "reasoning_effort": "low",
   "target_files": [
     "src/server.ts",

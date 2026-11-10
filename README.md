@@ -287,10 +287,12 @@ the recommendation guidance. This is guidance to a model, not enforcement. For a
 Codex model should handle migrating this repo's tests to vitest?” The suggestion respects your model
 allow-list and effort ceiling; see [the recommendation reference](docs/TOOLS.md#codex_recommend).
 
-To skip that step on later delegations, set a default from `list_codex_models` once:
+To skip that step on later delegations, set a default once. Replace `<model-slug>` with a slug that
+`list_codex_models` lists today; the catalog changes without a CLI release, so a slug copied from
+elsewhere may already be retired:
 
 ```bash
-claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=gpt-5.6-terra -- npx -y codex-subagent-mcp
+claude mcp add codex-subagent -e CODEX_SUBAGENT_DEFAULT_MODEL=<model-slug> -- npx -y codex-subagent-mcp
 ```
 
 ## Tools

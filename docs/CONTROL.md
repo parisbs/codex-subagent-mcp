@@ -141,10 +141,11 @@ new minor (see [VERSIONING.md](VERSIONING.md)).
 ## 4. Your own rules for Claude
 
 When to delegate is policy, and it belongs to you. Write it in plain language in your `CLAUDE.md`,
-where Claude applies it with real understanding. For example:
+where Claude applies it with real understanding. For example, with `<model-slug>` replaced by a slug
+that `list_codex_models` lists today:
 
 ```markdown
-Only delegate to Codex when I ask for it. Always use gpt-5.6-terra at medium effort unless I say
+Only delegate to Codex when I ask for it. Always use <model-slug> at medium effort unless I say
 otherwise, never use background mode, and never include files from outside this repository.
 ```
 
