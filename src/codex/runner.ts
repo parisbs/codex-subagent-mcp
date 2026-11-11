@@ -581,6 +581,9 @@ export function runCodex(options: RunOptions): RunHandle {
         reasoningEffort: base.reasoningEffort,
         sandbox: base.sandbox,
         workingDir: base.workingDir,
+        ...(invocation.kind === "resume" && invocation.sandbox === "workspace-write" && invocation.writableRoots?.length
+          ? { writableRoots: invocation.writableRoots }
+          : {}),
       };
       try {
         const lookup = await readTurnContext({ threadId: base.threadId, codexHome });

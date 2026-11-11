@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { AppliedSetting, AppliedSettings, ReasoningEffort, SandboxMode, WorktreeReport } from "../types.js";
 import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
@@ -148,6 +148,10 @@ export function parseTurnContextLine(line: string): TurnContext | null {
     sandbox: asString(sandboxPolicy?.type),
     approvalPolicy: asString(payload.approval_policy),
   };
+  const roots = sandboxPolicy?.writable_roots;
+  if (Array.isArray(roots) && roots.length > 0 && roots.every((root) => asString(root) !== null)) {
+    context.writableRoots = roots as string[];
+  }
 
   // A line whose shape is right but carries none of these fields says nothing.
   // Returning it would let a malformed tail overwrite a context already read.
@@ -217,10 +221,15 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   let baseCommit: string | null = null;
   let turnId: string | null = null;
   let completion: TurnCompletion | null = null;
+  let writableRoots: string[] | null = null;
   let buffer = "";
   let read = 0;
   const readLine = (line: string): void => {
-    last = parseTurnContextLine(line) ?? last;
+    const context = parseTurnContextLine(line);
+    last = context ?? last;
+    if (context?.sandbox === "workspace-write" && context.writableRoots?.length) {
+      writableRoots = context.writableRoots;
+    }
     baseCommit = baseCommit ?? parseSessionMetaCommit(line);
     if (line.includes("turn_context")) {
       try {
@@ -257,7 +266,7 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   }
 
   readLine(buffer);
-  return { context: last, baseCommit, completion, reason: last ? null : "the session file recorded no turn context" };
+  return { context: last, baseCommit, completion, writableRoots, reason: last ? null : "the session file recorded no turn context" };
 }
 
 async function listDirectory(dir: string): Promise<string[]> {
@@ -447,6 +456,9 @@ function unconfirmedSettings(requested: RequestedSettings, reason: string): Appl
     reasoningEffort: UNCONFIRMED(requested.reasoningEffort),
     sandbox: UNCONFIRMED(requested.sandbox),
     workingDir: UNCONFIRMED(requested.workingDir),
+    ...(requested.writableRoots?.length
+      ? { writableRoots: UNCONFIRMED(requested.writableRoots.join(", ")) }
+      : {}),
     approvalPolicy: null,
   };
 }
@@ -469,6 +481,22 @@ export async function compareApplied(
   const known = (value: string | null): boolean =>
     value !== null && (SANDBOX_MODES as readonly string[]).includes(value);
 
+  let writableRoots: AppliedSetting | undefined;
+  if (requested.writableRoots?.length) {
+    // Codex normalizes roots lexically, preserves symlinks and omits cwd itself.
+    const cwd = resolve(context.cwd ?? requested.workingDir);
+    const roots = new Set((context.writableRoots ?? []).map((root) => resolve(cwd, root)));
+    const matches = requested.writableRoots.every((root) => {
+      const normalized = resolve(requested.workingDir, root);
+      return normalized === cwd || roots.has(normalized);
+    });
+    writableRoots = {
+      requested: requested.writableRoots.join(", "),
+      applied: context.writableRoots?.join(", ") ?? null,
+      state: known(context.sandbox) ? (matches ? "confirmed" : "differs") : "unconfirmed",
+    };
+  }
+
   return {
     source: "rollout",
     reason: null,
@@ -489,5 +517,6 @@ export async function compareApplied(
       ? setting(requested.workingDir, context.cwd, await sameDirectory(requested.workingDir, context.cwd))
       : UNCONFIRMED(requested.workingDir),
     approvalPolicy: context.approvalPolicy,
+    ...(writableRoots ? { writableRoots } : {}),
   };
 }

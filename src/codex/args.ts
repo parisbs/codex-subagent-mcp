@@ -249,6 +249,12 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
   // Resume has no --sandbox flag; the policy is applied as a config override.
   args.push("--config", `sandbox_mode="${invocation.sandbox}"`);
 
+  if (invocation.sandbox === "workspace-write" && invocation.writableRoots?.length) {
+    // TOML basic strings also require DEL to be escaped, unlike JSON strings.
+    const roots = invocation.writableRoots.map((root) => JSON.stringify(root).replace(/\u007f/g, "\\u007f"));
+    args.push("--config", `sandbox_workspace_write.writable_roots=[${roots.join(",")}]`);
+  }
+
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");
   args.push(...disableMcpServerArgs(invocation.disabledMcpServers));
