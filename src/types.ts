@@ -92,6 +92,8 @@ export interface AppliedSetting {
   /** What Codex recorded. Null when it recorded nothing for this field. */
   applied: string | null;
   state: AppliedState;
+  /** Why the state is `unconfirmed`, when the cause is not the recorded value itself. */
+  reason?: string;
 }
 
 /**

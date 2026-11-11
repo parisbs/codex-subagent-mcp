@@ -448,9 +448,11 @@ A workspace-write follow-up keeps the delegation's `add_dirs`, together with the
 its most recent workspace-write turn that lists extra writable roots. After a registry miss, roots
 are recovered from that turn in the session file, even when the caller supplies model and directory.
 If the file cannot be read completely within the read limit, or its recovered roots include a
-non-absolute path, the follow-up runs without a roots override and reports that the extra
-directories could not be restored. Recovered absolute paths need not exist on disk and are kept
-as recorded. A readable file listing no roots needs no override or warning.
+non-absolute path or a path that cannot be written as a TOML string (a control character or a lone
+surrogate), the follow-up runs without a roots override and reports that the extra directories
+could not be restored. A thread registered after such a miss repeats the read before each later
+workspace-write follow-up, so the note is not lost after the first one. Recovered absolute paths
+need not exist on disk and are kept as recorded. A readable file listing no roots needs no override or warning.
 A read-only delegation's extra directories survive only while the server keeps the thread in memory,
 because Codex does not record them for read-only turns. Read-only follow-ups pass no roots override
 and preserve the roots for a later workspace-write follow-up.
@@ -460,6 +462,9 @@ that turn**. Recorded roots are included to preserve configured directories too;
 delegation's `add_dirs` are available, the result notes that replacement. A registered delegation
 with no `add_dirs` leaves live Codex configuration in effect. When roots are passed, the applied
 settings report checks that Codex recorded them and reports missing roots as `applied=differs`.
+When the session file was not read to its end, the roots are reported as unconfirmed with the
+reason, never as confirmed from an earlier turn. A root listed both in `add_dirs` and in the
+recorded roots is passed once, in the spelling of `add_dirs`, after lexical normalization.
 
 After a delegation with `use_worktree`, the server remembers the applied directory when Codex's
 session file confirms that it differs from the requested one. A follow-up without `working_dir`

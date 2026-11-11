@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -249,10 +249,12 @@ function renderApplied(result: DelegationResult, config: ServerConfig): string[]
   const unconfirmed = fields.filter(([, setting]) => setting.state === "unconfirmed");
   if (unconfirmed.length > 0) {
     lines.push(
-      ...unconfirmed.map(
-        ([label, setting]) =>
-          `Codex recorded a ${label} this server does not recognise (${show(setting)}), so it could not be checked ` +
-          `against the requested ${setting.requested ?? "value"}.`,
+      ...unconfirmed.map(([label, setting]) =>
+        setting.reason
+          ? `The ${label} could not be confirmed (${setting.reason}), so they were not checked ` +
+            `against the requested ${setting.requested ?? "value"}.`
+          : `Codex recorded a ${label} this server does not recognise (${show(setting)}), so it could not be checked ` +
+            `against the requested ${setting.requested ?? "value"}.`,
       ),
       "",
     );
@@ -1393,8 +1395,14 @@ export function createServer(
         const label = args.label ?? recorded?.label ?? null;
         let recovered: ThreadSettings | undefined;
         // Roots need recovery even when the caller supplies model and directory.
-        const lookup = !recorded ? await readTurnContext({ threadId: args.thread_id }) : undefined;
-        if (lookup && (!args.model || !args.working_dir)) {
+        // A thread registered after a miss has no addDirs (a delegation always records an array) and
+        // no roots when that recovery failed or found none. Read again before a workspace-write turn
+        // so a failed restore is retried and reported, not silently dropped on the second follow-up.
+        const rootsUnknown =
+          recorded !== undefined && sandbox === "workspace-write" &&
+          recorded.addDirs === undefined && !recorded.writableRoots;
+        const lookup = !recorded || rootsUnknown ? await readTurnContext({ threadId: args.thread_id }) : undefined;
+        if (!recorded && lookup && (!args.model || !args.working_dir)) {
           const candidate = recoverThreadSettings(lookup);
           if (candidate) {
             try {
@@ -1456,8 +1464,17 @@ export function createServer(
 
         const addDirs = recorded?.addDirs;
         const recordedRoots = recorded?.writableRoots ?? lookup?.writableRoots ?? [];
+        // Codex records roots lexically normalized, so "/x/d/" and "/x/d" are one directory. The
+        // delegation's spelling wins because it comes first; a recorded duplicate is dropped.
+        const seen = new Set<string>();
         const writableRoots = sandbox === "workspace-write" && addDirs?.length !== 0
-          ? [...new Set([...(addDirs ?? []), ...recordedRoots])]
+          ? [...(addDirs ?? []), ...recordedRoots].filter((root) => {
+              const resolved = resolve(root);
+              const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
           : [];
         if (sandbox === "workspace-write" && lookup && lookup.writableRoots === undefined) {
           notes.push(`The thread's extra writable directories could not be restored: ${lookup.reason}.`);
