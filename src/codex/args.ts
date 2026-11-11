@@ -12,6 +12,12 @@ export interface CodexInvocation {
   autoApprove?: boolean;
   workingDir?: string;
   addDirs?: string[];
+  /**
+   * Writable roots a resumed thread keeps (#197). `exec resume` rejects `--add-dir`, so these go
+   * through `-c sandbox_workspace_write.writable_roots=[...]`, which replaces the roots from Codex
+   * configuration for that turn. Ignored by `exec` and by a read-only resume.
+   */
+  writableRoots?: string[];
   useWorktree?: boolean;
   webSearch?: boolean;
   skipGitRepoCheck?: boolean;
@@ -242,6 +248,12 @@ function buildResumeArgs(invocation: CodexInvocation): string[] {
 
   // Resume has no --sandbox flag; the policy is applied as a config override.
   args.push("--config", `sandbox_mode="${invocation.sandbox}"`);
+
+  if (invocation.sandbox === "workspace-write" && invocation.writableRoots?.length) {
+    // TOML basic strings also require DEL to be escaped, unlike JSON strings.
+    const roots = invocation.writableRoots.map((root) => JSON.stringify(root).replace(/\u007f/g, "\\u007f"));
+    args.push("--config", `sandbox_workspace_write.writable_roots=[${roots.join(",")}]`);
+  }
 
   if (invocation.useWorktree) args.push(...WORKTREE_ARGS);
   if (invocation.skipGitRepoCheck) args.push("--skip-git-repo-check");

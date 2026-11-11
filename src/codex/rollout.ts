@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import type { AppliedSetting, AppliedSettings, ReasoningEffort, SandboxMode, WorktreeReport } from "../types.js";
 import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
@@ -45,11 +45,19 @@ export interface TurnContext {
   effort: string | null;
   sandbox: string | null;
   approvalPolicy: string | null;
+  /**
+   * `sandbox_policy.writable_roots` as recorded (#197). Absent when the line lists none: Codex
+   * records no key for a turn without extra roots, and a read-only turn records only its type.
+   */
+  writableRoots?: string[];
 }
 
 export interface TurnContextLookup {
   context: TurnContext | null;
-  /** Why nothing could be read. Null when `context` is set. */
+  /**
+   * Why context or writable roots could not be read. Null when both reads succeeded. With a
+   * context and no `writableRoots`, it is the reason the roots are unconfirmed.
+   */
   reason: string | null;
   /**
    * The commit the session started from, `session_meta.git.commit_hash`, read
@@ -62,6 +70,13 @@ export interface TurnContextLookup {
    * was not read.
    */
   completion?: TurnCompletion | null;
+  /**
+   * The writable roots of the most recent `workspace-write` turn that lists a non-empty
+   * `writable_roots` (#197), read independently of `context`: a later read-only turn does not hide
+   * them. Null when the file was read and no such turn exists; absent when the file was unread,
+   * the read was incomplete or the most recent list contains an invalid or non-absolute path.
+   */
+  writableRoots?: string[] | null;
 }
 
 /** The fields of a `task_complete` line this server reads (ADR 30). Everything else is ignored. */
@@ -86,6 +101,8 @@ export interface RequestedSettings {
   reasoningEffort: string | null;
   sandbox: SandboxMode;
   workingDir: string;
+  /** Writable roots a follow-up passed (#197); compared only when present and non-empty. */
+  writableRoots?: string[];
 }
 
 export function codexHomeDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -135,6 +152,10 @@ export function parseTurnContextLine(line: string): TurnContext | null {
     sandbox: asString(sandboxPolicy?.type),
     approvalPolicy: asString(payload.approval_policy),
   };
+  const roots = sandboxPolicy?.writable_roots;
+  if (Array.isArray(roots) && roots.length > 0 && roots.every((root) => asString(root) !== null)) {
+    context.writableRoots = roots as string[];
+  }
 
   // A line whose shape is right but carries none of these fields says nothing.
   // Returning it would let a malformed tail overwrite a context already read.
@@ -198,23 +219,52 @@ export function parseTaskCompleteLine(line: string): TurnCompletion | null {
   return { turnId, errorInfo: asString(asRecord(payload.error)?.codex_error_info), writtenAtMs };
 }
 
+/**
+ * Whether a recorded root can be restored: absolute, and writable as a TOML basic string in the
+ * resume override. Codex records neither control characters nor lone surrogates in a path, and TOML
+ * rejects a lone surrogate escape, so Codex would refuse to start on one. Such a root degrades like
+ * a non-absolute one: no override and a note, not a resume that fails.
+ */
+function isUsableRoot(root: unknown): boolean {
+  return (
+    typeof root === "string" &&
+    isAbsolute(root) &&
+    !/[\u0000-\u001f]/.test(root) &&
+    !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(root)
+  );
+}
+
 /** Reads the base commit, last turn context and its completion independently in one pass. */
 async function readSession(file: string): Promise<TurnContextLookup> {
   let last: TurnContext | null = null;
   let baseCommit: string | null = null;
   let turnId: string | null = null;
   let completion: TurnCompletion | null = null;
+  let writableRoots: string[] | null | undefined = null;
+  let writableRootsReason: string | null = null;
+  let truncated = false;
   let buffer = "";
   let read = 0;
   const readLine = (line: string): void => {
-    last = parseTurnContextLine(line) ?? last;
+    const context = parseTurnContextLine(line);
+    last = context ?? last;
     baseCommit = baseCommit ?? parseSessionMetaCommit(line);
     if (line.includes("turn_context")) {
       try {
         const envelope = asRecord(JSON.parse(line));
         if (envelope?.type === "turn_context") {
-          turnId = asString((asRecord(envelope.payload) ?? envelope).turn_id);
+          const payload = asRecord(envelope.payload) ?? envelope;
+          turnId = asString(payload.turn_id);
           completion = null;
+          const policy = asRecord(payload.sandbox_policy);
+          const roots = policy?.writable_roots;
+          if (policy?.type === "workspace-write" && Array.isArray(roots) && roots.length > 0) {
+            // Do not resolve untrusted roots against a different resume directory or fall back to
+            // an older list. Codex records absolute paths, including paths that do not exist yet.
+            const valid = roots.every(isUsableRoot);
+            writableRoots = valid ? roots as string[] : undefined;
+            writableRootsReason = valid ? null : "the session file recorded writable roots that are not all valid absolute paths";
+          }
         }
       } catch {
         // An incomplete line cannot identify a turn.
@@ -227,6 +277,11 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   const stream = createReadStream(file, { encoding: "utf8" });
   try {
     for await (const chunk of stream) {
+      // Wait for another chunk to distinguish a limited read from EOF exactly at the limit.
+      if (read >= READ_LIMIT_BYTES) {
+        truncated = true;
+        break;
+      }
       read += (chunk as string).length;
       buffer += chunk as string;
       let newline = buffer.indexOf("\n");
@@ -235,16 +290,25 @@ async function readSession(file: string): Promise<TurnContextLookup> {
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf("\n");
       }
-      // A session file grows with everything the run printed. Stop rather than
-      // hold it all in memory; whatever was found so far still stands.
-      if (read >= READ_LIMIT_BYTES) break;
     }
   } finally {
     stream.destroy();
   }
 
   readLine(buffer);
-  return { context: last, baseCommit, completion, reason: last ? null : "the session file recorded no turn context" };
+  // Model, effort, sandbox and working directory keep what was read before the limit (ADR 13): a
+  // cut-off read reports the last turn it saw, which may not be this one. Writable roots are
+  // permissions, so they get no such leniency: an unread tail could replace every root found in the
+  // prefix, and compareApplied reports them as unconfirmed while the reason is set.
+  if (truncated) {
+    writableRoots = undefined;
+    writableRootsReason = "the session file read limit was reached before the end of the file";
+  }
+  return {
+    context: last, baseCommit, completion,
+    ...(writableRoots !== undefined ? { writableRoots } : {}),
+    reason: writableRootsReason ?? (last ? null : "the session file recorded no turn context"),
+  };
 }
 
 async function listDirectory(dir: string): Promise<string[]> {
@@ -325,7 +389,14 @@ export function reportWorktree(lookupResult: TurnContextLookup): WorktreeReport 
   // lookup's own reason says why, so the report must not claim the file lacked a commit.
   const fileRead = lookupResult.baseCommit !== undefined;
   const reasons: string[] = [];
-  if (path === null) reasons.push(lookupResult.reason ?? "the turn context recorded no working directory");
+  // With a turn context the lookup's reason may concern the writable roots, not the directory.
+  if (path === null) {
+    reasons.push(
+      lookupResult.context === null
+        ? (lookupResult.reason ?? "the turn context recorded no working directory")
+        : "the turn context recorded no working directory",
+    );
+  }
   if (baseCommit === null) {
     const why = fileRead
       ? "the session file recorded no readable base commit"
@@ -393,6 +464,11 @@ export function recoverThreadSettings(
   };
 }
 
+/** Key for comparing resolved paths the way `sameDirectory` does for case: win32 ignores it. */
+function pathKey(path: string): string {
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+
 /** Compares two directories the way the filesystem would, symlinks and case included. */
 async function sameDirectory(a: string, b: string): Promise<boolean> {
   const normalise = (value: string): string =>
@@ -434,6 +510,9 @@ function unconfirmedSettings(requested: RequestedSettings, reason: string): Appl
     reasoningEffort: UNCONFIRMED(requested.reasoningEffort),
     sandbox: UNCONFIRMED(requested.sandbox),
     workingDir: UNCONFIRMED(requested.workingDir),
+    ...(requested.writableRoots?.length
+      ? { writableRoots: UNCONFIRMED(requested.writableRoots.join(", ")) }
+      : {}),
     approvalPolicy: null,
   };
 }
@@ -456,6 +535,36 @@ export async function compareApplied(
   const known = (value: string | null): boolean =>
     value !== null && (SANDBOX_MODES as readonly string[]).includes(value);
 
+  let writableRoots: AppliedSetting | undefined;
+  if (requested.writableRoots?.length) {
+    const requestedList = requested.writableRoots.join(", ");
+    // The roots of a thread whose read stopped early or listed unusable paths are not known, and
+    // `context.writableRoots` may belong to an earlier turn: never confirm or contradict from it.
+    if (lookupResult.writableRoots === undefined && reason !== null) {
+      writableRoots = { requested: requestedList, applied: null, state: "unconfirmed", reason };
+    } else if (!known(context.sandbox)) {
+      writableRoots = {
+        requested: requestedList,
+        applied: context.writableRoots?.join(", ") ?? null,
+        state: "unconfirmed",
+        reason: `Codex recorded ${context.sandbox ? `the sandbox "${context.sandbox}"` : "no sandbox"}, which this server does not recognise`,
+      };
+    } else {
+      // Codex normalizes roots lexically, preserves symlinks and omits cwd itself.
+      const cwd = resolve(context.cwd ?? requested.workingDir);
+      const roots = new Set((context.writableRoots ?? []).map((root) => pathKey(resolve(cwd, root))));
+      const matches = requested.writableRoots.every((root) => {
+        const normalized = pathKey(resolve(requested.workingDir, root));
+        return normalized === pathKey(cwd) || roots.has(normalized);
+      });
+      writableRoots = {
+        requested: requestedList,
+        applied: context.writableRoots?.join(", ") ?? null,
+        state: matches ? "confirmed" : "differs",
+      };
+    }
+  }
+
   return {
     source: "rollout",
     reason: null,
@@ -476,5 +585,6 @@ export async function compareApplied(
       ? setting(requested.workingDir, context.cwd, await sameDirectory(requested.workingDir, context.cwd))
       : UNCONFIRMED(requested.workingDir),
     approvalPolicy: context.approvalPolicy,
+    ...(writableRoots ? { writableRoots } : {}),
   };
 }

@@ -15,6 +15,10 @@ Traps already found against the real binary, each covered by tests. Check a new 
 
 - `codex exec resume` rejects `--color`, `--sandbox`, `--approve-for-me`, `--cd`, `--add-dir` and
   `--search`; anything it still needs goes through `-c` overrides.
+- `sandbox_workspace_write.writable_roots=[...]` replaces writable roots from Codex configuration
+  for that turn; it does not merge them as `exec --add-dir` does. Follow-ups include the recorded
+  workspace-write roots when restoring extra directories. Each path is a TOML basic string:
+  `JSON.stringify` also needs DEL (U+007F) escaped as `\u007f`.
 - `--approve-for-me` implies the workspace-write sandbox and cannot be combined with `--sandbox`; it
   replaces the flag.
 - `--worktree` needs `--enable worktrees` on the same invocation: experimental and off by default in
@@ -43,8 +47,9 @@ Traps already found against the real binary, each covered by tests. Check a new 
   line with the turn id and error info (ADR 30). The format is internal and undocumented: on every
   CLI bump add that release's real lines to `test/rollout.test.ts`, and keep every failure path
   reporting "unconfirmed". A read changes only the report, except the directory a follow-up resumes
-  in after a registry miss or a `use_worktree` run; an unconfirmed read there degrades to the old
-  behaviour or to a refusal, never to a guessed directory (ADR 20).
+  in after a registry miss or a `use_worktree` run, and the writable roots it restores (#197).
+  An unconfirmed read degrades to the old behaviour or to a refusal, never to a guessed directory
+  (ADR 20) or extra writable root.
 - Codex starts its MCP servers with almost no environment unless an entry lists `env_vars`, so an
   environment marker cannot tell this server it runs inside a delegation. The recursion guard finds
   this server in `codex mcp list --json`, run in the delegation's working directory, and passes

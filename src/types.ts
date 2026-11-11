@@ -92,6 +92,8 @@ export interface AppliedSetting {
   /** What Codex recorded. Null when it recorded nothing for this field. */
   applied: string | null;
   state: AppliedState;
+  /** Why the state is `unconfirmed`, when the cause is not the recorded value itself. */
+  reason?: string;
 }
 
 /**
@@ -111,6 +113,11 @@ export interface AppliedSettings {
   reasoningEffort: AppliedSetting;
   sandbox: AppliedSetting;
   workingDir: AppliedSetting;
+  /**
+   * Writable roots a follow-up passed against the ones its turn recorded (#197), each list joined
+   * with ", ". Present only when roots were passed; recorded extras are not a difference.
+   */
+  writableRoots?: AppliedSetting;
   /** Recorded for the reader; `exec` always records "never". */
   approvalPolicy: string | null;
 }

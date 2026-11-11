@@ -249,7 +249,7 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Passing an empty string is an error rather than the same as omitting it, since a directory nobody chose is not a safe fallback. Codex also reads a trusted project's `.codex/config.toml` from here. |
 | `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot change the mode; its `sandbox_workspace_write` settings (network access, extra writable roots) still apply under `workspace-write`. |
 | `auto_approve` | boolean | `false` | Codex approves its own commands, and also the tools of any MCP server, plugin or app the user allowed, which run outside the sandbox. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
-| `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`. |
+| `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`, kept for workspace-write follow-ups. A read-only delegation's directories survive only while the server keeps the thread in memory. Restoring them replaces writable roots from Codex configuration for that turn; see `codex_follow_up` below. |
 | `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. A follow-up defaults to the directory confirmed by Codex's session file; if that directory is unconfirmed, the follow-up is refused unless it supplies `working_dir`. |
 | `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
@@ -443,6 +443,28 @@ session file and says when it did. Recovery is all-or-nothing: a missing, unread
 unrecognised record falls back to the existing explicit/configured-model behaviour. Recovered values
 go through the same directory validation, model catalog and allow-list, effort ceiling and clamping
 as caller-supplied values. If no usable record and no model are available, the call is refused.
+
+A workspace-write follow-up keeps the delegation's `add_dirs`, together with the roots recorded by
+its most recent workspace-write turn that lists extra writable roots. After a registry miss, roots
+are recovered from that turn in the session file, even when the caller supplies model and directory.
+If the file cannot be read completely within the read limit, or its recovered roots include a
+non-absolute path or a path that cannot be written as a TOML string (a control character or a lone
+surrogate), the follow-up runs without a roots override and reports that the extra directories
+could not be restored. A thread registered after such a miss repeats the read before each later
+workspace-write follow-up, so the note is not lost after the first one. Recovered absolute paths
+need not exist on disk and are kept as recorded. A readable file listing no roots needs no override or warning.
+A read-only delegation's extra directories survive only while the server keeps the thread in memory,
+because Codex does not record them for read-only turns. Read-only follow-ups pass no roots override
+and preserve the roots for a later workspace-write follow-up.
+
+Restoring roots uses a config override that **replaces writable roots from Codex configuration for
+that turn**. Recorded roots are included to preserve configured directories too; when only the
+delegation's `add_dirs` are available, the result notes that replacement. A registered delegation
+with no `add_dirs` leaves live Codex configuration in effect. When roots are passed, the applied
+settings report checks that Codex recorded them and reports missing roots as `applied=differs`.
+When the session file was not read to its end, the roots are reported as unconfirmed with the
+reason, never as confirmed from an earlier turn. A root listed both in `add_dirs` and in the
+recorded roots is passed once, in the spelling of `add_dirs`, after lexical normalization.
 
 After a delegation with `use_worktree`, the server remembers the applied directory when Codex's
 session file confirms that it differs from the requested one. A follow-up without `working_dir`

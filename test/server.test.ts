@@ -2550,3 +2550,283 @@ test("AC-5 (#158) starts no other process when the capacity note appears", async
     });
   }
 });
+
+// Issue #197: a follow-up keeps the delegation's extra writable directories.
+
+/** The writable roots a follow-up's argv passes, or null when it passes no override. */
+function writableRootsIn(args: string[] | undefined): string[] | null {
+  const key = "sandbox_workspace_write.writable_roots=";
+  const value = (args ?? []).find((arg) => arg.startsWith(key));
+  return value === undefined ? null : (JSON.parse(value.slice(key.length)) as string[]);
+}
+
+/** Directories that exist, so add_dirs validation accepts them. */
+function rootsFixture() {
+  const base = mkdtempSync(join(tmpdir(), "codex-subagent-roots-"));
+  const dir = (name: string) => {
+    const path = join(base, name);
+    mkdirSync(path);
+    return path;
+  };
+  return { wd: dir("wd"), a: dir("a"), b: dir("b"), cfg: dir("cfg"), dispose: () => rmSync(base, { recursive: true, force: true }) };
+}
+
+function writeTurn(cwd: string, roots?: string[]): string {
+  return turnContextLine({
+    cwd,
+    model: "cheap-model",
+    effort: "low",
+    sandbox_policy: roots ? { type: "workspace-write", writable_roots: roots } : { type: "workspace-write" },
+  });
+}
+
+function readOnlyTurn(cwd: string): string {
+  return turnContextLine({ cwd, model: "cheap-model", effort: "low", sandbox_policy: { type: "read-only" } });
+}
+
+const NOT_RESTORED = /extra (?:writable )?director(?:y|ies)[^\n]*could not be restored/i;
+const CONFIG_REPLACED = /writable roots from Codex(?:'s)? configuration[^\n]*replaced|replaces?[^\n]*writable roots from Codex(?:'s)? configuration/i;
+
+function delegateArgs(wd: string, sandbox: string, addDirs: string[]) {
+  return {
+    prompt: "anything",
+    model: "cheap-model",
+    reasoning_effort: "low",
+    working_dir: wd,
+    skip_git_repo_check: true,
+    sandbox,
+    add_dirs: addDirs,
+  };
+}
+
+/** A follow-up on a thread this server process never saw: model and directory come from the caller. */
+function unknownThreadFollowUp(threadId: string, wd: string, sandbox = "workspace-write") {
+  return { thread_id: threadId, prompt: "continue", sandbox, model: "cheap-model", reasoning_effort: "low", working_dir: wd };
+}
+
+test("AC-1 (#197) a follow-up keeps the delegation's add_dirs and the roots its turn recorded", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("roots-thread"), answered], exitCode: 0 };
+      // Codex recorded a root from its own configuration as well.
+      codexHome.write({ threadId: "roots-thread", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.cfg, dirs.a])] });
+      await call("codex_delegate", delegateArgs(dirs.wd, "workspace-write", [dirs.a]));
+
+      const result = (await call("codex_follow_up", { thread_id: "roots-thread", prompt: "continue", sandbox: "workspace-write" })) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.notEqual(result.isError, true, text);
+      assert.deepEqual(writableRootsIn(spawnedArgs[1]), [dirs.a, dirs.cfg]);
+      assert.doesNotMatch(text, CONFIG_REPLACED);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-1 (#197) a follow-up of a delegation without add_dirs leaves the configured roots to Codex", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("config-only"), answered], exitCode: 0 };
+      codexHome.write({ threadId: "config-only", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.cfg])] });
+      await call("codex_delegate", delegateArgs(dirs.wd, "workspace-write", []));
+
+      await call("codex_follow_up", { thread_id: "config-only", prompt: "continue", sandbox: "workspace-write" });
+      assert.equal(writableRootsIn(spawnedArgs[1]), null);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-2 (#197) restores an unknown thread's roots from its most recent workspace-write turn", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("unknown-roots"), answered], exitCode: 0 };
+      codexHome.write({
+        threadId: "unknown-roots",
+        day: "2026-11-10",
+        lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a, dirs.b]), readOnlyTurn(dirs.wd), writeTurn(dirs.wd)],
+      });
+
+      // The caller states model and directory, so nothing else would make the server read the file.
+      const result = (await call("codex_follow_up", unknownThreadFollowUp("unknown-roots", dirs.wd))) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.notEqual(result.isError, true, text);
+      assert.deepEqual(writableRootsIn(spawnedArgs[0]), [dirs.a, dirs.b]);
+      assert.doesNotMatch(text, NOT_RESTORED);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-2 (#197) runs an unknown thread without its session file and says the directories could not be restored", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call) => {
+      nextRun = { events: [threadStarted("no-file"), answered], exitCode: 0 };
+      const result = (await call("codex_follow_up", unknownThreadFollowUp("no-file", dirs.wd))) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.notEqual(result.isError, true, text);
+      assert.equal(spawnedArgs.length, 1, "the follow-up ran");
+      assert.equal(writableRootsIn(spawnedArgs[0]), null);
+      assert.match(text, NOT_RESTORED);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-2 (#197) runs an unknown thread whose session lists no roots without an override or a note", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("no-roots"), answered], exitCode: 0 };
+      codexHome.write({ threadId: "no-roots", day: "2026-11-10", lines: [SESSION_META_LINE, readOnlyTurn(dirs.wd), writeTurn(dirs.wd)] });
+
+      const result = (await call("codex_follow_up", unknownThreadFollowUp("no-roots", dirs.wd))) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.notEqual(result.isError, true, text);
+      assert.equal(writableRootsIn(spawnedArgs[0]), null);
+      assert.doesNotMatch(text, NOT_RESTORED);
+      assert.doesNotMatch(text, CONFIG_REPLACED);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-4 (#197) a read-only follow-up passes no writable roots", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("read-only-follow-up"), answered], exitCode: 0 };
+      codexHome.write({ threadId: "read-only-follow-up", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a])] });
+      await call("codex_delegate", delegateArgs(dirs.wd, "workspace-write", [dirs.a]));
+      await call("codex_follow_up", { thread_id: "read-only-follow-up", prompt: "continue", sandbox: "read-only" });
+      assert.equal(writableRootsIn(spawnedArgs[1]), null);
+
+      codexHome.write({ threadId: "unknown-read-only", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a])] });
+      await call("codex_follow_up", unknownThreadFollowUp("unknown-read-only", dirs.wd, "read-only"));
+      assert.equal(writableRootsIn(spawnedArgs[2]), null);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-6 (#197) a read-only delegation's add_dirs become writable in a workspace-write follow-up, with a note", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("raised"), answered], exitCode: 0 };
+      // A read-only turn records only its type, so the roots exist only in this server's memory.
+      codexHome.write({ threadId: "raised", day: "2026-11-10", lines: [SESSION_META_LINE, readOnlyTurn(dirs.wd)] });
+      await call("codex_delegate", delegateArgs(dirs.wd, "read-only", [dirs.a]));
+
+      const result = (await call("codex_follow_up", { thread_id: "raised", prompt: "continue", sandbox: "workspace-write" })) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.notEqual(result.isError, true, text);
+      assert.deepEqual(writableRootsIn(spawnedArgs[1]), [dirs.a]);
+      assert.match(text, CONFIG_REPLACED);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-6 (#197) notes the replaced configuration whenever the roots come from add_dirs alone", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call) => {
+      // A workspace-write delegation whose session file could not be read afterwards.
+      nextRun = { events: [threadStarted("unread"), answered], exitCode: 0 };
+      await call("codex_delegate", delegateArgs(dirs.wd, "workspace-write", [dirs.a]));
+
+      const result = (await call("codex_follow_up", { thread_id: "unread", prompt: "continue", sandbox: "workspace-write" })) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.deepEqual(writableRootsIn(spawnedArgs[1]), [dirs.a]);
+      assert.match(text, CONFIG_REPLACED);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-7 (#197) later follow-ups keep the restored roots, across a read-only one", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("chain"), answered], exitCode: 0 };
+      const turns = [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a, dirs.cfg])];
+      codexHome.write({ threadId: "chain", day: "2026-11-10", lines: turns });
+      await call("codex_delegate", delegateArgs(dirs.wd, "workspace-write", [dirs.a]));
+
+      await call("codex_follow_up", { thread_id: "chain", prompt: "first", sandbox: "workspace-write" });
+      turns.push(writeTurn(dirs.wd, [dirs.a, dirs.cfg]));
+      codexHome.write({ threadId: "chain", day: "2026-11-10", lines: turns });
+
+      await call("codex_follow_up", { thread_id: "chain", prompt: "second", sandbox: "read-only" });
+      turns.push(readOnlyTurn(dirs.wd));
+      codexHome.write({ threadId: "chain", day: "2026-11-10", lines: turns });
+
+      await call("codex_follow_up", { thread_id: "chain", prompt: "third", sandbox: "workspace-write" });
+
+      assert.deepEqual(writableRootsIn(spawnedArgs[1]), [dirs.a, dirs.cfg]);
+      assert.equal(writableRootsIn(spawnedArgs[2]), null);
+      assert.deepEqual(writableRootsIn(spawnedArgs[3]), [dirs.a, dirs.cfg]);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-8 (#197) reports writable roots the follow-up's turn did not record as a difference", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("dropped"), answered], exitCode: 0 };
+      // The last turn stands for the follow-up itself: Codex recorded no writable roots for it.
+      codexHome.write({ threadId: "dropped", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a]), writeTurn(dirs.wd)] });
+
+      const result = (await call("codex_follow_up", unknownThreadFollowUp("dropped", dirs.wd))) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.deepEqual(writableRootsIn(spawnedArgs[0]), [dirs.a]);
+      assert.match(text, /applied=differs/);
+      assert.ok(text.includes(`writable roots: requested ${dirs.a}, applied`), text);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
+
+test("AC-8 (#197) confirms writable roots the follow-up's turn recorded, extras included", async () => {
+  const dirs = rootsFixture();
+  try {
+    await withServer({}, async (call, codexHome) => {
+      nextRun = { events: [threadStarted("kept"), answered], exitCode: 0 };
+      codexHome.write({ threadId: "kept", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a])] });
+      await call("codex_delegate", delegateArgs(dirs.wd, "workspace-write", [dirs.a]));
+      // The follow-up's turn: Codex recorded the passed root and one from its own configuration.
+      codexHome.write({ threadId: "kept", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(dirs.wd, [dirs.a]), writeTurn(dirs.wd, [dirs.a, dirs.cfg])] });
+
+      const result = (await call("codex_follow_up", { thread_id: "kept", prompt: "continue", sandbox: "workspace-write" })) as ToolResult;
+      const text = result.content[0]?.text ?? "";
+
+      assert.ok((writableRootsIn(spawnedArgs[1]) ?? []).includes(dirs.a), JSON.stringify(spawnedArgs[1]));
+      assert.match(text, /applied=confirmed/);
+    });
+  } finally {
+    dirs.dispose();
+  }
+});
