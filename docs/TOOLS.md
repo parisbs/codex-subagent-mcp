@@ -447,8 +447,10 @@ as caller-supplied values. If no usable record and no model are available, the c
 A workspace-write follow-up keeps the delegation's `add_dirs`, together with the roots recorded by
 its most recent workspace-write turn that lists extra writable roots. After a registry miss, roots
 are recovered from that turn in the session file, even when the caller supplies model and directory.
-If the file cannot be read, the follow-up runs without a roots override and reports that the extra
-directories could not be restored. A readable file listing no roots needs no override or warning.
+If the file cannot be read completely within the read limit, or its recovered roots include a
+non-absolute path, the follow-up runs without a roots override and reports that the extra
+directories could not be restored. Recovered absolute paths need not exist on disk and are kept
+as recorded. A readable file listing no roots needs no override or warning.
 A read-only delegation's extra directories survive only while the server keeps the thread in memory,
 because Codex does not record them for read-only turns. Read-only follow-ups pass no roots override
 and preserve the roots for a later workspace-write follow-up.

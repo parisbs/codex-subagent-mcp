@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import type { AppliedSetting, AppliedSettings, ReasoningEffort, SandboxMode, WorktreeReport } from "../types.js";
 import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
@@ -54,7 +54,7 @@ export interface TurnContext {
 
 export interface TurnContextLookup {
   context: TurnContext | null;
-  /** Why nothing could be read. Null when `context` is set. */
+  /** Why context or writable roots could not be read. Null when both reads succeeded. */
   reason: string | null;
   /**
    * The commit the session started from, `session_meta.git.commit_hash`, read
@@ -70,7 +70,8 @@ export interface TurnContextLookup {
   /**
    * The writable roots of the most recent `workspace-write` turn that lists a non-empty
    * `writable_roots` (#197), read independently of `context`: a later read-only turn does not hide
-   * them. Null when the file was read and no such turn exists; absent when the file was not read.
+   * them. Null when the file was read and no such turn exists; absent when the file was unread,
+   * the read was incomplete or the most recent list contains an invalid or non-absolute path.
    */
   writableRoots?: string[] | null;
 }
@@ -221,22 +222,31 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   let baseCommit: string | null = null;
   let turnId: string | null = null;
   let completion: TurnCompletion | null = null;
-  let writableRoots: string[] | null = null;
+  let writableRoots: string[] | null | undefined = null;
+  let writableRootsReason: string | null = null;
+  let truncated = false;
   let buffer = "";
   let read = 0;
   const readLine = (line: string): void => {
     const context = parseTurnContextLine(line);
     last = context ?? last;
-    if (context?.sandbox === "workspace-write" && context.writableRoots?.length) {
-      writableRoots = context.writableRoots;
-    }
     baseCommit = baseCommit ?? parseSessionMetaCommit(line);
     if (line.includes("turn_context")) {
       try {
         const envelope = asRecord(JSON.parse(line));
         if (envelope?.type === "turn_context") {
-          turnId = asString((asRecord(envelope.payload) ?? envelope).turn_id);
+          const payload = asRecord(envelope.payload) ?? envelope;
+          turnId = asString(payload.turn_id);
           completion = null;
+          const policy = asRecord(payload.sandbox_policy);
+          const roots = policy?.writable_roots;
+          if (policy?.type === "workspace-write" && Array.isArray(roots) && roots.length > 0) {
+            // Do not resolve untrusted roots against a different resume directory or fall back to
+            // an older list. Codex records absolute paths, including paths that do not exist yet.
+            const valid = roots.every((root) => typeof root === "string" && isAbsolute(root));
+            writableRoots = valid ? roots as string[] : undefined;
+            writableRootsReason = valid ? null : "the session file recorded writable roots that are not all absolute paths";
+          }
         }
       } catch {
         // An incomplete line cannot identify a turn.
@@ -249,6 +259,11 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   const stream = createReadStream(file, { encoding: "utf8" });
   try {
     for await (const chunk of stream) {
+      // Wait for another chunk to distinguish a limited read from EOF exactly at the limit.
+      if (read >= READ_LIMIT_BYTES) {
+        truncated = true;
+        break;
+      }
       read += (chunk as string).length;
       buffer += chunk as string;
       let newline = buffer.indexOf("\n");
@@ -257,16 +272,23 @@ async function readSession(file: string): Promise<TurnContextLookup> {
         buffer = buffer.slice(newline + 1);
         newline = buffer.indexOf("\n");
       }
-      // A session file grows with everything the run printed. Stop rather than
-      // hold it all in memory; whatever was found so far still stands.
-      if (read >= READ_LIMIT_BYTES) break;
     }
   } finally {
     stream.destroy();
   }
 
   readLine(buffer);
-  return { context: last, baseCommit, completion, writableRoots, reason: last ? null : "the session file recorded no turn context" };
+  // Other reporting fields keep their partial-read behaviour, but restoring permissions requires
+  // the latest roots: an unread tail could replace every root found in the prefix.
+  if (truncated) {
+    writableRoots = undefined;
+    writableRootsReason = "the session file read limit was reached before the end of the file";
+  }
+  return {
+    context: last, baseCommit, completion,
+    ...(writableRoots !== undefined ? { writableRoots } : {}),
+    reason: writableRootsReason ?? (last ? null : "the session file recorded no turn context"),
+  };
 }
 
 async function listDirectory(dir: string): Promise<string[]> {
