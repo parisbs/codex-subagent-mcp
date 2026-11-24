@@ -32,7 +32,12 @@ import {
   type InheritanceReport,
 } from "./codex/inherited.js";
 import { serialiseOutputSchema } from "./codex/schema.js";
-import { compareApplied, readTurnContext, recoverThreadSettings } from "./codex/rollout.js";
+import {
+  compareApplied,
+  readTurnContext,
+  recoverThreadSettings,
+  SESSION_READ_LIMIT_REASON,
+} from "./codex/rollout.js";
 import { DEFAULT_TIMEOUT_SECONDS, runCodex } from "./codex/runner.js";
 import { THREAD_ID_PATTERN, type CodexInvocation } from "./codex/args.js";
 import { capacityNote, describeFailure, describeSandboxBreach, schemaRejectionHint } from "./outcome.js";
@@ -1394,6 +1399,8 @@ export function createServer(
         const recorded = threads.get(args.thread_id);
         const label = args.label ?? recorded?.label ?? null;
         let recovered: ThreadSettings | undefined;
+        // Why a recorded record was not used for the settings a follow-up resumes with (#206).
+        let recoveryRefusal: string | undefined;
         // Roots need recovery even when the caller supplies model and directory.
         // A thread registered after a miss has no addDirs (a delegation always records an array) and
         // no roots when that recovery failed or found none. Read again before a workspace-write turn
@@ -1403,6 +1410,9 @@ export function createServer(
           recorded.addDirs === undefined && !recorded.writableRoots;
         const lookup = !recorded || rootsUnknown ? await readTurnContext({ threadId: args.thread_id }) : undefined;
         if (!recorded && lookup && (!args.model || !args.working_dir)) {
+          // A read cut off at its limit may have missed the latest turn: recover nothing from it and
+          // say so, rather than resume with the model or in the directory of an earlier turn.
+          if (lookup.readLimitReached) recoveryRefusal = SESSION_READ_LIMIT_REASON;
           const candidate = recoverThreadSettings(lookup);
           if (candidate) {
             try {
@@ -1454,7 +1464,11 @@ export function createServer(
               `This server has no record of thread "${args.thread_id}" (it was started by another ` +
                 "server process, or this one restarted), so it cannot restate the model the thread ran " +
                 "with. Without one, Codex would take the model from the configuration of the directory " +
-                "it resumes in. Pass the model the original delegation used.\n\n" +
+                "it resumes in. Pass the model the original delegation used." +
+                (recoveryRefusal
+                  ? ` Codex's session file was not used to recover it: ${recoveryRefusal}.`
+                  : "") +
+                "\n\n" +
                 error.message,
             );
           }
@@ -1486,6 +1500,12 @@ export function createServer(
         if (recovered) {
           notes.push(
             "Recovered the thread's model, reasoning effort and directory from Codex's session file.",
+          );
+        }
+        if (recoveryRefusal) {
+          notes.push(
+            "The thread's model, reasoning effort and directory were not recovered from Codex's " +
+              `session file: ${recoveryRefusal}.`,
           );
         }
         if (!args.working_dir && workingDir) {

@@ -31,6 +31,9 @@ import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
 /** Stop reading a session file after this much: a long run's file is unbounded. */
 const READ_LIMIT_BYTES = 16 * 1024 * 1024;
 
+/** Why a session file read that stopped at READ_LIMIT_BYTES cannot be trusted as the latest record. */
+export const SESSION_READ_LIMIT_REASON = "the session file read limit was reached before the end of the file";
+
 /** Give up on the lookup after this long rather than hold a finished delegation. */
 const LOOKUP_TIMEOUT_MS = 2000;
 
@@ -77,6 +80,12 @@ export interface TurnContextLookup {
    * the read was incomplete or the most recent list contains an invalid or non-absolute path.
    */
   writableRoots?: string[] | null;
+  /**
+   * True when the read stopped at the read limit before the end of the file (#206). The context
+   * is then complete in shape but may not be the latest turn: the comparison report still uses it
+   * (ADR 13), but `recoverThreadSettings` does not. Absent when the whole file was read.
+   */
+  readLimitReached?: true;
 }
 
 /** The fields of a `task_complete` line this server reads (ADR 30). Everything else is ignored. */
@@ -296,17 +305,20 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   }
 
   readLine(buffer);
-  // Model, effort, sandbox and working directory keep what was read before the limit (ADR 13): a
-  // cut-off read reports the last turn it saw, which may not be this one. Writable roots are
-  // permissions, so they get no such leniency: an unread tail could replace every root found in the
-  // prefix, and compareApplied reports them as unconfirmed while the reason is set.
+  // A cut-off read reports the last turn it saw, which may not be the latest one. The applied-settings
+  // comparison is a report, so it keeps that context for model, effort, sandbox and working directory
+  // (ADR 13). Nothing a follow-up resumes with is taken from it: `readLimitReached` makes
+  // recoverThreadSettings return nothing (#206), and writable roots are dropped here because an
+  // unread tail could replace every root found in the prefix; compareApplied reports them as
+  // unconfirmed while the reason is set.
   if (truncated) {
     writableRoots = undefined;
-    writableRootsReason = "the session file read limit was reached before the end of the file";
+    writableRootsReason = SESSION_READ_LIMIT_REASON;
   }
   return {
     context: last, baseCommit, completion,
     ...(writableRoots !== undefined ? { writableRoots } : {}),
+    ...(truncated ? { readLimitReached: true as const } : {}),
     reason: writableRootsReason ?? (last ? null : "the session file recorded no turn context"),
   };
 }
@@ -449,11 +461,14 @@ export async function readTurnContext(options: {
  * filesystem. The caller still has to send the values through the same catalog,
  * allow-list, effort-ceiling and directory checks as caller-supplied values.
  * A partial or unfamiliar record is deliberately unusable: nothing is guessed.
+ * Neither is a record from a read that stopped at the read limit (#206): it may
+ * not be the thread's latest turn.
  */
 export function recoverThreadSettings(
   lookupResult: TurnContextLookup,
 ): RecoveredThreadSettings | null {
   const { context } = lookupResult;
+  if (lookupResult.readLimitReached) return null;
   if (!context?.model || !context.effort || !context.cwd) return null;
   if (!(REASONING_EFFORTS as readonly string[]).includes(context.effort)) return null;
 

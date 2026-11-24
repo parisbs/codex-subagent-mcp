@@ -109,9 +109,8 @@ test("AC-2 (#197) truncation: incomplete session reads cannot restore obsolete r
     assert.equal(lookup.writableRoots, undefined);
     assert.equal("writableRoots" in lookup, false);
     assert.match(lookup.reason ?? "", /limit|truncat/i);
-    assert.deepEqual(recoverThreadSettings(lookup), {
-      model: "cheap-model", reasoningEffort: "low", workingDir: home.path,
-    });
+    // AC-1 (#206): a cut-off read is not the latest record, so nothing is recovered from it.
+    assert.equal(recoverThreadSettings(lookup), null);
     const result = await followUp(home, "truncated-roots");
     assert.equal(result.roots, null);
     assert.match(result.text, NOT_RESTORED);

@@ -440,7 +440,11 @@ So every follow-up states the model, effort and directory explicitly. The server
 thread it ran used — for up to 500 threads, in memory — and restates it. After a restart, or for a
 thread started by another server process, it opportunistically reads those three values from Codex's
 session file and says when it did. Recovery is all-or-nothing: a missing, unreadable, partial or
-unrecognised record falls back to the existing explicit/configured-model behaviour. Recovered values
+unrecognised record falls back to the existing explicit/configured-model behaviour. So does a
+session file longer than the 16 MiB read limit: the last turn read before the limit may not be the
+thread's latest, so no settings are recovered from it, and the result (or the refusal that asks for
+the model) says the read limit was reached. A file that ends exactly at the limit is read whole and
+recovers as usual. Recovered values
 go through the same directory validation, model catalog and allow-list, effort ceiling and clamping
 as caller-supplied values. If no usable record and no model are available, the call is refused.
 
