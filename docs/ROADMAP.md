@@ -400,6 +400,13 @@ first instead of waiting for the interface work: recommendations of models the c
 extra writable directories of their delegation
 ([#197](https://github.com/parisbs/codex-subagent-mcp/issues/197)).
 
+Fixing #197 found two more of the same kind. A follow-up on a thread the server does not hold in
+memory still takes its model and directory from a session file read past its 16 MiB limit, which is
+an earlier turn than the last ([#206](https://github.com/parisbs/codex-subagent-mcp/issues/206)).
+On macOS, a writable path containing a double quote makes every command of a workspace-write turn
+fail inside Codex's sandbox, so the server should refuse it before Codex runs
+([#207](https://github.com/parisbs/codex-subagent-mcp/issues/207)).
+
 ## 0.7.0 — Closing the interface
 
 The last release allowed to break before 1.0. It carries only the changes that can still break the
