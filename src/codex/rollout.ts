@@ -31,6 +31,9 @@ import { REASONING_EFFORTS, SANDBOX_MODES } from "../types.js";
 /** Stop reading a session file after this much: a long run's file is unbounded. */
 const READ_LIMIT_BYTES = 16 * 1024 * 1024;
 
+/** Why a session file read that stopped at READ_LIMIT_BYTES cannot be trusted as the latest record. */
+export const SESSION_READ_LIMIT_REASON = "the session file read limit was reached before the end of the file";
+
 /** Give up on the lookup after this long rather than hold a finished delegation. */
 const LOOKUP_TIMEOUT_MS = 2000;
 
@@ -302,7 +305,7 @@ async function readSession(file: string): Promise<TurnContextLookup> {
   // prefix, and compareApplied reports them as unconfirmed while the reason is set.
   if (truncated) {
     writableRoots = undefined;
-    writableRootsReason = "the session file read limit was reached before the end of the file";
+    writableRootsReason = SESSION_READ_LIMIT_REASON;
   }
   return {
     context: last, baseCommit, completion,
