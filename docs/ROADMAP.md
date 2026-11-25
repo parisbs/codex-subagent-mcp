@@ -407,6 +407,10 @@ On macOS, a writable path containing a double quote made every command of a work
 fail inside Codex's sandbox, so the server now refuses it before Codex runs
 ([#207](https://github.com/parisbs/codex-subagent-mcp/issues/207)).
 
+The release was also verified against Codex CLI 0.172.0, which moves the window in which a plugin
+allow-list keeps an installed remote plugin out by name up to that release
+([#214](https://github.com/parisbs/codex-subagent-mcp/issues/214)).
+
 ## 0.7.0 — Closing the interface
 
 The last release allowed to break before 1.0. It carries only the changes that can still break the

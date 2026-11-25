@@ -13,8 +13,9 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [0.6.1] - 2026-11-25
 
-Fixes found while measuring 0.7.0. None of them adds a tool, a parameter or an environment variable,
-or changes the shape of a result, so this is a patch ([docs/VERSIONING.md](docs/VERSIONING.md)).
+Fixes found while measuring 0.7.0, and verification against Codex CLI 0.172.0. None of them adds a
+tool, a parameter or an environment variable, or changes the shape of a result, so this is a patch
+([docs/VERSIONING.md](docs/VERSIONING.md)).
 
 ### Fixed
 
@@ -37,10 +38,17 @@ or changes the shape of a result, so this is a patch ([docs/VERSIONING.md](docs/
   fail inside Codex's sandbox while the turn itself ended normally. `codex_delegate` and
   `codex_follow_up` now refuse such a path before any Codex process starts, on macOS with the
   workspace-write sandbox only. ([#207])
+- On Codex CLI 0.164.0 through 0.172.0, a plugin allow-list that excluded an installed remote plugin
+  turned every plugin off, and `codex_doctor` reported the CLI as newer than the verified version.
+  With 0.172.0 verified, those releases keep the allowed plugins and turn excluded remote plugins off
+  by name, as 0.163.0 did ([ADR 31](docs/adr/0031-keep-excluded-remote-plugins-out.md)). ([#214])
 
 ### Verified against
 
-- PENDING: the Codex CLI version and the real run, filled in after the smoke test.
+- Codex CLI 0.172.0 on macOS, with a real delegation, follow-up, background run, timeout, error
+  paths, injection check, and a run allowing one real MCP server and one real local plugin while
+  eight installed remote plugins stayed out by name. The same checks, without the plugin run, also
+  passed on 0.167.0. ([#214])
 - Build, tests and startup on Linux (Node 22, 24, 26), Windows (Node 22, 24) and macOS (Node 24). A
   real delegation has still never been run on Windows or Linux.
 
@@ -498,6 +506,7 @@ behaviour a caller can see; each such change is marked below.
 [#197]: https://github.com/parisbs/codex-subagent-mcp/issues/197
 [#206]: https://github.com/parisbs/codex-subagent-mcp/issues/206
 [#207]: https://github.com/parisbs/codex-subagent-mcp/issues/207
+[#214]: https://github.com/parisbs/codex-subagent-mcp/issues/214
 
 ## [0.1.0] - 2026-09-11
 
