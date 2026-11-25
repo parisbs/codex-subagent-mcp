@@ -66,6 +66,13 @@ const REAL_TURN_CONTEXT_0160 =
 const REAL_TURN_CONTEXT_0163_WRITE =
   "{\"timestamp\":\"2026-10-19T23:07:53.100Z\",\"ordinal\":5,\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"01a1566b-dab8-7b50-b38e-62d81930a795\",\"root_turn_id\":\"01a1566b-dab8-7b50-b38e-62d81930a795\",\"disabled_plugin_ids\":[],\"cwd\":\"/workspace/project\",\"approval_policy\":\"never\",\"approvals_reviewer\":\"user\",\"sandbox_policy\":{\"type\":\"workspace-write\",\"network_access\":false,\"exclude_tmpdir_env_var\":false,\"exclude_slash_tmp\":false},\"permission_profile\":{\"type\":\"managed\",\"file_system\":{\"type\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project\"},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"slash_tmp\"}},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"tmpdir\"}},\"access\":\"write\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.git\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.agents\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.codex\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.aws\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"}]},\"network\":\"restricted\"},\"file_system_sandbox_policy\":{\"kind\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project\"},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"slash_tmp\"}},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"tmpdir\"}},\"access\":\"write\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.git\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.agents\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.codex\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.aws\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"}]},\"model\":\"gpt-5.6-luna\",\"comp_hash\":\"3000\",\"collaboration_mode\":{\"mode\":\"default\",\"settings\":{\"model\":\"gpt-5.6-luna\",\"reasoning_effort\":\"low\",\"developer_instructions\":null}},\"multi_agent_version\":\"v1\",\"realtime_active\":false,\"cyber_access_program\":\"standard\",\"effort\":\"low\",\"summary\":\"none\"}}";
 
+/**
+ * The same line as recorded by codex-cli 0.172.0 in a workspace-write run (#214): the keys of the
+ * 0.163.0 line, with `sandbox_policy` moved after `summary`; same fields read. Capture path replaced.
+ */
+const REAL_TURN_CONTEXT_0172_WRITE =
+  "{\"timestamp\":\"2026-11-25T19:54:34.956Z\",\"ordinal\":9,\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"01a21446-2da7-7012-9003-c9f79f397f9a\",\"root_turn_id\":\"01a21446-2da7-7012-9003-c9f79f397f9a\",\"disabled_plugin_ids\":[],\"cwd\":\"/workspace/project\",\"approval_policy\":\"never\",\"approvals_reviewer\":\"user\",\"permission_profile\":{\"type\":\"managed\",\"file_system\":{\"type\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project\"},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"slash_tmp\"}},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"tmpdir\"}},\"access\":\"write\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.git\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.agents\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.codex\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.aws\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"}]},\"network\":\"restricted\"},\"model\":\"gpt-6-luna\",\"comp_hash\":\"3000\",\"collaboration_mode\":{\"mode\":\"default\",\"settings\":{\"model\":\"gpt-6-luna\",\"reasoning_effort\":\"low\",\"developer_instructions\":null}},\"multi_agent_version\":\"v2\",\"realtime_active\":false,\"cyber_access_program\":\"standard\",\"effort\":\"low\",\"summary\":\"none\",\"sandbox_policy\":{\"type\":\"workspace-write\",\"network_access\":false,\"exclude_tmpdir_env_var\":false,\"exclude_slash_tmp\":false},\"file_system_sandbox_policy\":{\"kind\":\"restricted\",\"entries\":[{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"root\"}},\"access\":\"read\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project\"},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"slash_tmp\"}},\"access\":\"write\"},{\"path\":{\"type\":\"special\",\"value\":{\"kind\":\"tmpdir\"}},\"access\":\"write\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.git\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.agents\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.codex\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"},{\"path\":{\"type\":\"path\",\"path\":\"/workspace/project/.aws\"},\"access\":\"read\",\"missing_path_behavior\":\"skip\"}]}}}";
+
 async function lookupIn(home: CodexHome, threadId: string | null) {
   return readTurnContext({ threadId, codexHome: home.path });
 }
@@ -355,6 +362,24 @@ test("AC-2 (#187) reads a workspace-write turn context recorded by codex-cli 0.1
     assert.deepEqual(context, {
       cwd: "/workspace/project",
       model: "gpt-5.6-luna",
+      effort: "low",
+      sandbox: "workspace-write",
+      approvalPolicy: "never",
+    });
+  } finally {
+    home.dispose();
+  }
+});
+
+test("AC-2 (#214) reads a workspace-write turn context recorded by codex-cli 0.172.0", async () => {
+  const home = createCodexHome();
+  try {
+    home.write({ threadId: "thread-0172-write", day: "2026-11-25", lines: [SESSION_META, REAL_TURN_CONTEXT_0172_WRITE] });
+    const { context, reason } = await lookupIn(home, "thread-0172-write");
+    assert.equal(reason, null);
+    assert.deepEqual(context, {
+      cwd: "/workspace/project",
+      model: "gpt-6-luna",
       effort: "low",
       sandbox: "workspace-write",
       approvalPolicy: "never",

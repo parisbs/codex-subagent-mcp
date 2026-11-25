@@ -4,7 +4,7 @@ allowed-tools: Bash, Read, Write, Edit
 ---
 
 Verify the server works against the real Codex CLI. Delegations cost quota, so use
-`gpt-5.6-luna` at `low` effort throughout and keep the prompts trivial.
+the cheapest model `list_codex_models` lists at `low` effort throughout and keep the prompts trivial.
 
 1. `npm run build && npm test`.
 2. Write a temporary MCP stdio client under the scratchpad directory that connects to
@@ -25,8 +25,8 @@ Verify the server works against the real Codex CLI. Delegations cost quota, so u
    context, that the argv restated the original model and effort, that no "recorded with model"
    notice appears, and that this run also reports `applied=confirmed` (a resumed thread appends to
    the session file of the day it started, so this exercises the multi-day search).
-7. Error paths: an unknown model slug, `ultra` on `gpt-5.6-luna` (must clamp to `max` with a note),
-   a relative `working_dir`, an empty `working_dir` (must be refused, not treated as omitted), a
+7. Error paths: an unknown model slug, `ultra` on a model that lists no `ultra` effort (must clamp
+   to its highest effort with a note), a relative `working_dir`, an empty `working_dir` (must be refused, not treated as omitted), a
    `sandbox` of `danger-full-access` with no ceiling configured (must be refused, naming the built-in
    ceiling rather than a setting nobody made), and a `timeout_seconds` of 10 on a long task (must
    report the timeout and be flagged as an error).
