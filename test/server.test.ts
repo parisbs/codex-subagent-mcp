@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import cp from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { syncBuiltinESMExports } from "node:module";
@@ -151,7 +151,7 @@ cp.spawn = ((file: string, args: string[], options?: { cwd?: string }) => {
 
 syncBuiltinESMExports();
 
-const { createServer } = await import("../src/server.ts");
+const { createServer, validateWritablePaths } = await import("../src/server.ts");
 const { loadConfig } = await import("../src/config.ts");
 const { resetCatalogCache } = await import("../src/codex/catalog.ts");
 const { resetDoctorCache } = await import("../src/codex/doctor.ts");
@@ -172,6 +172,7 @@ async function withServer<T>(
     jobs: ReturnType<typeof createServer>["jobs"],
     controller: AbortController,
   ) => Promise<T>,
+  options: Parameters<typeof createServer>[0] = {},
 ): Promise<T> {
   const keys = [
     "CODEX_SUBAGENT_MCP_SERVERS",
@@ -224,7 +225,7 @@ async function withServer<T>(
   resetDoctorCache();
   // An answered run by default: a clean exit with no answer is itself a failure.
   nextRun = { events: [{ type: "item.completed", item: { type: "agent_message", text: "Done." } }], exitCode: 0 };
-  const { server, jobs, runs } = createServer();
+  const { server, jobs, runs } = createServer(options);
   const tools = server as unknown as ToolServer;
   const track = runs.track.bind(runs);
   runs.track = (handle) => {
@@ -2830,3 +2831,153 @@ test("AC-8 (#197) confirms writable roots the follow-up's turn recorded, extras 
     dirs.dispose();
   }
 });
+
+// Issue #207: virtual directories keep quoted paths testable on Windows too.
+const QUOTED_PATH = join(tmpdir(), 'codex-207-"quoted"');
+const SAFE_PATH = join(tmpdir(), "codex-207-safe");
+
+async function withPathSpellings(body: () => Promise<void>, cwd = SAFE_PATH): Promise<void> {
+  const stat = fs.statSync;
+  const originalCwd = process.cwd;
+  const directory = stat(tmpdir());
+  fs.statSync = ((path: fs.PathLike, ...args: unknown[]) => {
+    if (path === QUOTED_PATH || path === SAFE_PATH) return directory;
+    return Reflect.apply(stat, fs, [path, ...args]);
+  }) as typeof fs.statSync;
+  process.cwd = () => cwd;
+  syncBuiltinESMExports();
+  try {
+    await body();
+  } finally {
+    fs.statSync = stat;
+    process.cwd = originalCwd;
+    syncBuiltinESMExports();
+  }
+}
+
+function assertQuotedPathRefusal(result: ToolResult): void {
+  assert.deepEqual(startedFiles, [], "a quoted writable path must be refused before spawn or execFile, including CLI probes");
+  assert.equal(result.isError, true, textOf(result));
+  const message = textOf(result);
+  assert.ok(message.includes(QUOTED_PATH), message);
+  assert.match(message, /macOS/i);
+  assert.match(message, /workspace-write/i);
+  assert.match(message, /double quote/i);
+  assert.match(message, /seatbelt|sandbox-exec|sandbox profile/i);
+  // Both handlers must report the same explanation as the shared path validator.
+  assert.throws(() => validateWritablePaths("workspace-write", [QUOTED_PATH], "darwin"), { message });
+}
+
+for (const location of ["working_dir", "server cwd", "second add_dirs entry"] as const) {
+  for (const sandboxSource of ["explicit", "default"] as const) {
+    for (const mode of ["blocking", "background"] as const) {
+      test(`AC-1 (#207) refuses a quoted ${location} with ${sandboxSource} workspace-write in ${mode} mode before any CLI process`, async () => {
+        await withPathSpellings(async () => {
+          await withServer(
+            sandboxSource === "default" ? { CODEX_SUBAGENT_DEFAULT_SANDBOX: "workspace-write" } : {},
+            async (call) => {
+              assert.deepEqual(startedFiles, [], "preflight must run per call, not at server creation");
+              const result = (await call("codex_delegate", {
+                prompt: "anything",
+                model: "cheap-model",
+                reasoning_effort: "low",
+                mode,
+                ...(sandboxSource === "explicit" ? { sandbox: "workspace-write" } : {}),
+                ...(location === "working_dir" ? { working_dir: QUOTED_PATH } : {}),
+                ...(location === "second add_dirs entry" ? { working_dir: SAFE_PATH, add_dirs: [SAFE_PATH, QUOTED_PATH] } : {}),
+              })) as ToolResult;
+              assertQuotedPathRefusal(result);
+            },
+            { platform: "darwin" },
+          );
+        }, location === "server cwd" ? QUOTED_PATH : SAFE_PATH);
+      });
+    }
+  }
+}
+
+for (const location of ["explicit working_dir", "server cwd", "recorded working_dir", "recovered working_dir", "recorded add_dirs", "recorded writable root", "recovered writable root"] as const) {
+  for (const sandboxSource of ["explicit", "default"] as const) {
+    test(`AC-2 (#207) refuses a quoted ${location} with ${sandboxSource} workspace-write before any CLI process`, async () => {
+      await withPathSpellings(async () => {
+        await withServer(
+          sandboxSource === "default" ? { CODEX_SUBAGENT_DEFAULT_SANDBOX: "workspace-write" } : {},
+          async (call, codexHome) => {
+            const threadId = "quoted-follow-up";
+            const recorded = location.startsWith("recorded");
+            const quotedCwd = location === "recorded working_dir" || location === "recovered working_dir";
+            const wd = quotedCwd ? QUOTED_PATH : SAFE_PATH;
+            const quotedRoot = location === "recorded writable root" || location === "recovered writable root";
+
+            if (location !== "server cwd") {
+              codexHome.write({
+                threadId,
+                day: "2026-11-10",
+                lines: [SESSION_META_LINE, writeTurn(wd, quotedRoot ? [QUOTED_PATH] : []), ...(recorded ? [readOnlyTurn(wd)] : [])],
+              });
+            }
+            if (recorded) {
+              // Read-only accepts the quoted input and can seed the in-memory record without a write turn.
+              nextRun = { events: [threadStarted(threadId), answered], exitCode: 0 };
+              const initial = (await call("codex_delegate", delegateArgs(wd, "read-only", [location === "recorded add_dirs" ? QUOTED_PATH : SAFE_PATH]))) as ToolResult;
+              assert.notEqual(initial.isError, true, textOf(initial));
+              assert.equal(spawnedArgs.length, 1, "the read-only setup delegation ran");
+            }
+            // Count only this tool call, and force uncached catalog/preflight checks: a check after
+            // resolveModelAndEffort must fail even if no `codex exec resume` was spawned.
+            startedFiles = [];
+            spawnedArgs = [];
+            resetCatalogCache();
+            resetDoctorCache();
+
+            const result = (await call("codex_follow_up", {
+              thread_id: threadId,
+              prompt: "continue",
+              model: "cheap-model",
+              reasoning_effort: "low",
+              ...(sandboxSource === "explicit" ? { sandbox: "workspace-write" } : {}),
+              ...(location === "explicit working_dir" ? { working_dir: QUOTED_PATH } : {}),
+              // Recovery of roots is required even with a caller-supplied model and safe directory.
+              ...(location === "recovered writable root" ? { working_dir: SAFE_PATH } : {}),
+            })) as ToolResult;
+            assertQuotedPathRefusal(result);
+          },
+          { platform: "darwin" },
+        );
+      }, location === "server cwd" ? QUOTED_PATH : SAFE_PATH);
+    });
+  }
+}
+
+for (const [criterion, platform, sandbox] of [
+  ["AC-3", "darwin", "read-only"],
+  ["AC-4", "linux", "workspace-write"],
+  ["AC-4", "win32", "workspace-write"],
+] as const) {
+  test(`${criterion} (#207) accepts quoted delegation and recorded/recovered follow-up paths with ${sandbox} on ${platform}`, async () => {
+    await withPathSpellings(async () => {
+      await withServer({}, async (call, codexHome) => {
+        nextRun = { events: [threadStarted("accepted-quote"), answered], exitCode: 0 };
+        const initial = (await call("codex_delegate", delegateArgs(QUOTED_PATH, sandbox, [QUOTED_PATH]))) as ToolResult;
+        assert.notEqual(initial.isError, true, textOf(initial));
+        assert.equal(spawnedCwds[0], QUOTED_PATH);
+        const args = spawnedArgs[0]!;
+        assert.equal(args[args.indexOf("--add-dir") + 1], QUOTED_PATH);
+
+        const followed = (await call("codex_follow_up", { thread_id: "accepted-quote", prompt: "continue", sandbox })) as ToolResult;
+        assert.notEqual(followed.isError, true, textOf(followed));
+        assert.equal(spawnedCwds[1], QUOTED_PATH);
+        assert.deepEqual(writableRootsIn(spawnedArgs[1]), sandbox === "read-only" ? null : [QUOTED_PATH]);
+
+        codexHome.write({ threadId: "recovered-quote", day: "2026-11-10", lines: [SESSION_META_LINE, writeTurn(QUOTED_PATH, [QUOTED_PATH])] });
+        const recovered = (await call("codex_follow_up", { thread_id: "recovered-quote", prompt: "continue", sandbox })) as ToolResult;
+        assert.notEqual(recovered.isError, true, textOf(recovered));
+        assert.equal(spawnedCwds[2], QUOTED_PATH);
+        assert.deepEqual(writableRootsIn(spawnedArgs[2]), sandbox === "read-only" ? null : [QUOTED_PATH]);
+        assert.equal(spawnedArgs.length, 3, "all accepted calls started their turn");
+        // A regression guard, green before and after #207: the pure tests in
+        // test/writable-paths.test.ts carry the red evidence for AC-3 and AC-4.
+      }, { platform });
+    });
+  });
+}

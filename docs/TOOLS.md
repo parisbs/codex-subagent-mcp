@@ -246,10 +246,10 @@ and measured cost trade-offs; this section remains the parameter reference.
 | `context` | string | — | Background: prior findings, constraints, relevant excerpts. |
 | `target_files` | string[] | — | Paths to focus on, relative to `working_dir`. |
 | `acceptance_criteria` | string[] | — | Conditions that must hold for the task to be done. |
-| `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Passing an empty string is an error rather than the same as omitting it, since a directory nobody chose is not a safe fallback. Codex also reads a trusted project's `.codex/config.toml` from here. |
+| `working_dir` | string | the server's working directory | Absolute path. Validated before any model call. Passing an empty string is an error rather than the same as omitting it, since a directory nobody chose is not a safe fallback. Codex also reads a trusted project's `.codex/config.toml` from here. On macOS, a workspace-write delegation is refused before any CLI process starts when this path, or the server's working directory when it is omitted, contains a double quote (`"`): Codex writes the path unescaped into its seatbelt sandbox profile and every command of the turn would fail while the turn still ends with exit 0. The path is checked as spelled, without resolving symlinks; read-only, `danger-full-access` and other platforms are not refused, since the failure is verified only on macOS with workspace-write. |
 | `sandbox` | `read-only` \| `workspace-write` \| `danger-full-access` | configured default, else `read-only` | What Codex may do. Always passed explicitly, so Codex configuration cannot change the mode; its `sandbox_workspace_write` settings (network access, extra writable roots) still apply under `workspace-write`. |
 | `auto_approve` | boolean | `false` | Codex approves its own commands, and also the tools of any MCP server, plugin or app the user allowed, which run outside the sandbox. Applies only with `workspace-write`; ignored otherwise, with a note under `read-only`. |
-| `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`, kept for workspace-write follow-ups. A read-only delegation's directories survive only while the server keeps the thread in memory. Restoring them replaces writable roots from Codex configuration for that turn; see `codex_follow_up` below. |
+| `add_dirs` | string[] | — | Extra absolute directories writable alongside `working_dir`, kept for workspace-write follow-ups. A read-only delegation's directories survive only while the server keeps the thread in memory. Restoring them replaces writable roots from Codex configuration for that turn; see `codex_follow_up` below. On macOS, a workspace-write delegation is refused before any CLI process starts when an entry contains a double quote (`"`), for the reason given under `working_dir`; entries are checked as spelled, without resolving symlinks. |
 | `use_worktree` | boolean | `false` | The run's edits land in a managed git worktree under `~/.codex/worktrees/` rather than your working tree. It is not a second sandbox: what may be written outside it is still bounded by `sandbox` and `add_dirs`. Uses an experimental Codex feature, enabled for that invocation only. A follow-up defaults to the directory confirmed by Codex's session file; if that directory is unconfirmed, the follow-up is refused unless it supplies `working_dir`. |
 | `web_search` | boolean | — | `true` enables Codex's API-backed live web-search tool for this run, passed as `-c web_search="live"`. In a read-only sandbox, shell commands have no network access, so this is the route to current external information. `false` or omitted leaves Codex's own configured `web_search` mode in place; it does not turn search off. |
 | `skip_git_repo_check` | boolean | `false` | Allow running outside a git repository. |
@@ -430,7 +430,7 @@ this is far cheaper than re-sending it.
 | `reasoning_effort` | `none` … `ultra` | the thread's effort | Override for this turn. When `model` changes, defaults to the configured or model default instead. |
 | `sandbox` | see above | configured default, else `read-only` | Applied as a config override; `resume` has no sandbox flag. |
 | `auto_approve` | boolean | `false` | Not supported: `true` is refused and nothing runs. |
-| `working_dir` | string | the thread's directory | Absolute directory to resume in. |
+| `working_dir` | string | the thread's directory | Absolute directory to resume in. On macOS, a workspace-write follow-up is refused before any CLI process starts when the directory it resumes in (this value, the recorded or recovered directory, or the server's working directory) contains a double quote (`"`); see `working_dir` of `codex_delegate`. Paths are checked as spelled, without resolving symlinks. |
 | `timeout_seconds` | integer | `1800` | From 1 to 7200 seconds, as for `codex_delegate`. |
 | `output_schema` | object | — | Constrains this turn only; see [Structured results](#structured-results). A turn without one is not parsed. |
 
@@ -469,6 +469,10 @@ settings report checks that Codex recorded them and reports missing roots as `ap
 When the session file was not read to its end, the roots are reported as unconfirmed with the
 reason, never as confirmed from an earlier turn. A root listed both in `add_dirs` and in the
 recorded roots is passed once, in the spelling of `add_dirs`, after lexical normalization.
+On macOS, a workspace-write follow-up whose restored writable roots (from `add_dirs` or recorded or
+recovered from the session file) contain a double quote (`"`) is refused before any CLI process
+starts, with the same message as for a delegation, because Codex writes roots unescaped into its
+seatbelt sandbox profile. Roots are checked as spelled, without resolving symlinks.
 
 After a delegation with `use_worktree`, the server remembers the applied directory when Codex's
 session file confirms that it differs from the requested one. A follow-up without `working_dir`
