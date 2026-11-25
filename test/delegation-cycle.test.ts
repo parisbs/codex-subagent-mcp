@@ -589,6 +589,41 @@ test("AC-3 (#187) reads an event stream with a file change recorded by codex-cli
 });
 
 /**
+ * Captured verbatim from `codex exec --json` against codex-cli 0.172.0 in a workspace-write run (#214):
+ * the event shapes of 0.163.0. The two leading `error` items are the CLI's deprecation notice for
+ * `[features].multi_agent` in the capturing machine's config, kept as recorded: the CLI reports it as
+ * an in-band error that does not fail the run. Capture path replaced.
+ */
+const STREAM_0172 = [
+  "{\"type\":\"thread.started\",\"thread_id\":\"01a21446-272a-73e1-997e-c4cffc376498\"}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"`[features].multi_agent` is deprecated. It still controls the V1 fallback. `[agents].enabled = false` disables subagent tools even when the model selects a subagent version, unless `[features].multi_agent_v2` is enabled.\"}}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"error\",\"message\":\"`[features].multi_agent` is deprecated. It still controls the V1 fallback. `[agents].enabled = false` disables subagent tools even when the model selects a subagent version, unless `[features].multi_agent_v2` is enabled.\"}}",
+  "{\"type\":\"turn.started\"}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"I\u2019ll run `ls` once, then create the file with the patch tool.\"}}",
+  "{\"type\":\"item.started\",\"item\":{\"id\":\"item_3\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc ls\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_3\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc ls\",\"aggregated_output\":\"README.md\\n\",\"exit_code\":0,\"status\":\"completed\"}}",
+  "{\"type\":\"item.started\",\"item\":{\"id\":\"item_4\",\"type\":\"file_change\",\"changes\":[{\"path\":\"/workspace/project/hello.txt\",\"kind\":\"add\"}],\"status\":\"in_progress\"}}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_4\",\"type\":\"file_change\",\"changes\":[{\"path\":\"/workspace/project/hello.txt\",\"kind\":\"add\"}],\"status\":\"completed\"}}",
+  "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_5\",\"type\":\"agent_message\",\"text\":\"DONE\"}}",
+  "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":51508,\"cached_input_tokens\":40960,\"cache_write_input_tokens\":0,\"output_tokens\":218,\"reasoning_output_tokens\":0}}",
+];
+
+test("AC-3 (#214) reads an event stream with a file change recorded by codex-cli 0.172.0", async () => {
+  const { outcome } = await runAgainst({ chunks: [STREAM_0172.map((line) => `${line}\n`).join("")], exitCode: 0 });
+  assert.equal(outcome.threadId, "01a21446-272a-73e1-997e-c4cffc376498");
+  assert.equal(outcome.finalMessage, "DONE");
+  assert.equal(outcome.commandCount, 1);
+  assert.equal(outcome.commands[0]?.command, "/bin/zsh -lc ls");
+  assert.equal(outcome.commands[0]?.exitCode, 0);
+  assert.deepEqual(outcome.fileChanges, [{ path: "/workspace/project/hello.txt", kind: "add" }]);
+  assert.ok(outcome.errors.length > 0 && outcome.errors.every((message) => message.includes("[features].multi_agent")));
+  assert.equal(outcome.turnUsage?.inputTokens, 51508);
+  assert.equal(outcome.turnUsage?.cachedInputTokens, 40960);
+  assert.equal(outcome.turnUsage?.outputTokens, 218);
+  assert.equal(outcome.turnUsage?.reasoningOutputTokens, 0);
+});
+
+/**
  * #158 (ADR 30): a run that failed because the model was at capacity, as the stand-in reports it.
  * The stream carries only the message; the session file in a fixture `CODEX_HOME` carries the record.
  */
