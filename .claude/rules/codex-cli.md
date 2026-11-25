@@ -19,6 +19,11 @@ Traps already found against the real binary, each covered by tests. Check a new 
   for that turn; it does not merge them as `exec --add-dir` does. Follow-ups include the recorded
   workspace-write roots when restoring extra directories. Each path is a TOML basic string:
   `JSON.stringify` also needs DEL (U+007F) escaped as `\u007f`.
+- On macOS, Codex writes the working directory and every writable root unescaped into the seatbelt
+  profile, so a path with a double quote makes `sandbox-exec` exit 65 ("unbound variable"): every
+  command of a workspace-write turn fails while the turn still ends with exit 0 (#207).
+  `validateWritablePaths` in `src/server.ts` refuses such paths, as spelled, before any CLI process
+  starts; read-only and other platforms are unverified or unaffected and accepted.
 - `--approve-for-me` implies the workspace-write sandbox and cannot be combined with `--sandbox`; it
   replaces the flag.
 - `--worktree` needs `--enable worktrees` on the same invocation: experimental and off by default in
