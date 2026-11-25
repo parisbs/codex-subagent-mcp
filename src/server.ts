@@ -167,13 +167,29 @@ function validateAddDirs(dirs: string[] | undefined): void {
   }
 }
 
-/** Checks paths as spelled before a workspace-write turn can start a CLI process (#207). */
+/**
+ * Refuses, before a CLI process starts, a path Codex would write into the macOS seatbelt profile.
+ *
+ * Codex writes the working directory and every writable root into that profile unescaped, so a double
+ * quote ends the string early, `sandbox-exec` exits 65 ("unbound variable"), every command of the turn
+ * fails, and the turn itself still ends with exit 0 (#207). That is verified on macOS with
+ * workspace-write only, so nothing else is refused. Paths are checked as spelled, without resolving
+ * symlinks. The message depends on the offending path alone.
+ */
 export function validateWritablePaths(
   sandbox: SandboxMode,
   paths: readonly string[],
   platform: NodeJS.Platform = process.platform,
 ): void {
-  throw new Error('not implemented');
+  if (platform !== "darwin" || sandbox !== "workspace-write") return;
+  const offending = paths.find((path) => path.includes('"'));
+  if (offending === undefined) return;
+  throw new Error(
+    `The path ${offending} contains a double quote, and Codex's workspace-write sandbox on macOS cannot ` +
+      "use it: Codex writes the path unescaped into the seatbelt sandbox profile, sandbox-exec then exits " +
+      "with 65 (unbound variable), and every command of the turn fails while the turn itself ends with " +
+      "exit 0. Nothing was run. Use a directory whose path has no double quote, or a read-only sandbox.",
+  );
 }
 
 /** An optional absolute directory parameter, described per tool. */
@@ -655,7 +671,7 @@ const delegateShape = {
 
 /** Test seams; production code passes nothing. */
 export interface ServerOptions {
-  /** The platform for writable-path validation (#207); placeholder, not yet consumed. */
+  /** The platform for writable-path validation (#207); defaults to process.platform. */
   platform?: NodeJS.Platform;
   /** The file operations of the usage log, so that tests can make one fail (#29). */
   usageFileSystem?: UsageFileSystem;
@@ -1179,6 +1195,12 @@ export function createServer(
         const sandbox: SandboxMode = (args.sandbox ?? config.defaultSandbox) as SandboxMode;
         const sandboxCheck = checkSandbox(sandbox, config);
         if (!sandboxCheck.ok) throw new Error(sandboxCheck.reason);
+        // Codex runs in the server's directory when working_dir is omitted (#207).
+        validateWritablePaths(
+          sandbox,
+          [args.working_dir ?? process.cwd(), ...(args.add_dirs ?? [])],
+          options.platform ?? process.platform,
+        );
 
         reservation = reserveDelegation();
 
@@ -1460,6 +1482,26 @@ export function createServer(
         const workingDir = args.working_dir ?? previous?.workingDir;
         validateWorkingDir(workingDir);
 
+        const addDirs = recorded?.addDirs;
+        const recordedRoots = recorded?.writableRoots ?? lookup?.writableRoots ?? [];
+        // Codex records roots lexically normalized, so "/x/d/" and "/x/d" are one directory. The
+        // delegation's spelling wins because it comes first; a recorded duplicate is dropped.
+        const seen = new Set<string>();
+        const writableRoots = sandbox === "workspace-write" && addDirs?.length !== 0
+          ? [...(addDirs ?? []), ...recordedRoots].filter((root) => {
+              const resolved = resolve(root);
+              const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
+          : [];
+        validateWritablePaths(
+          sandbox,
+          [workingDir ?? process.cwd(), ...writableRoots],
+          options.platform ?? process.platform,
+        );
+
         let resolved: Awaited<ReturnType<typeof resolveModelAndEffort>>;
         try {
           resolved = await resolveModelAndEffort(
@@ -1487,20 +1529,6 @@ export function createServer(
         }
         const { model, effort, notes, cliVersion } = resolved;
 
-        const addDirs = recorded?.addDirs;
-        const recordedRoots = recorded?.writableRoots ?? lookup?.writableRoots ?? [];
-        // Codex records roots lexically normalized, so "/x/d/" and "/x/d" are one directory. The
-        // delegation's spelling wins because it comes first; a recorded duplicate is dropped.
-        const seen = new Set<string>();
-        const writableRoots = sandbox === "workspace-write" && addDirs?.length !== 0
-          ? [...(addDirs ?? []), ...recordedRoots].filter((root) => {
-              const resolved = resolve(root);
-              const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            })
-          : [];
         if (sandbox === "workspace-write" && lookup && lookup.writableRoots === undefined) {
           notes.push(`The thread's extra writable directories could not be restored: ${lookup.reason}.`);
         }
