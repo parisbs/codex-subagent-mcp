@@ -167,6 +167,15 @@ function validateAddDirs(dirs: string[] | undefined): void {
   }
 }
 
+/** Checks paths as spelled before a workspace-write turn can start a CLI process (#207). */
+export function validateWritablePaths(
+  sandbox: SandboxMode,
+  paths: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): void {
+  throw new Error('not implemented');
+}
+
 /** An optional absolute directory parameter, described per tool. */
 const workingDirSchema = (description: string) => z.string().optional().describe(description);
 
@@ -646,6 +655,8 @@ const delegateShape = {
 
 /** Test seams; production code passes nothing. */
 export interface ServerOptions {
+  /** The platform for writable-path validation (#207); placeholder, not yet consumed. */
+  platform?: NodeJS.Platform;
   /** The file operations of the usage log, so that tests can make one fail (#29). */
   usageFileSystem?: UsageFileSystem;
   /** Starts the extended diagnosis, so that tests can control its outcome and timing (#69). */
