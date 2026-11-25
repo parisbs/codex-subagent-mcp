@@ -11,6 +11,39 @@ preflight reports that case as `unverified-version` rather than guessing.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-25
+
+Fixes found while measuring 0.7.0. None of them adds a tool, a parameter or an environment variable,
+or changes the shape of a result, so this is a patch ([docs/VERSIONING.md](docs/VERSIONING.md)).
+
+### Fixed
+
+- `codex_recommend` recommended fixed `gpt-5.6` slugs that the live catalog lists as older, with a
+  rationale that could describe a different effort from the one returned. Each tier now names a
+  model family and picks the member the catalog ranks first, then a fallback family, then the
+  best-ranked eligible model with a note; the rationale follows the effort actually returned. The
+  documentation examples no longer name a concrete slug. ([#196])
+- A workspace-write follow-up lost the extra writable directories (`add_dirs`) of its delegation,
+  because `codex exec resume` rejects `--add-dir`, and still reported its settings as applied. It now
+  restores them as one `sandbox_workspace_write.writable_roots` override, recovers them from Codex's
+  session file when the thread is not in memory, says when they could not be restored, and reports
+  `applied=differs` when Codex applied fewer roots than requested. The override replaces the writable
+  roots of Codex's own configuration for that turn, and the result says so. ([#197])
+- A follow-up on a thread the server does not hold in memory could resume with the model, effort and
+  directory of an earlier turn when Codex's session file was larger than the 16 MiB read limit. A
+  read cut at that limit no longer supplies any setting; the result, or the refusal that asks for a
+  model, names the limit as the reason. ([#206])
+- On macOS, a writable path containing a double quote made every command of a workspace-write turn
+  fail inside Codex's sandbox while the turn itself ended normally. `codex_delegate` and
+  `codex_follow_up` now refuse such a path before any Codex process starts, on macOS with the
+  workspace-write sandbox only. ([#207])
+
+### Verified against
+
+- PENDING: the Codex CLI version and the real run, filled in after the smoke test.
+- Build, tests and startup on Linux (Node 22, 24, 26), Windows (Node 22, 24) and macOS (Node 24). A
+  real delegation has still never been run on Windows or Linux.
+
 ## [0.6.0] - 2026-10-20
 
 Measurement and additive changes. A local usage log, off unless the user turns it on, gives a view
@@ -461,6 +494,10 @@ behaviour a caller can see; each such change is marked below.
 [#180]: https://github.com/parisbs/codex-subagent-mcp/issues/180
 [#187]: https://github.com/parisbs/codex-subagent-mcp/issues/187
 [#189]: https://github.com/parisbs/codex-subagent-mcp/issues/189
+[#196]: https://github.com/parisbs/codex-subagent-mcp/issues/196
+[#197]: https://github.com/parisbs/codex-subagent-mcp/issues/197
+[#206]: https://github.com/parisbs/codex-subagent-mcp/issues/206
+[#207]: https://github.com/parisbs/codex-subagent-mcp/issues/207
 
 ## [0.1.0] - 2026-09-11
 
@@ -510,7 +547,8 @@ First public release.
   outside the working directory, credentials included. The README explains the mitigation.
 - Background jobs live in memory and do not survive a server restart.
 
-[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/parisbs/codex-subagent-mcp/compare/v0.3.0...v0.4.0
